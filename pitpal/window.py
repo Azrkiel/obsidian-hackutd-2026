@@ -210,6 +210,8 @@ class Overlay:
                 self.model.feed(self.q.get_nowait(), now)
         except queue.Empty:
             pass
+        while self.model.outbox:
+            self._send(self.model.outbox.pop(0))
         if now - self._last_top > 2.0:
             self._last_top = now
             keep_on_top(self.root)

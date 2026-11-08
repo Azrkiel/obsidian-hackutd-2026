@@ -12,7 +12,7 @@ import json
 import queue
 import threading
 
-import aiohttp
+# aiohttp (about 1 s to import) is loaded on the client thread, after Rev's window is already up
 
 
 class CoachClient(threading.Thread):
@@ -33,9 +33,11 @@ class CoachClient(threading.Thread):
         self._stop_evt.set()
 
     def run(self) -> None:
+        global aiohttp
+        import aiohttp
         asyncio.run(self._main())
 
-    async def _pair_uri(self, http: aiohttp.ClientSession) -> str | None:
+    async def _pair_uri(self, http: "aiohttp.ClientSession") -> str | None:
         try:
             async with http.get(f"{self.base}/pair.json") as r:
                 return (await r.json())["uri"] if r.status == 200 else None
@@ -75,7 +77,7 @@ class CoachClient(threading.Thread):
                         return
                     await asyncio.sleep(0.1)
 
-    async def _sender(self, ws: aiohttp.ClientWebSocketResponse) -> None:
+    async def _sender(self, ws: "aiohttp.ClientWebSocketResponse") -> None:
         while True:
             msg = await self._send_q.get()
             await ws.send_str(json.dumps(msg))

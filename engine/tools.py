@@ -133,6 +133,24 @@ def check_spoken(text, field: str, max_words: int, packet: dict,
     return True, None
 
 
+_FILLER = {"the", "and", "you", "your", "next", "time", "then", "with", "for", "into", "out", "this", "that",
+           "board", "brake", "braking", "turn", "corner", "lap"}
+
+
+def _words(s: str) -> set[str]:
+    return {w for w in "".join(c.lower() if c.isalnum() else " " for c in s).split()
+            if len(w) > 2 and w not in _FILLER}
+
+
+def repeats(cue: str, recent: list[str], limit: float = 0.75) -> bool:
+    """True when the cue is nearly the same advice as a recent action (Jaccard on content words).
+    Sharing 'brake at the 100 board' is normal; repeating the whole instruction is not."""
+    w = _words(cue)
+    if len(w) < 2:
+        return False
+    return any(len(w & r) / len(w | r) >= limit for r in map(_words, recent) if r)
+
+
 def _baseline_over_tolerance(packet: dict) -> str | None:
     """Same check as rules.rule_decide: on a valid, comparable baseline, name the first delta over tolerance."""
     if packet["phase"] == "retry" or not packet["valid"] or not packet["comparable"]:
@@ -169,8 +187,10 @@ def _validate_offer(a: dict, packet: dict) -> tuple[bool, str | None]:
         if not retry:
             # Nemotron often adds a verdict to an otherwise good baseline offer: drop it, keep the offer.
             a.pop("verdict", None)
-    if not retry and packet["valid"] and packet["comparable"]:
-        # same mapping as rules.rule_decide: only coach what is actually outside tolerance
+    if not retry and packet["valid"] and packet["comparable"] and "event" not in packet:
+        # same mapping as rules.rule_decide: only coach what is actually outside tolerance.
+        # A lap event (packet["event"]) was already judged a mistake by the event detector (e.g. a
+        # lock-up with a normal brake point), so any drill that addresses it is allowed.
         if not eligible(packet, drill_id):
             return False, f"{drill_id}: missing evidence, unverified telemetry, or delta inside tolerance"
     target = a.get("target")
@@ -189,6 +209,8 @@ def _validate_offer(a: dict, packet: dict) -> tuple[bool, str | None]:
     ok, why = check_spoken(a.get("cue"), "cue", voice.get("max_cue_words", MAX_CUE_WORDS), packet)
     if not ok:
         return False, why
+    if "event" in packet and repeats(a.get("cue") or "", packet.get("recent_actions") or []):
+        return False, "repeats a recent cue: give a different, more specific action for this corner"
     if a.get("reminder") is not None:
         if not voice:
             a.pop("reminder")  # only spoken mode uses it; harmless elsewhere

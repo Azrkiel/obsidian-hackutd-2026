@@ -1,8 +1,9 @@
 """LapCoach: every error on the lap gets a cue and a retry offer (ROLLING_CHECKPOINTS.md, E3-E5).
 
     CornerPass (PassScorer) -> EventDetector -> CheckpointPicker (+ HOLD) -> OfferManager
-        -> cue: the coach decides on that corner's attempt with the live budget (fast, 2 s);
-           no drill to offer (flat corner, no usable attempt) -> a short rules cue from the event
+        -> cue: the coach decides on that corner's attempt with the live budget (fast, 3 s), given
+           the corner's guide and the last cues (coaching_text.py, nemotron.py rule 10);
+           no drill to offer (flat corner, no usable attempt) -> the actionable rules cue
         -> countdown from the moment the cue is out -> tap (dashboard, phone Next) or it expires
         -> accept: think-mode analysis requested at once; rewind to the held state (SAVE resume,
            3-2-1, RESTORE, telemetry confirm); then today's retry loop (drill offers) or, with no
@@ -18,6 +19,7 @@ The cue is spoken ahead of the lap coach's advice and starts the offer timer on 
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from typing import TYPE_CHECKING, Any
 
 from engine import ladder
@@ -25,6 +27,7 @@ from engine.evidence import build_packet
 from engine.state import AWAIT_RESET, DONE, IDLE, OFFERED, RETRY
 from engine.voice import OFFER
 
+from .coaching_text import actionable_cue, corner_guide, describe, with_facts
 from .events import CheckpointPicker, CornerEvent, EventDetector, RetryStart
 from .offers import Offer, OfferManager
 from .corner_pass import CornerPass, PassScorer
@@ -32,17 +35,17 @@ from .corner_pass import CornerPass, PassScorer
 if TYPE_CHECKING:
     from .app import CoachApp
 
-LIVE_BUDGET = {"think_deadline_s": 0.0, "fast_deadline_s": 2.0, "total_deadline_s": 2.0}
+RETRY_GIVE_UP_S = 60.0      # a one-shot retry not completed by then ends (it would block every corner)
+# fast mode only (no thinking); 3 s so Nemotron, not the rules fallback, usually writes the cue
+LIVE_BUDGET = {"think_deadline_s": 0.0, "fast_deadline_s": 3.0, "total_deadline_s": 3.0}
 KIND_TEXT = {"wheels_off": "wheels off", "spin": "spin", "lockup": "front lock-up", "wheelspin": "wheelspin",
              "speed_loss": "slow through the apex", "time_lost": "time lost", "brake_late": "braked late",
              "brake_early": "braked early"}
 
 
-def rules_cue(ev: CornerEvent) -> str:
-    what = ", ".join(KIND_TEXT.get(k, k) for k in ev.kinds[:2])
-    lost = ev.facts.get("time_lost_s", 0)
-    tail = f", {lost:.1f} s down" if lost >= 0.1 else ""
-    return f"{ev.corner}: {what}{tail}."
+def rules_cue(ev: CornerEvent, cfg: Any = None) -> str:
+    """The rules fallback cue: what happened (one number) and one action at a marker."""
+    return actionable_cue(ev, cfg)
 
 
 class LapCoach:
@@ -64,12 +67,15 @@ class LapCoach:
         self.retrying: Offer | None = None     # the accepted offer whose retry loop is running
         self._tries = 0
         self._retry_ready = False
+        self._retry_at = 0.0                    # when the running retry was accepted (offers clock)
         self._cue_for: dict[str, str] = {}      # coach attempt_id -> offer id waiting for its cue
         self._task: asyncio.Task | None = None
         self.passes = 0
         self.ofr_every_s = 0.25                  # phone offer resend rate (UDP may drop packets)
         self._ofr_at = -1.0
         self._pushed: str | None = None          # offer id last shown on the phone
+        self.recent_cues: deque[str] = deque(maxlen=3)     # what was said (context for Nemotron)
+        self.recent_actions: deque[str] = deque(maxlen=3)  # just the advice: a repeat is rejected
 
     # -- lifecycle --
     def start(self) -> None:
@@ -91,7 +97,18 @@ class LapCoach:
             await self._drop(self.offers.tick())
             if was_open and o.state == "expired" and self.retrying is None:
                 self._release_coach()
+            self._give_up_stale_retry()
             self._push_phone()
+
+    def _give_up_stale_retry(self) -> None:
+        """A one-shot retry the driver never completes (the phone dropped, a spin before the corner,
+        drove off) must not block every other corner: after RETRY_GIVE_UP_S it ends."""
+        o = self.retrying
+        if (o is None or not self.standalone or not self._retry_ready
+                or self.offers.clock() - self._retry_at < RETRY_GIVE_UP_S):
+            return
+        self.app.broadcast({"type": "status", "message": f"retry at {o.event.corner} not completed: back to the lap"})
+        self.retry_finished(resumed=False)
 
     def _push_phone(self) -> None:
         """ofr,<id>,<corner>,<ms left> about 4x/s while an offer is open; ofx,<id> (3x) when it closes."""
@@ -136,7 +153,13 @@ class LapCoach:
         if self.retrying is not None:
             if self._tries_judged_here(p):
                 self._judge_retry(p, ref)
-            return                                       # busy: errors elsewhere are ignored
+                return
+            if not (self.standalone and self._retry_ready):
+                return                                   # busy: errors elsewhere are ignored
+            # the car got past without completing the retry corner: end the retry, coach this corner
+            self.app.broadcast({"type": "status",
+                                "message": f"retry at {self.retrying.event.corner} skipped: back to the lap"})
+            self.retry_finished(resumed=False)
         ev = self.detector.detect(p, ref, flat=c.major_only)
         if ev is None:
             if p.valid:
@@ -156,13 +179,13 @@ class LapCoach:
         coach = self.app.coach
         if coach.state not in (IDLE, DONE, OFFERED):
             # the coach is still deciding an older event: this one gets the rules cue
-            self.offers.cue_delivered(offer.id, rules_cue(ev), "rules")
+            self.offers.cue_delivered(offer.id, rules_cue(ev, self.scorer.configs.get(ev.corner_id)), "rules")
             return
         if coach.state == OFFERED:
             coach.reset_session()
         attempt = ev.cpass.attempt
         if attempt is None or not attempt.valid or not self.app.select_corner(c.id):
-            self.offers.cue_delivered(offer.id, rules_cue(ev), "rules")
+            self.offers.cue_delivered(offer.id, rules_cue(ev, self.scorer.configs.get(ev.corner_id)), "rules")
             return
         coach.decide_kwargs = {**self.app.decide_kwargs_default, **self.live_budget}
         self._cue_for[attempt.attempt_id] = offer.id
@@ -174,17 +197,24 @@ class LapCoach:
     async def _standalone_cue(self, offer: Offer) -> None:
         """Combined mode: the ladder decides on the event packet (live budget); rules cue otherwise."""
         ev = offer.event
-        text, source = rules_cue(ev), "rules"
+        cfg = self.scorer.configs.get(ev.corner_id)
+        text, source = actionable_cue(ev, cfg, list(self.recent_actions)), "rules"
         a = ev.cpass.attempt
-        if a is not None and a.valid:
-            cfg = self.scorer.configs[ev.corner_id]
+        if a is not None and a.valid and cfg is not None:
             packet = build_packet(a, ev.ref.as_attempt(), None, cfg, None, None)
             packet["event"] = ev.summary()
+            packet["corner_guide"] = corner_guide(ev.corner_id, ev.corner)
+            packet["recent_cues"] = list(self.recent_cues)
+            packet["recent_actions"] = list(self.recent_actions)
             offer.extra["packet"] = packet
             try:
                 d, _ = await ladder.decide(packet, self.app.providers, **self.live_budget)
-                if d.action == "offer_drill" and d.cue:
-                    text, source = d.cue, d.mode
+                if d.action == "offer_drill" and d.cue and d.mode != "rules":
+                    # Nemotron gives the action; the corner and what happened lead it, always right
+                    text, source = with_facts(ev, cfg, d.cue), d.mode
+                    self.recent_actions.append(d.cue)
+                else:
+                    self.recent_actions.append(text.split(". ", 1)[-1])   # the rules action given
             except Exception:  # noqa: BLE001 - the rules cue stands
                 pass
         self._deliver(offer, text, source)
@@ -192,6 +222,7 @@ class LapCoach:
     def _deliver(self, offer: Offer, text: str, source: str) -> None:
         """Speak the cue (offer priority, talk zones only); the countdown starts when it's spoken.
         Without voice the text shows at once."""
+        self.recent_cues.append(text)
         ann = self.app.announcer
         if ann is None or ann.muted:
             self.offers.cue_delivered(offer.id, text, source)
@@ -233,7 +264,7 @@ class LapCoach:
             o.extra["decision"] = self.app.coach.last_decision   # set before the event is emitted
             self.offers.cue_delivered(oid, e.get("cue", ""), e.get("mode", ""))
         else:                                            # rules: nothing to drill; offer a plain retry
-            self.offers.cue_delivered(oid, rules_cue(o.event), "rules")
+            self.offers.cue_delivered(oid, rules_cue(o.event, self.scorer.configs.get(o.event.corner_id)), "rules")
             self.app.coach.reset_session()
 
     # -- accept --
@@ -251,6 +282,7 @@ class LapCoach:
         app, coach = self.app, self.app.coach
         self.retrying, self._tries = o, 0
         self._retry_ready = False
+        self._retry_at = self.offers.clock()
         coach.decide_kwargs = dict(app.decide_kwargs_default)   # retries are judged in think mode
         app.reset.checkpoint = {"pos_m": o.start.pos_m, "speed_kmh": o.start.speed_kmh}
         app.reset.held_event = o.id if o.start.cp is not None else None

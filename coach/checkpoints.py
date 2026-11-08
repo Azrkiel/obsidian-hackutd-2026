@@ -117,7 +117,9 @@ class CheckpointStore:
     async def send_cfg(self) -> bool:
         reply = await udp_roundtrip(self.lua_addr, self.cfg_line(), "CFGOK", self.ack_s)
         was, self.lua_ok = self.lua_ok, reply is not None
-        if was != self.lua_ok:
+        self._cfg_seen = getattr(self, "_cfg_seen", False)
+        if was != self.lua_ok or not self._cfg_seen:      # also the first answer (or silence) at start
+            self._cfg_seen = True
             self.emit({"type": "status", "message": "rolling checkpoints: Lua app " +
                        ("connected" if self.lua_ok else "not answering")})
         return self.lua_ok

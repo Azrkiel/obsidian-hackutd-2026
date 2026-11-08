@@ -20,23 +20,32 @@ from .reactions import Moment, Reactor
 RACER, HELMET, SUIT, BASE = "racer", "helmet_suit", "suit", "base"
 READ_MIN_S, READ_PER_CHAR_S = 2.0, 0.04
 MAX_WORDS = 9              # a bubble is a glance, not a paragraph: the voice says the rest
+MAX_REST_WORDS = 12        # the second sentence: the action ("Brake at the 100 board and turn in late.")
 WARN_HOLD_S = 2.0          # a problem must last this long before Rev warns (cables wobble)
 PAIR_GRACE_S = 2.5         # an already-paired phone usually reconnects on its own: wait before the QR
+PARKED_S = 60.0            # stopped this long = a real stop (pits, restart): idle bubble and "Lights out." again
 
 
 def read_time(text: str) -> float:
     return max(READ_MIN_S, 1.2 + len(text) * READ_PER_CHAR_S)
 
 
+def _clip(s: str, n: int) -> str:
+    words = s.split()
+    return s if len(words) <= n else " ".join(words[:n]).rstrip(",;:.") + "…"
+
+
 def split_cue(text: str) -> tuple[str, str]:
-    """A cue for the bubble: its first sentence only, at most MAX_WORDS words, set in bold."""
+    """A cue for the bubble: the first sentence in bold (what happened), the next sentence regular
+    (what to do: for lap cues this is Nemotron's action, so it must not be cut). Each is kept short."""
     text = " ".join((text or "").split())
     i = text.find(". ")
-    first = text if i < 0 else text[: i + 1]
-    words = first.split()
-    if len(words) > MAX_WORDS:
-        first = " ".join(words[:MAX_WORDS]).rstrip(",;:.") + "…"
-    return first, ""
+    if i < 0:
+        return _clip(text, MAX_WORDS), ""
+    first, rest = text[: i + 1], text[i + 2:]
+    j = rest.find(". ")
+    rest = rest if j < 0 else rest[: j + 1]
+    return _clip(first, MAX_WORDS), _clip(rest, MAX_REST_WORDS)
 
 
 @dataclass
@@ -67,6 +76,8 @@ class RevModel:
         self._drive_since: float | None = None
         self._still_since: float | None = None
         self.racing = False
+        self.session_started = False     # the car has driven this session
+        self._was_parked = False         # stopped for PARKED_S since then
         self.talk_id: int | None = None
         self.talk_text = ""
         self.talk_until: float | None = None
@@ -86,6 +97,7 @@ class RevModel:
         self._anim, self._anim_t0 = "idle", 0.0
         self._ai_mode: str | None = None
         self._kind: str | None = None
+        self.outbox: list[dict] = []     # commands for the coach (e.g. say a reaction out loud)
 
     # ---------------------------------------------------------------- input
     def feed(self, e: dict, now: float) -> None:
@@ -147,17 +159,24 @@ class RevModel:
             self._drive_since = self._drive_since if self._drive_since is not None else now
             if not self.racing and now - self._drive_since >= 1.0:
                 self.racing = True
-                self._show(Moment("Lights out.", "", "text", "hop", 1.6, "go"), now)
+                # once per session: not again after a spin or an off, only after a real stop
+                if not self.session_started or self._was_parked:
+                    self._show(Moment("Lights out.", "", "text", "hop", 1.6, "go"), now)
+                self.session_started, self._was_parked = True, False
         else:
             self._drive_since = None
             self._still_since = self._still_since if self._still_since is not None else now
             if self.racing and now - self._still_since >= (5.0 if live else 2.0):
                 self.racing = False
+            if now - self._still_since >= PARKED_S:
+                self._was_parked = True
         m = self.reactor.feed(e, now)
         # a warning (lock-up, wheels off) may cut in on a cosmetic moment, never the other way round
         if m is not None and (self.moment is None or self.moment[1] < now
                               or (m.kind == "warn" and self.moment[0].kind != "warn")):
             self._show(m, now)
+            # Rev has no voice of his own: the coach says it (on the next straight, if still fresh)
+            self.outbox.append({"type": "rev_say", "text": m.bold, "key": m.key})
 
     def _on_voice(self, e: dict, now: float) -> None:
         st, text = e.get("status"), e.get("text", "")
@@ -335,12 +354,13 @@ class RevModel:
             bubble = {"kind": "thinking", "cells": 1 + int((now * 2) % 3), "label": self.thinking_label}
         elif pairing:
             bubble, want = {"kind": "pairing", "uri": self.pair_uri}, BASE
-        elif not self.racing:
+        elif not self.racing and (not self.session_started or self._was_parked):
+            # before the first lap or after a real stop; a spin or an off gets no "Ready when you are"
             bubble = {"kind": "idle", "title": "Rev", "sub": "Ready when you are"}
         else:
             bubble = None
-        if self.online and self.racing and want == RACER:
-            want = HELMET
+        if self.online and want == RACER and (self.racing or (self.session_started and not self._was_parked)):
+            want = HELMET                # the helmet stays on through a spin or an off
 
         # an outfit never changes while Rev is talking
         if want != self._outfit and not speaking:

@@ -82,6 +82,51 @@ async def test_lap_coachs_sim_errors_get_offers(tmp_path):
     assert kinds(app, "reset_request", "resumed") == ["reset_request"]
 
 
+def _running_retry(tmp_path):
+    """A one-shot retry at Lesmo 1 that has rewound (ready) but whose corner never gets completed."""
+    from coach.events import RetryStart
+    from test_events import detect, lap
+    app = make(tmp_path, LapSim(MODEL))
+    lc = app.lap_coach
+    ev = detect(lap({"lesmo1": ["early_brake"]})["lesmo1"])
+    o, _ = lc.offers.new(ev, RetryStart("sim", 2000, 230))
+    lc.retrying, lc._retry_ready, lc._retry_at = o, True, lc.offers.clock()
+    return app, lc
+
+
+def test_a_retry_whose_corner_is_skipped_ends_and_the_next_corner_is_coached(tmp_path):
+    from test_events import lap
+    app, lc = _running_retry(tmp_path)
+    spawned = []
+    app._spawn = lambda coro: spawned.append(coro.cr_code.co_name) or coro.close()   # no loop needed
+    lc.on_pass(lap({"roggia": ["late_brake"]})["roggia"])     # got past Lesmo 1 without completing it
+    assert lc.retrying is None
+    assert kinds(app, "retry_finished") == ["retry_finished"]
+    assert any(e["type"] == "status" and "skipped" in e.get("message", "") for e in app.events)
+    assert kinds(app, "corner_event") == ["corner_event"] and "_raise" in spawned   # Roggia is coached
+
+
+def test_a_retry_not_completed_in_time_gives_up(tmp_path):
+    from coach.lap_coach import RETRY_GIVE_UP_S
+    app, lc = _running_retry(tmp_path)
+    lc._give_up_stale_retry()
+    assert lc.retrying is not None                            # still in time
+    lc._retry_at -= RETRY_GIVE_UP_S + 1
+    lc._give_up_stale_retry()
+    assert lc.retrying is None and kinds(app, "retry_finished") == ["retry_finished"]
+
+
+def test_anchor_save_stays_usable_after_a_long_off():
+    from types import SimpleNamespace
+    from coach.events import CheckpointPicker
+    c = MODEL.get("lesmo1")
+    anchor = SimpleNamespace(t=0.0, spline=(c.entry_m - 200) / MODEL.length_m, speed_kmh=180.0)
+    store = SimpleNamespace(anchor=lambda i: anchor, ring=[])
+    picker = CheckpointPicker(MODEL)
+    assert picker.pick(c, store, now=60.0).source == "anchor"      # a minute in the corner: still this approach
+    assert picker.pick(c, store, now=100.0) is None                 # that old: last lap's save
+
+
 class Mute:
     def speak(self, text):
         pass

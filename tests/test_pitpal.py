@@ -1,5 +1,6 @@
 """Pit Pal overlay: Rev's brain (no Tk), the live telemetry feed, the pairing link, Rev's own lines."""
 import asyncio
+from types import SimpleNamespace
 
 from aiohttp.test_utils import TestClient, TestServer
 
@@ -24,10 +25,15 @@ def tele(**kw):
 
 
 def test_split_cue_keeps_it_short():
-    assert split_cue("Brake 12 m later. Keep the car straight.") == ("Brake 12 m later.", "")
+    # the second sentence (Nemotron's action on a lap cue) is kept; anything after it is dropped
+    assert split_cue("Brake 12 m later. Keep the car straight. Nice.") == ("Brake 12 m later.", "Keep the car straight.")
+    assert split_cue("Rettifilo: you braked 14 m late, 0.4 s lost. Brake at the 100 board.") == \
+        ("Rettifilo: you braked 14 m late, 0.4 s lost.", "Brake at the 100 board.")
     long = "You braked very late into the first chicane and ran wide over the kerb at the exit"
     first, rest = split_cue(long)
     assert len(first.split()) <= 9 and first.endswith("…") and rest == ""
+    _, act = split_cue("Ascari: 0.3 s lost. " + "carry more speed " * 8 + "now.")
+    assert len(act.split()) <= 12 and act.endswith("…")
 
 
 def test_offline_then_pairing_then_connected():
@@ -64,7 +70,8 @@ def test_talking_shows_short_text_and_never_changes_outfit():
     for i in range(14):
         m.feed(tele(), 1.0 + i * 0.1)                            # the car starts moving mid-sentence
     v = m.view(2.5)
-    assert v.bubble == {"kind": "text", "bold": "Brake 12 m later.", "rest": ""} and v.anim == "talk"
+    assert v.bubble == {"kind": "text", "bold": "Brake 12 m later.", "rest": "Keep the car straight."} \
+        and v.anim == "talk"
     assert v.outfit == RACER and m.racing                        # helmet waits until Rev stops talking
     m.feed({"type": "voice", "id": 1, "status": "spoken", "text": "x"}, 2.6)
     assert m.view(2.7).outfit == RACER
@@ -307,6 +314,72 @@ async def test_rev_lines_only_react_to_real_moments_and_not_too_often():
     rl.on_event({"type": "retry_judged", "try": 2, "fixed": True})
     await asyncio.sleep(0.05)
     assert [e["moment"] for e in app.sent] == ["quick_lap", "fixed"]
+
+
+def test_an_off_or_spin_is_not_a_new_session():
+    m = RevModel()
+    m.feed({"type": "_conn", "online": True}, 0.0)
+    m.feed(health(phone="live"), 0.0)
+    drive = lambda kmh, t: m.feed({"type": "telemetry", "status": "live", "speed_kmh": kmh, "gas": 0.3,
+                                   "brake": 0.0, "slip_f": 0.0, "slip_r": 0.0, "tyres_out": 0}, t)
+    for i in range(20):
+        drive(120.0, 1.0 + i * 0.1)
+    assert m.view(2.0).bubble["bold"] == "Lights out."
+    for i in range(80):                       # spun: 8 s stopped, then away again
+        drive(0.0, 4.0 + i * 0.1)
+    v = m.view(12.0)
+    assert v.bubble is None and v.outfit == HELMET          # no "Ready when you are", helmet stays on
+    for i in range(20):
+        drive(120.0, 12.1 + i * 0.1)
+    assert (m.view(14.5).bubble or {}).get("bold") != "Lights out."   # not a second "Lights out."
+    for i in range(700):                      # a real stop: over a minute
+        drive(0.0, 15.0 + i * 0.1)
+    assert m.view(85.0).bubble["sub"] == "Ready when you are"
+    for i in range(20):
+        drive(120.0, 86.0 + i * 0.1)
+    assert m.view(87.5).bubble["bold"] == "Lights out."     # a new run after a real stop
+
+
+def test_reactions_ask_the_coach_to_say_them():
+    m = RevModel()
+    t = 100.0
+    for i in range(40):   # 4 s of driving ("Lights out." comes and goes), then the rears slide on power
+        m.feed({"type": "telemetry", "status": "live", "speed_kmh": 120.0, "gas": 0.9, "brake": 0.0,
+                "slip_f": 0.0, "slip_r": 0.8 if i > 38 else 0.0, "tyres_out": 0}, t + i * 0.1)
+    assert {"type": "rev_say", "text": "Easy on throttle.", "key": "slide"} in m.outbox
+
+
+def test_coach_speaks_rev_reactions_once_per_window():
+    import coach.app as ca
+    said = []
+    app = SimpleNamespace(announcer=SimpleNamespace(say=lambda text, kind, **kw: said.append((text, kind, kw))))
+    assert ca.CoachApp.rev_say(app, "Easy on throttle.")
+    assert not ca.CoachApp.rev_say(app, "Easy on throttle.")          # repeated within 15 s: skipped
+    assert ca.CoachApp.rev_say(app, "Lock-up.")
+    assert said[0] == ("Easy on throttle.", "advice", {"max_age_s": ca.REV_SAY_MAX_AGE_S, "mode": "rev"})
+    assert not ca.CoachApp.rev_say(SimpleNamespace(announcer=None), "Lock-up.")   # voice off
+
+
+class _FakeRev:
+    def __init__(self, code):
+        self.returncode = code
+
+    def poll(self):
+        return self.returncode
+
+
+async def test_quit_rev_ends_the_session_and_a_crash_restarts_him(monkeypatch):
+    import coach.__main__ as cm
+    started = []
+    monkeypatch.setattr(cm, "start_overlay", lambda args: started.append(1) or _FakeRev(0))
+    real_sleep = asyncio.sleep
+    monkeypatch.setattr(cm.asyncio, "sleep", lambda s: real_sleep(0))
+    rev = [_FakeRev(1)]                                   # Rev crashed (exit 1)
+    await asyncio.wait_for(cm._watch_rev(None, rev), 2)   # restarted once, then he quits cleanly (exit 0)
+    assert started == [1]
+    rev = [_FakeRev(0)]                                   # Quit Rev: the watcher returns at once
+    await asyncio.wait_for(cm._watch_rev(None, rev), 2)
+    assert started == [1]
 
 
 def test_rev_lines_without_an_event_loop_never_raise():
