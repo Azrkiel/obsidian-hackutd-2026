@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NomadSim Coach</title>
+<style>
+:root{--bg:#0e1116;--panel:#171c24;--ink:#e8edf3;--dim:#8793a3;--good:#3ddc84;--bad:#ff5d5d;--warn:#ffc233;--blue:#4aa8ff;--line:#2a3340}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:20px/1.35 system-ui,Segoe UI,sans-serif}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:12px 20px;background:var(--panel);border-bottom:1px solid var(--line)}
+.badge{padding:6px 14px;border-radius:999px;background:#222a35;font-weight:600;font-size:20px;white-space:nowrap}
+.badge.ok{background:#12351f;color:var(--good)}.badge.warn{background:#3a2f0e;color:var(--warn)}.badge.bad{background:#401818;color:var(--bad)}
+#state{font-size:26px;letter-spacing:.04em}
+main{display:grid;grid-template-columns:1.2fr 1fr;gap:16px;padding:16px 20px}
+@media(max-width:1100px){main{grid-template-columns:1fr}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 18px}
+h2{margin:0 0 8px;font-size:16px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+#cue{font-size:38px;font-weight:700;min-height:1.3em}
+#evidence{color:var(--dim);margin-top:6px;min-height:1.4em}
+#thinking{font:15px/1.4 ui-monospace,Consolas,monospace;color:#b8c4d3;white-space:pre-wrap;max-height:170px;overflow:auto}
+table{width:100%;border-collapse:collapse;font-size:22px}
+th,td{text-align:right;padding:5px 8px;border-bottom:1px solid var(--line)}
+th:first-child,td:first-child{text-align:left;color:var(--dim)}
+td small{font-size:15px;margin-left:6px}
+.better{color:var(--good)}.worse{color:var(--bad)}.inc{color:var(--dim)}
+canvas{width:100%;height:260px;display:block;background:#10151c;border-radius:8px}
+.legend span{margin-right:16px;font-size:16px}
+#activity{list-style:none;margin:0;padding:0;max-height:260px;overflow:auto;font-size:17px}
+#activity li{padding:3px 0;border-bottom:1px solid var(--line)}#activity time{color:var(--dim);margin-right:8px}
+.btns{display:flex;flex-wrap:wrap;gap:10px;padding:0 20px 20px}
+button{font:inherit;font-weight:600;padding:12px 22px;border-radius:10px;border:1px solid var(--line);background:#222a35;color:var(--ink);cursor:pointer}
+button.primary{background:var(--good);color:#06210f;border-color:var(--good)}
+button:disabled{opacity:.35;cursor:not-allowed}
+#overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.7);font-size:240px;font-weight:800;z-index:5}
+#toast{position:fixed;bottom:16px;right:16px;background:#222a35;padding:10px 16px;border-radius:8px;display:none;max-width:60ch}
+</style>
+</head>
+<body>
+<header>
+  <span class="badge" id="state">IDLE</span>
+  <span class="badge" id="ai">Rules (AI unavailable)</span>
+  <span class="badge" id="tel">telemetry: no data</span>
+  <span class="badge" id="rst">reset: idle</span>
+</header>
+<main>
+  <div>
+    <div class="panel"><h2>Cue</h2><div id="cue">Drive a baseline run through the corner.</div><div id="evidence"></div></div>
+    <div class="panel" style="margin-top:16px"><h2>Metrics</h2>
+      <table id="metrics"><thead><tr><th></th><th>Reference</th><th>Baseline</th><th>Latest retry</th></tr></thead><tbody></tbody></table>
+    </div>
+    <div class="panel" style="margin-top:16px"><h2>Brake trace</h2><canvas id="cv" width="900" height="260"></canvas>
+      <div class="legend"><span style="color:#8793a3">&#9632; reference</span><span style="color:#ffc233">&#9632; baseline</span><span style="color:#3ddc84">&#9632; retry</span><span style="color:#4aa8ff">| drill target</span></div></div>
+  </div>
+  <div>
+    <div class="panel"><h2>Thinking</h2><div id="thinking">&nbsp;</div></div>
+    <div class="panel" style="margin-top:16px"><h2>Activity</h2><ul id="activity"></ul></div>
+  </div>
+</main>
+<div class="btns">
+  <button id="b-accept" class="primary" disabled>Accept (Space)</button>
+  <button id="b-retry">Retry</button>
+  <button id="b-retry_reset" style="display:none">Retry reset</button>
+  <button id="b-save_checkpoint">Save checkpoint</button>
+  <button id="b-set_reference">Set reference</button>
+  <button id="b-new_session">New session</button>
+  <button id="b-toggle_cue_next">Cue off next try</button>
+</div>
+<div id="overlay"></div><div id="toast"></div>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const S = {state: "IDLE", corner: null, ref: null, refTrace: [], base: null, retry: null, offer: null,
+           decision: null, health: null, tries: 0, thinking: ""};
+let ws, tToast;
+
+function send(o){ if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
+function toast(m){ const t=$("toast"); t.textContent=m; t.style.display="block"; clearTimeout(tToast); tToast=setTimeout(()=>t.style.display="none",4000); }
+function hhmmss(ts){ return new Date(ts*1000).toLocaleTimeString([], {hour12:false}); }
+function addActivity(a){
+  const li=document.createElement("li"); li.innerHTML="<time>"+hhmmss(a.ts)+"</time>";
+  li.appendChild(document.createTextNode(a.text)); const ul=$("activity"); ul.prepend(li);
+  while(ul.children.length>50) ul.lastChild.remove();
+}
+function badge(el, text, cls){ el.textContent=text; el.className="badge "+(cls||""); }
+
+function targetOnset(){
+  const o=S.offer; if(!o||!o.target||!S.corner) return null;
+  if(o.drill_id==="brake_point") return {key:"brake_onset_m", pos:S.corner.board_zero_m-o.target.marker_m};
+  return {key:"throttle_pickup_m", pos:S.corner.apex_window_m[1]+o.target.marker_m};
+}
+function fmt(v,d){ return (v===null||v===undefined)?"-":Number(v).toFixed(d); }
+const ROWS=[["Brake board m","board",1],["Brake onset m","brake_onset_m",1],["Peak brake","peak_brake",2],
+  ["Entry km/h","entry_kmh",1],["Apex km/h","apex_kmh",1],["Exit km/h","exit_kmh",1],
+  ["Throttle pickup m","throttle_pickup_m",1],["Section s","section_s",2]];
+function val(a,k){ if(!a) return null; if(k==="board") return S.corner? S.corner.board_zero_m-a.brake_onset_m : null; return a[k]; }
+function renderMetrics(){
+  const tb=document.querySelector("#metrics tbody"); tb.innerHTML=""; if(!S.corner) return;
+  const ref=S.ref, t=targetOnset(), tol=S.corner.tolerance;
+  for(const [label,k,d] of ROWS){
+    const tr=document.createElement("tr"); tr.innerHTML="<td>"+label+"</td><td>"+fmt(val(ref,k),d)+"</td>";
+    for(const run of [S.base, S.retry]){
+      const a=run&&run.attempt, td=document.createElement("td");
+      if(!a){ td.textContent="-"; tr.appendChild(td); continue; }
+      const v=val(a,k), dv=(ref&&v!==null)?v-val(ref,k):null;
+      let cls="";
+      const comparable=ref&&Math.abs(a.entry_kmh-ref.entry_kmh)<=S.corner.comparable_entry_kmh;
+      if(!a.valid||!comparable) cls="inc";
+      else if((k==="brake_onset_m"||k==="throttle_pickup_m"||k==="board")){
+        const tp = t&&t.key===(k==="board"?"brake_onset_m":k) ? t.pos : (k==="board"?null:val(ref,k));
+        if(tp!==null){ const x=k==="board"? S.corner.board_zero_m-v : v;
+          const key=k==="board"?"brake_onset_m":k; cls=Math.abs(x-tp)<=tol[key]?"better":"worse"; }
+      } else if(k==="section_s") cls=dv<-0.005?"better":dv>0.005?"worse":"";
+      td.className=cls; td.innerHTML=fmt(v,d)+(dv===null?"":"<small>"+(dv>=0?"+":"")+dv.toFixed(d)+"</small>");
+      tr.appendChild(td);
+    }
+    tb.appendChild(tr);
+  }
+}
+
+function renderTop(){
+  badge($("state"),S.state,"");
+  const h=S.health; if(!h) return;
+  badge($("ai"),h.ai.label+(h.ai.provider?" ("+h.ai.provider+")":""),h.ai.mode==="rules"?"warn":"ok");
+  const t=h.telemetry; badge($("tel"),"telemetry: "+t.state+(t.age_s!=null?" ("+t.age_s+"s)":"")+(t.error&&t.state==="no data"?" - "+t.error:""),
+    t.state==="live"?"ok":t.state==="paused"?"warn":"bad");
+  const r=h.reset; badge($("rst"),"reset: "+r.status+(r.checkpoint?"":" (no checkpoint)"),r.status==="failed"?"bad":r.status==="idle"?"":"warn");
+  $("b-accept").disabled=S.state!=="OFFERED";
+  $("b-retry_reset").style.display=(S.state==="AWAIT_RESET"||r.status==="failed")?"":"none";
+  $("b-toggle_cue_next").textContent=h.cue_next_off?"Cue off next try: ON":"Cue off next try";
+}
+function renderCue(){
+  const d=S.decision;
+  $("cue").textContent=d?(d.cue||d.summary||""):"Drive a baseline run through the corner.";
+  const a=S.retry&&S.retry.attempt||S.base&&S.base.attempt, ref=S.ref;
+  let ev=""; if(d&&a&&ref){
+    ev="Measured: braked "+fmt(a.brake_onset_m,0)+" m (reference "+fmt(ref.brake_onset_m,0)+" m), throttle "+fmt(a.throttle_pickup_m,0)+" m (reference "+fmt(ref.throttle_pickup_m,0)+" m)"
+       +(d.action==="end_drill"?" - "+(d.end_reason||"done"):""); }
+  $("evidence").textContent=ev;
+}
+
+function draw(){
+  const cv=$("cv"), g=cv.getContext("2d"), W=cv.width, H=cv.height, c=S.corner;
+  g.clearRect(0,0,W,H); if(!c) return;
+  const x0=c.start_gate_m-10, x1=c.exit_gate_m+10, px=p=>(p-x0)/(x1-x0)*(W-50)+40, py=b=>H-24-b*(H-40);
+  g.strokeStyle="#2a3340"; g.fillStyle="#8793a3"; g.font="14px sans-serif"; g.lineWidth=1;
+  for(const b of [0,.5,1]){ g.beginPath(); g.moveTo(40,py(b)); g.lineTo(W-10,py(b)); g.stroke(); g.fillText(Math.round(b*100)+"%",4,py(b)+4); }
+  g.fillText(Math.round(x0)+" m",40,H-6); g.fillText(Math.round(x1)+" m",W-60,H-6);
+  g.fillStyle="rgba(255,255,255,.05)"; g.fillRect(px(c.apex_window_m[0]),10,px(c.apex_window_m[1])-px(c.apex_window_m[0]),H-34);
+  const line=(tr,col,w)=>{ if(!tr||!tr.length) return; g.strokeStyle=col; g.lineWidth=w; g.beginPath();
+    tr.forEach((p,i)=>{ const x=px(p[0]), y=py(p[1]); i?g.lineTo(x,y):g.moveTo(x,y); }); g.stroke(); };
+  line(S.refTrace,"#8793a3",2); line(S.base&&S.base.trace,"#ffc233",2); line(S.retry&&S.retry.trace,"#3ddc84",3);
+  const t=targetOnset(); if(t){ g.strokeStyle="#4aa8ff"; g.lineWidth=2; g.setLineDash([6,4]); g.beginPath(); g.moveTo(px(t.pos),10); g.lineTo(px(t.pos),H-24); g.stroke(); g.setLineDash([]); }
+}
+function renderAll(){ renderTop(); renderCue(); renderMetrics(); draw(); }
+
+function onEvent(e){
+  if(e.text&&e.type!=="snapshot") addActivity({ts:e.ts,text:e.text});
+  switch(e.type){
+  case "snapshot":
+    S.state=e.state; S.corner=e.corner; S.ref=e.reference.attempt; S.refTrace=e.reference.trace||[];
+    S.base=e.baseline; S.retry=e.retry; S.decision=e.decision; S.offer=e.offer; S.health=e.health; S.tries=e.tries;
+    $("activity").innerHTML=""; (e.activity||[]).forEach(addActivity); break;
+  case "status": S.state=e.state||S.state; if(e.message) toast(e.message); break;
+  case "health": S.health=e; break;
+  case "countdown": { const o=$("overlay"); if(e.n>0){ o.style.display="flex"; o.textContent=e.n; } else o.style.display="none"; break; }
+  case "prompt": toast(e.message); break;
+  case "thinking": S.thinking+=e.text; $("thinking").textContent=S.thinking; $("thinking").scrollTop=1e9; break;
+  case "run":
+    S.thinking=""; $("thinking").innerHTML="&nbsp;";
+    if(e.role==="baseline"){ S.base=e; S.retry=null; } else if(e.role==="retry") S.retry=e; break;
+  case "decision": S.decision=e; S.offer=e.action==="offer_drill"?e:null; break;
+  case "reference": S.ref=e.attempt; S.refTrace=e.trace||[]; break;
+  case "session": S.base=S.retry=S.decision=S.offer=null; S.thinking=""; $("thinking").innerHTML="&nbsp;"; break;
+  case "reset_failed": toast("Reset failed: "+e.reason); break;
+  }
+  renderAll();
+}
+
+function connect(){
+  ws=new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.host+"/ws");
+  ws.onmessage=m=>onEvent(JSON.parse(m.data));
+  ws.onclose=()=>{ badge($("tel"),"dashboard disconnected","bad"); setTimeout(connect,1000); };
+}
+function accept(){ if(S.state==="OFFERED"&&S.offer) send({type:"accept",decision_id:S.offer.decision_id}); }
+$("b-accept").onclick=accept;
+for(const k of ["retry","retry_reset","save_checkpoint","set_reference","new_session","toggle_cue_next"])
+  $("b-"+k).onclick=()=>send({type:k});
+document.addEventListener("keydown",ev=>{ if(ev.code==="Space"||ev.code==="Enter"){ if(ev.target.tagName==="BUTTON"&&ev.target.id!=="b-accept") return; ev.preventDefault(); accept(); } });
+window.addEventListener("resize",draw);
+connect();
+</script>
+</body>
+</html>

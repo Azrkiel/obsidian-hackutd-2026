@@ -85,4 +85,39 @@ NEMOTRON_BASE_URL=http://<brev-host>:8000/v1 uv run python scripts/brev_idle_sto
 - Judging: `touch .brev-hold` (or `--hold-until 11:30`) and it will not stop; delete the file after.
 - After a stop: `brev start <name>`, restart vLLM, restart the watchdog.
 
+## Coach program
+
+One asyncio process on the Windows PC: telemetry reader, corner scorer, engine `Coach`, reset manager, live audio cue and the dashboard web server. The phone/Arduino input bridge is a separate process.
+
+```
+coach/telemetry.py   Sample + ACSharedMemory (original AC), SimSource, ReplaySource, Recorder
+coach/scorer.py      CornerScorer: samples -> runs -> engine Attempt + brake trace
+coach/reset.py       ResetManager: 3-2-1 countdown, load request (udp/hotkey/manual/sim), telemetry confirmation
+coach/app.py         CoachApp: wiring, commands, status
+coach/dashboard.py   aiohttp: GET /, GET /ws (events out, commands in), GET /state
+csp/nomadsim_reset/  CSP Lua app (draft, untested)
+```
+
+Run with the simulator (no game needed; click Accept on the dashboard):
+
+```
+uv run python -m coach --telemetry sim --reset sim
+```
+
+Run with Assetto Corsa (original AC, offline practice at Monza):
+
+```
+uv run python -m coach --telemetry ac --reset udp          # CSP Lua app does the load
+uv run python -m coach --telemetry ac --reset hotkey       # presses F7 (load) / F6 (save) via SendInput
+uv run python -m coach --telemetry ac --reset manual       # you press your own load key
+```
+
+Dashboard: http://127.0.0.1:8020 (second screen; `--host 0.0.0.0` to open it on the LAN, `--port` to change; 8000 is the vLLM port-forward). Space/Enter = Accept.
+
+Flow: drive the corner once, then **Save checkpoint** on the approach (a few hundred metres before the start gate, at speed), drive the baseline, accept the offered drill, the car is reset, the retry is scored and judged. **Set reference** makes the last valid run the reference (`data/reference.json` + `data/reference_trace.json`; default is `fixtures/reference.json`). Checkpoint is `data/checkpoint.json`. Other flags: `--corner`, `--reference`, `--record` (samples to `data/recordings/*.jsonl`, replay with `--telemetry replay FILE`), `--sound/--no-sound` (winsound cues, on by default on Windows), `--countdown N`, `--traces DIR`. The AI badge and engine env vars are the ones in the table above (`NEMOTRON_BASE_URL`, `NVIDIA_API_KEY`, ...); with none set the rules coach runs and the badge says so.
+
+CSP reset app (draft): copy `csp/nomadsim_reset/` to `<assettocorsa>/apps/lua/nomadsim_reset/`, enable it in the in-game app list (needs Custom Shaders Patch with Lua apps). It listens on UDP 127.0.0.1:9101 (`SAVE` -> `SAVED x y z speed`, `RESET <id>` -> `ACK <id>`). Offline practice only; loading a state invalidates the lap. Verify the `TODO(verify)` API calls in `nomadsim_reset.lua` first; if they fail use `--reset hotkey` with a key bound to your own save/load state.
+
+Not tested without AC: the shared-memory struct offsets against a live game (layout copied from the CSP `sim_info.py`, parsing is unit-tested on fake buffers), the CSP Lua API calls, `SendInput` hotkeys, `winsound` playback, and the corner positions (placeholders until real laps are logged).
+
 Corner positions in `fixtures/corner_monza_t1.json` are placeholders; replace after logging real laps.
