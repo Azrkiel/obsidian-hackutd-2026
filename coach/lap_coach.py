@@ -9,6 +9,11 @@
            drill, rewind until the detector finds the corner clean or the retry limit; RESUME.
 
 While a retry loop runs, errors elsewhere are ignored. Personal bests come from normal laps only.
+
+Combined with the lap coach (--track ... --mode lap, "standalone" here): the lap coach owns the app's
+coach, so the cue is the decision ladder's answer on the event packet (same 2 s budget), retries are
+judged by the detector, the cue is spoken ahead of the lap coach's advice (talk zones only), and the
+countdown starts when it is spoken. The lap coach skips laps while a retry runs.
 """
 from __future__ import annotations
 
@@ -16,7 +21,9 @@ import asyncio
 from typing import TYPE_CHECKING, Any
 
 from engine import ladder
+from engine.evidence import build_packet
 from engine.state import AWAIT_RESET, DONE, IDLE, OFFERED, RETRY
+from engine.voice import OFFER
 
 from .events import CheckpointPicker, CornerEvent, EventDetector, RetryStart
 from .offers import Offer, OfferManager
@@ -52,6 +59,8 @@ class LapCoach:
         self.store, self.max_retries, self.tick_s = store, max_retries, tick_s
         self.live_budget = dict(live_budget or LIVE_BUDGET)
         self.scorer = PassScorer(self.track, app.base_corner, self.on_pass)
+        # combined with the lap coach: it owns app.coach, so offers don't use it
+        self.standalone = getattr(app, "track", None) is not None
         self.retrying: Offer | None = None     # the accepted offer whose retry loop is running
         self._tries = 0
         self._cue_for: dict[str, str] = {}      # coach attempt_id -> offer id waiting for its cue
@@ -106,6 +115,8 @@ class LapCoach:
                 await self.store.drop(o.id)
 
     def _release_coach(self) -> None:
+        if self.standalone:
+            return
         c = self.app.coach
         if c.state in (OFFERED, DONE):
             c.reset_session()
@@ -136,6 +147,9 @@ class LapCoach:
         start = await self._pin(ev, c)
         offer, dropped = self.offers.new(ev, start)
         await self._drop(dropped)
+        if self.standalone:
+            await self._standalone_cue(offer)
+            return
         coach = self.app.coach
         if coach.state not in (IDLE, DONE, OFFERED):
             # the coach is still deciding an older event: this one gets the rules cue
@@ -152,6 +166,43 @@ class LapCoach:
         self.app.baseline_run = {"type": "run", "role": "baseline", "attempt": attempt.__dict__,
                                  "trace": ev.cpass.trace}
         await coach.on_scored(attempt, ev.cpass.trace, {"event": ev.summary()})
+
+    async def _standalone_cue(self, offer: Offer) -> None:
+        """Combined mode: the ladder decides on the event packet (live budget); rules cue otherwise."""
+        ev = offer.event
+        text, source = rules_cue(ev), "rules"
+        a = ev.cpass.attempt
+        if a is not None and a.valid:
+            cfg = self.scorer.configs[ev.corner_id]
+            packet = build_packet(a, ev.ref.as_attempt(), None, cfg, None, None)
+            packet["event"] = ev.summary()
+            offer.extra["packet"] = packet
+            try:
+                d, _ = await ladder.decide(packet, self.app.providers, **self.live_budget)
+                if d.action == "offer_drill" and d.cue:
+                    text, source = d.cue, d.mode
+            except Exception:  # noqa: BLE001 - the rules cue stands
+                pass
+        self._deliver(offer, text, source)
+
+    def _deliver(self, offer: Offer, text: str, source: str) -> None:
+        """Speak the cue (offer priority, talk zones only); the countdown starts when it's spoken.
+        Without voice the text shows at once."""
+        ann = self.app.announcer
+        if ann is None or ann.muted:
+            self.offers.cue_delivered(offer.id, text, source)
+            return
+        offer.extra["voice"] = (text, source)
+        ann.say(text, OFFER, offer_id=offer.id)
+
+    def on_voice(self, e: dict) -> None:
+        oid = e.get("offer_id")
+        if not oid or e.get("status") not in ("speaking", "dropped", "error"):
+            return
+        o = self.offers.current
+        if o is not None and o.id == oid and "voice" in o.extra:
+            text, source = o.extra.pop("voice")
+            self.offers.cue_delivered(oid, text, source)   # dropped (stale, muted): shown as text
 
     async def _pin(self, ev: CornerEvent, c: Any) -> RetryStart | None:
         if self.app.reset.mode == "sim":
@@ -238,7 +289,8 @@ class LapCoach:
     async def _analyse(self, o: Offer) -> None:
         """Opt-in: the deeper think-mode look at the error. Spoken if it lands before the braking
         point of the first retry, otherwise shown only."""
-        packet = self.app.coach.last_packet if o.extra.get("decision") is not None else None
+        packet = (o.extra.get("packet") if self.standalone else
+                  self.app.coach.last_packet if o.extra.get("decision") is not None else None)
         if packet is None or not self.app.providers:
             return
         try:
@@ -250,7 +302,8 @@ class LapCoach:
         text = d.cue or d.summary
         c = self.track.get(o.event.corner_id)
         s = self.app.latest
-        in_time = (s is not None and self.app.coach.state in (AWAIT_RESET, RETRY)
+        busy = self.retrying is o if self.standalone else self.app.coach.state in (AWAIT_RESET, RETRY)
+        in_time = (s is not None and busy
                    and 0 < self.track.ai_time(s.pos_m, c.key_m) < 20)
         self.app.broadcast({"type": "offer_analysis", "offer_id": o.id, "text": text, "mode": d.mode,
                             "spoken": in_time})

@@ -172,11 +172,21 @@ Plan and decisions: `docs/ROLLING_CHECKPOINTS.md`. Every corner of `--track` is 
 gets a cue and a 5 s retry offer (dashboard Retry, or phone Next). Accepting rewinds to a state held
 before that corner, runs the retry loop, then puts the car back where Retry was pressed.
 
+**The demo runs both coaches together**: the lap coach's per-lap voice cue (above) plus a retry
+offer for every error. Retries are judged by the error detector (fixed = the corner is clean),
+the offer's cue is spoken first on the next straight, and its countdown starts when it's spoken.
+The lap coach skips laps while a retry rewinds the car.
+
 ```bash
-# no game: the lap simulator, with planted mistakes per corner (per attempt, + separated)
-uv run python -m coach --whole-lap --plant c1=late_brake,c4=spin+none,c6=slow_exit
-# game PC: rolling checkpoints from the CSP Lua app (install csp/nomadsim_reset v0.2 first)
-uv run python -m coach --whole-lap --telemetry ac --reset udp --inputs
+# no game: the lap coach's simulator (its demo knobs brake early at Roggia and Ascari)
+uv run python -m coach --track fixtures/track_monza.json
+# no game, planted mistakes per corner and attempt (+ separated): the retry simulator
+uv run python -m coach --track fixtures/track_monza.json --plant t1=late_brake,lesmo1=spin+none
+# game PC: rewinds through the CSP Lua app (install csp/nomadsim_reset v0.2 first)
+uv run --with vgamepad --with pyserial python -m coach --track fixtures/track_monza.json --telemetry ac --inputs
+# the lap coach alone, or the retry coach alone (think-mode drill loop per retry)
+uv run python -m coach --track fixtures/track_monza.json --no-retries
+uv run python -m coach --whole-lap --plant t1=late_brake
 ```
 
 - Settings (saved in `data/settings.json`, applied live): `GET/POST /settings`, with fields

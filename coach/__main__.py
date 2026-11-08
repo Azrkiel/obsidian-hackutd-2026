@@ -55,6 +55,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--brake-board", type=float, default=86.0, help="sim: first-run brake board (m)")
     ap.add_argument("--transport", choices=["tools", "json"], default=None)
     w = ap.add_argument_group("whole lap: every error gets a cue and a retry offer (docs/ROLLING_CHECKPOINTS.md)")
+    w.add_argument("--no-retries", action="store_true",
+                   help="with --track: the lap coach only (no retry offers or rewinds)")
     w.add_argument("--whole-lap", action="store_true",
                    help="score every corner of --track; with --telemetry sim, drive it with the lap simulator")
     w.add_argument("--track-model", default=str(ROOT / "fixtures" / "tracks" / "monza.json"),
@@ -157,7 +159,14 @@ def build_track_app(args: argparse.Namespace) -> CoachApp:
     if missing:
         raise SystemExit(f"the track reference has no corner {missing}")
     kind = args.telemetry[0]
-    if kind == "sim":
+    retries = not args.no_retries
+    model = rrefs = store = None
+    if retries:   # retry offers alongside the lap coach (the combined demo)
+        model = Track.load(args.track_model)
+        rrefs = References(model, Path(args.data_dir) / "personal_best.json", mode=args.reference_mode)
+    if kind == "sim" and retries and args.plant:
+        source = LapSim(model, errors=parse_plant(args.plant), realtime=True, start_m=model.length_m - 600)
+    elif kind == "sim":
         unknown = [c for c in parse_sim_corners(args.sim_corner) if c not in track.ids]
         if unknown:
             raise SystemExit(f"--sim-corner: unknown corner {unknown}; known: {track.ids}")
@@ -170,9 +179,15 @@ def build_track_app(args: argparse.Namespace) -> CoachApp:
         source = ReplaySource(args.telemetry[1], realtime=True)
     else:
         raise SystemExit(f"unknown telemetry source {kind!r}")
-    reset = args.reset or "manual"
-    if reset == "sim":
-        raise SystemExit("--reset sim is for single-corner drills; whole lap never resets the car")
+    if retries:   # rewinds: the simulator teleports, the game loads states from the Lua app
+        reset = args.reset or ("sim" if kind == "sim" else "udp" if kind == "ac" else "manual")
+        if reset == "sim" and kind != "sim":
+            raise SystemExit("--reset sim needs --telemetry sim")
+        store = CheckpointStore() if reset == "udp" else None
+    else:
+        reset = args.reset or "manual"
+        if reset == "sim":
+            raise SystemExit("--reset sim is for single-corner drills; the lap coach never resets the car")
     voice = args.voice or "auto"
     speaker = None if voice == "off" else make_speaker(voice)
     first = track.corners[0].id
@@ -182,7 +197,8 @@ def build_track_app(args: argparse.Namespace) -> CoachApp:
                     sound=args.sound, countdown=args.countdown, persist_checkpoint=kind != "sim",
                     mode="lap", speaker=speaker, muted=args.mute, agent=args.agent,
                     inputs=build_inputs(args), auto_retry=False, max_retries=args.max_retries,
-                    track=track, track_references=refs)
+                    track=track, track_references=refs, track_model=model, references=rrefs,
+                    lead_time_s=args.lead_time, whole_lap=retries, store=store)
 
 
 def build_inputs(args: argparse.Namespace) -> InputHub | None:

@@ -495,6 +495,10 @@ class TrackSimSource:
             k["release_s"] += self.skill * (tgt - k["release_s"])
         self._build()
 
+    def teleport_to(self, pos_m: float, speed_kmh: float) -> None:
+        """A checkpoint load (retry offers in whole-lap mode): the car is put back at pos_m."""
+        self.pos = float(pos_m) % self.length
+
     async def samples(self) -> AsyncIterator[Sample]:
         loop = asyncio.get_running_loop()
         wall0 = loop.time() - self.t

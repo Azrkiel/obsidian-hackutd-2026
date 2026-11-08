@@ -158,7 +158,9 @@ class CoachApp:
             if track_model is None or references is None:
                 raise ValueError("retry offers need a track model and references")
             from .lap_coach import LapCoach
-            self.auto_retry = True   # an accepted offer runs the retry loop and resumes at the end
+            if track is None:
+                # drill mode: an accepted offer runs the coach's retry loop and resumes at the end
+                self.auto_retry = True
             self.reset.store = store
             self.lap_coach = LapCoach(self, store=store, max_retries=max_retries)
             from .settings import Settings, SettingsStore
@@ -194,6 +196,8 @@ class CoachApp:
         if event["type"] in ACTIVITY_TYPES:
             event["text"] = self._activity_text(event)
             self.activity.append({"ts": event["ts"], "type": event["type"], "text": event["text"]})
+        if event["type"] == "voice" and getattr(self, "lap_coach", None) is not None:
+            self.lap_coach.on_voice(event)
         for cb in list(self._subs):
             try:
                 cb(event)
@@ -248,7 +252,7 @@ class CoachApp:
                     self.track_sim.set_target_board(e["target"]["marker_m"], e["corner_id"])
                 elif e.get("drill_id") == "brake_release":
                     self.track_sim.set_target_release(e["target"]["release_s"], e["corner_id"])
-            if e["action"] == "offer_drill" and self.sim is not None:
+            if e["action"] == "offer_drill" and self.sim is not None and self.track is None:
                 if e.get("drill_id") == "brake_point":
                     self.sim.set_target_board(e["target"]["marker_m"])
                 elif e.get("drill_id") == "brake_release":
@@ -372,6 +376,9 @@ class CoachApp:
         self.broadcast(ev)
 
     def _on_lap_corners(self, lap: int, runs: dict) -> None:
+        if self.lap_coach is not None and self.lap_coach.retrying is not None:
+            self._lap_events, self._lap_inputs = {}, {}
+            return   # a retry is rewinding the car: this lap is not one to coach
         events, self._lap_events = self._lap_events, {}
         inputs, self._lap_inputs = self._lap_inputs, {}
         self.last_lap_runs = {"lap": lap, "runs": runs}
