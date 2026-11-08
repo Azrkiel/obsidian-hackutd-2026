@@ -124,6 +124,41 @@ With the coach as the input receiver (instead of `bridge/bridge.py`). The pad an
 uv run --with vgamepad --with pyserial python -m coach --telemetry ac --reset udp --inputs
 ```
 
+### Coach memory across sessions
+
+See [the coach memory handoff](COACH_MEMORY_HANDOFF.md) for validation results, remaining tests and follow-up work.
+
+Use a stable driver name to let the agent read previous sessions:
+
+```
+uv run python -m coach --agent --driver kev --telemetry sim --reset sim --voice off
+```
+
+The dashboard's **Driver** button also sets the name (`{"type":"set_driver","driver":"kev"}`
+on `/ws`). Changing drivers ends the current session and starts fresh; changes wait until
+any decision or reset finishes. An empty name selects anonymous recording. Anonymous laps
+are stored, but `get_driver_history` returns `{"error":"no driver"}` and they are never
+attributed to a named driver later.
+
+History lives in `data/coach-memory.sqlite3` (or `--data-dir`), using Python's built-in SQLite.
+Keep that directory between launches. Sessions end on DONE, New session, resume, driver
+switch, or normal shutdown. Each scored lap stores its metrics and the reference used at
+the time; valid, comparable laps contribute to tendencies and best section times.
+
+The agent's `get_driver_history` tool returns the last three sessions for the same driver
+and corner, their goal outcomes and summaries, and metric tendencies computed on read.
+Each session contributes its mean lap delta against its saved references; the tendency is
+the mean of those session means, with a count of sessions outside tolerance. Missing
+metrics do not count. A SHA-1 fingerprint covers gates, apex window, board zero and
+tolerances. If any returned session has a different fingerprint, the tool reports
+`corner_changed: true`, retains outcomes and summaries, and omits times and tendencies.
+
+Rules always produce a summary; a model summary replaces it only after spoken-text
+validation. The plan prompt asks the agent to read history first and revisit a previously
+met goal only when its current delta is over tolerance. SQLite storage is local only;
+there is no SpacetimeDB backend in this repository. `MemoryStore.delete_driver(name)`
+removes a named driver's local sessions and laps; no dashboard deletion flow is included.
+
 ### Inputs
 
 | Input | Transport | Format |

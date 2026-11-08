@@ -43,6 +43,8 @@ READ_TOOLS: list[dict] = [
          "vs": {"type": "string", "enum": ["reference", "baseline", "previous"]}}, ["attempt_id"]),
     _fn("compare_runs", "Metric-by-metric differences between two laps (a minus b).",
         {"a": {"type": "string"}, "b": {"type": "string"}}, ["a", "b"]),
+    _fn("get_driver_history", "Last three sessions for this driver and corner, goal outcomes and metric tendencies. "
+        "Changed corners return outcomes only; anonymous drivers have no history.", {}, []),
     _fn("get_session_history", "Laps so far, drills given, outcomes, and the plan.", {}, []),
     _fn("get_corner_info", "Brake boards, gates, apex window, tolerances and allowed drill ranges.", {}, []),
 ]
@@ -71,8 +73,9 @@ _ALL_ACTIONS = {**_BASE_ACTIONS, **{t["function"]["name"]: t for t in ACTION_TOO
 READ_NAMES = {t["function"]["name"] for t in READ_TOOLS} | {"get_attempt_evidence"}
 
 AGENT_PROMPT = """You are a racing coach running a practice session on one corner of a track in a simulator. The car is a Mazda 787B: very fast, heavy downforce, an analog brake. Each turn:
-- You may call read tools (get_driving_profile, get_splits, compare_runs, get_session_history, get_corner_info) for up to 3 rounds; their results come back to you.
+- You may call read tools (get_driver_history, get_driving_profile, get_splits, compare_runs, get_session_history, get_corner_info) for up to 3 rounds; their results come back to you.
 - Then call exactly one action tool. Never answer in plain text.
+On the plan turn, call get_driver_history first; do not re-plan a goal met last session unless its current delta is back over tolerance.
 Plan turn (packet.turn = "plan", after the baseline lap): look at the profile and the splits against the reference, then set_plan with 1 to 3 ordered goals, the biggest time loss first. Each goal is one drill with a target taken from packet.suggested, a cue, a reminder and in_a_row (1, or 2 for "twice in a row"). Only plan drills whose delta is over tolerance. If nothing is over tolerance, or the lap is invalid or not comparable, call end_drill.
 Evaluate turn (packet.turn = "evaluate", after a retry of packet.plan.active_goal): compare the retry with the goal's target (packet.target_gap vs packet.tolerance; packet.plan.active_goal.streak counts hits in a row including this lap, tries counts retries on this goal). One action: offer_drill for the same drill (verdict repeat if it improved but missed, adjust if the target is wrong for this driver), advance_plan (met when inside tolerance and the streak reaches in_a_row; skipped after 2 or more tries with no progress), revise_plan if the plan was wrong, or end_session.
 Drills: brake_point (target marker_m = brake board), brake_release (target release_s = seconds from peak brake to off; the 787B needs a progressive release as downforce fades or the fronts lock), throttle_pickup (target marker_m = metres past the apex).
@@ -111,8 +114,9 @@ def _short(name: str, res: dict) -> str:
 class AgentSession:
     """Session state the read tools look at. Lives in the Coach across laps."""
 
-    def __init__(self, corner: CornerConfig, reference: Attempt, reference_trace: list | None = None):
+    def __init__(self, corner: CornerConfig, reference: Attempt, reference_trace: list | None = None, memory: Any = None):
         self.corner = corner
+        self.memory = memory
         self.reference = reference
         self.reference_trace = reference_trace or []
         self.runs: dict[str, dict] = {}
@@ -208,6 +212,8 @@ class AgentSession:
             if pa is None or pb is None:
                 return {"error": f"unknown run: a={args.get('a')!r} b={args.get('b')!r}"}
             return {"a": a, "b": b, "diff": compare_runs(pa, pb)}
+        if name == "get_driver_history":
+            return self.memory.history() if self.memory is not None else {"error": "no driver"}
         if name == "get_session_history":
             return {"laps": self.history[-12:],
                     "plan": self.plan.to_dict(self.corner.tolerance) if self.plan else None}

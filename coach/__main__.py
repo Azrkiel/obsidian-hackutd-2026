@@ -65,6 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--voice", choices=["auto", "windows", "nvidia", "silent", "off"], default=None,
                     help="spoken coaching (default: auto in lap mode, off in drill mode)")
     ap.add_argument("--mute", action="store_true", help="start with the voice muted (M toggles)")
+    ap.add_argument("--driver", default=None, help="driver name for history across sessions")
     ap.add_argument("--agent", action="store_true",
                     help="Nemotron runs the session: read tools (profile, splits, ...) + a 1-3 goal plan")
     ap.add_argument("--release", type=float, default=0.55,
@@ -124,7 +125,7 @@ def build_app(args: argparse.Namespace) -> CoachApp:
                     sound=args.sound, countdown=args.countdown,
                     persist_checkpoint=kind != "sim", mode=args.mode, speaker=speaker,
                     muted=args.mute, agent=args.agent, inputs=build_inputs(args),
-                    auto_retry=args.auto_retry, max_retries=args.max_retries)
+                    auto_retry=args.auto_retry, max_retries=args.max_retries, driver=args.driver)
 
 
 async def amain(args: argparse.Namespace) -> None:

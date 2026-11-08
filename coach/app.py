@@ -21,6 +21,7 @@ from engine import ladder
 from engine.agent_tools import AgentSession
 from engine.live_cue import LiveCue, NullPlayer
 from engine.models import Attempt, CornerConfig
+from engine.memory import MemoryStore, SessionMemory, driver_name
 from engine.state import AWAIT_RESET, DECIDING, DONE, IDLE, OFFERED, RETRY, Coach
 from engine.trace import TraceWriter
 from engine.voice import ADVICE, REMINDER, VERDICT, Announcer
@@ -31,7 +32,7 @@ from .scorer import CornerScorer
 from .telemetry import Recorder, Sample, SimSource
 
 COMMANDS = {"accept", "retry", "save_checkpoint", "set_reference", "new_session",
-            "toggle_cue_next", "retry_reset", "toggle_mute", "mark_board", "resume"}
+            "toggle_cue_next", "retry_reset", "toggle_mute", "mark_board", "resume", "set_driver"}
 LAP_TOTAL_DEADLINE_S = 8.0  # lap mode: slower than this and the rules sentence is spoken instead
 ACTIVITY_TYPES = {"run", "decision", "reset_request", "reset_confirmed", "reset_failed",
                   "checkpoint", "reference", "session", "input", "resume_point", "resumed"}
@@ -58,12 +59,15 @@ class CoachApp:
                  reconnect_s: float = 2.0, decide_kwargs: dict | None = None,
                  reset_kwargs: dict | None = None, mode: str = "drill", speaker: Any = None,
                  muted: bool = False, announcer_kwargs: dict | None = None, agent: bool = False,
-                 inputs: InputHub | None = None, auto_retry: bool = False, max_retries: int = 5):
+                 inputs: InputHub | None = None, auto_retry: bool = False, max_retries: int = 5,
+                 driver: str | None = None):
         if mode not in ("drill", "lap"):
             raise ValueError(f"mode must be drill or lap, not {mode!r}")
         self.mode = mode
         self.corner, self.source, self.providers = corner, source, providers
         self.data_dir = Path(data_dir)
+        self.memory = SessionMemory(MemoryStore(self.data_dir / "coach-memory.sqlite3"),
+                                    corner, driver, reference_trace)
         self.recorder, self.reconnect_s = recorder, reconnect_s
         self.reference, self.reference_trace = reference, reference_trace or []
         self.events: list[dict] = []
@@ -111,7 +115,8 @@ class CoachApp:
         self.coach = Coach(corner, reference, providers, self._on_coach_event, self._request_reset,
                            trace=self.trace, live_cue=self.live_cue, decide_kwargs=dk,
                            lap_mode=mode == "lap",
-                           agent=AgentSession(corner, reference, self.reference_trace) if agent else None)
+                           agent=AgentSession(corner, reference, self.reference_trace, self.memory) if agent else None,
+                           memory=self.memory)
 
     # -- broadcast --
     def subscribe(self, cb: Callable[[dict], None]) -> Callable[[], None]:
@@ -350,7 +355,7 @@ class CoachApp:
     def snapshot(self) -> dict:
         c = self.coach
         return {
-            "type": "snapshot", "state": c.state, "corner": asdict(self.corner),
+            "type": "snapshot", "driver": self.memory.driver, "state": c.state, "corner": asdict(self.corner),
             "reference": {"attempt": asdict(self.reference), "trace": self.reference_trace},
             "baseline": self.baseline_run, "retry": self.retry_run,
             "decision": self.last_decision, "offer": c.offer.to_dict() if c.offer else None,
@@ -378,7 +383,21 @@ class CoachApp:
         if not isinstance(msg, dict) or msg.get("type") not in COMMANDS:
             return self._note("unknown command")
         kind, c = msg["type"], self.coach
-        if kind == "accept":
+        if kind in ("set_driver", "new_session") and c.state in (DECIDING, AWAIT_RESET):
+            return self._note("wait for the decision or reset before changing sessions")
+        if kind == "set_driver":
+            try:
+                driver = driver_name(msg.get("driver"))
+            except ValueError as e:
+                return self._note(str(e))
+            if driver == self.memory.driver:
+                return
+            c.reset_session()
+            self.memory.driver = driver
+            self.reset.clear_resume_point()
+            self.baseline_run = self.retry_run = self.last_decision = None
+            self.broadcast({"type": "session", "driver": driver})
+        elif kind == "accept":
             did = msg.get("decision_id") or (c.offer.decision_id if c.offer else None)
             if c.state != OFFERED or c.offer is None or c.offer.decision_id != did:
                 return self._note("accept does not match the current offer")
@@ -401,7 +420,7 @@ class CoachApp:
             c.reset_session()
             self.reset.clear_resume_point()
             self.baseline_run = self.retry_run = self.last_decision = None
-            self.broadcast({"type": "session"})
+            self.broadcast({"type": "session", "driver": self.memory.driver})
         elif kind == "toggle_cue_next":
             self.cue_next_off = c.toggle_cue_next_try()
             self.broadcast(self.health())
@@ -431,6 +450,7 @@ class CoachApp:
         a = Attempt.from_dict(run["attempt"])
         self.reference, self.reference_trace = a, run["trace"]
         self.coach.reference = a
+        self.memory.reference_trace = run["trace"]
         if self.coach.agent is not None:
             self.coach.agent.set_reference(a, run["trace"])
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -476,6 +496,7 @@ class CoachApp:
         await asyncio.gather(*self._main, *self._tasks, return_exceptions=True)
         if self.inputs is not None:
             await self.inputs.stop()
+        self.memory.finish()
         if self.recorder:
             self.recorder.close()
 

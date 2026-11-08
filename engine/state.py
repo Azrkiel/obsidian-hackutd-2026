@@ -37,7 +37,7 @@ class Coach:
                  request_reset: Callable[[str], Awaitable[None]],
                  trace: Any = None, live_cue: Any = None,
                  decide_kwargs: dict | None = None, lap_mode: bool = False,
-                 voice: dict | None = None, agent: Any = None):
+                 voice: dict | None = None, agent: Any = None, memory: Any = None):
         self.corner, self.reference, self.providers = corner, reference, providers
         self.emit, self.request_reset = emit, request_reset
         self.trace, self.live_cue = trace, live_cue
@@ -47,6 +47,7 @@ class Coach:
         self.voice = voice if voice is not None else (dict(VOICE_LIMITS) if lap_mode else None)
         # agent mode (engine.agent_tools.AgentSession): tool loop + session plan
         self.agent = agent
+        self.memory = memory
         self.agent_deadlines = agent_deadlines()
         self.state = IDLE
         self.baseline: Attempt | None = None
@@ -79,6 +80,8 @@ class Coach:
         return self.agent.plan.to_dict(self.corner.tolerance)
 
     def reset_session(self) -> None:
+        if self.memory is not None:
+            self.memory.finish()
         if self.agent is not None:
             self.agent.reset()
         self.baseline = self.previous = self.drill = self.offer = None
@@ -91,6 +94,9 @@ class Coach:
     async def on_scored(self, attempt: Attempt, trace: list | None = None,
                         context: dict | None = None) -> None:
         """context: extra evidence merged into the packet (e.g. {"inputs": {...}} from the input hub)."""
+        if self.memory is not None:
+            self.memory.record(attempt, self.reference, trace,
+                               self.agent.reference_trace if self.agent is not None else None)
         if self.state == DECIDING:
             return self._ignored("decision in flight")
         if self.state not in (IDLE, RETRY):
@@ -133,6 +139,11 @@ class Coach:
                              "verdict": decision.verdict, "end_reason": decision.end_reason,
                              "said": decision.cue if decision.action == "offer_drill" else decision.summary,
                              "mode": decision.mode})
+        if self.memory is not None:
+            self.memory.note(decision, self.drill)
+            if decision.action != "offer_drill":
+                ev = {**packet, "tool_results": turn.results if turn else []}
+                self.memory.finish(decision.summary if decision.mode != "rules" else None, ev)
         self.previous = attempt
         self.last_decision = decision
         if self.trace:

@@ -50,6 +50,7 @@ button:disabled{opacity:.35;cursor:not-allowed}
 </head>
 <body>
 <header>
+  <button id="b-driver">Driver: anonymous</button>
   <span class="badge" id="state">IDLE</span>
   <span class="badge" id="ai">Rules (AI unavailable)</span>
   <span class="badge" id="tel">telemetry: no data</span>
@@ -218,6 +219,7 @@ function onEvent(e){
   else if(e.text&&e.type!=="snapshot") addActivity({ts:e.ts,text:e.text});
   switch(e.type){
   case "snapshot":
+    $("b-driver").textContent="Driver: "+(e.driver||"anonymous");
     S.state=e.state; S.corner=e.corner; S.ref=e.reference.attempt; S.refTrace=e.reference.trace||[];
     S.base=e.baseline; S.retry=e.retry; S.decision=e.decision; S.offer=e.offer; S.health=e.health; S.tries=e.tries;
     S.plan=e.plan||null; $("activity").innerHTML=""; (e.activity||[]).forEach(addActivity);
@@ -235,7 +237,7 @@ function onEvent(e){
     if(e.role==="baseline"){ S.base=e; S.retry=null; } else if(e.role==="retry") S.retry=e; break;
   case "decision": S.decision=e; S.offer=e.action==="offer_drill"?e:null; if(e.plan) S.plan=e.plan; break;
   case "reference": S.ref=e.attempt; S.refTrace=e.trace||[]; break;
-  case "session": S.base=S.retry=S.decision=S.offer=S.plan=null; S.thinking=""; $("thinking").innerHTML="&nbsp;"; $("tools").innerHTML=""; break;
+  case "session": $("b-driver").textContent="Driver: "+(e.driver||"anonymous"); S.base=S.retry=S.decision=S.offer=S.plan=null; S.thinking=""; $("thinking").innerHTML="&nbsp;"; $("tools").innerHTML=""; break;
   case "reset_failed": toast("Reset failed: "+e.reason); break;
   }
   renderAll();
@@ -248,6 +250,10 @@ function connect(){
 }
 function accept(){ if(S.state==="OFFERED"&&S.offer) send({type:"accept",decision_id:S.offer.decision_id}); }
 $("b-accept").onclick=accept;
+$("b-driver").onclick=()=>{
+  const name=window.prompt("Driver name (leave empty for anonymous)");
+  if(name!==null) send({type:"set_driver",driver:name});
+};
 for(const k of ["retry","resume","retry_reset","save_checkpoint","set_reference","new_session","toggle_cue_next","toggle_mute","mark_board"])
   $("b-"+k).onclick=()=>send({type:k});
 document.addEventListener("keydown",ev=>{
