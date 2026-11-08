@@ -184,7 +184,7 @@ struct DrivingView: View {
     }
 
     private var commandGrid: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 5), spacing: 8) {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 6), spacing: 8) {
             ForEach(commands) { command in
                 CommandButton(command: command, compact: session.showsAssistButtons) { phase in
                     session.send(command, phase: phase)

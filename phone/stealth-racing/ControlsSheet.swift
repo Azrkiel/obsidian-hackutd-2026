@@ -38,21 +38,19 @@ struct ControlsSheet: View {
                             Text(command.rawValue)
                                 .font(.caption.monospaced())
                                 .foregroundStyle(Theme.secondaryText)
-                            if command.isStub {
-                                Text("Stub")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(Theme.secondaryText)
-                                    .padding(.horizontal, 7)
-                                    .padding(.vertical, 3)
-                                    .background(Theme.hairline, in: .rect(cornerRadius: 6))
-                            }
+                            Text(command.padButton)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(command.isCoach ? Theme.redHighlight : Theme.secondaryText)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 3)
+                                .background(Theme.hairline, in: .rect(cornerRadius: 6))
                         }
                         .accessibilityElement(children: .combine)
                     }
                 } header: {
                     Text("Assetto Corsa buttons")
                 } footer: {
-                    Text("Each button sends `evt,<id>,<command>,<tap|down|up>` to the receiver. Map the command names to Assetto Corsa inputs in the PC bridge.")
+                    Text("With the coach as receiver (`--inputs`), each button presses the Xbox pad button shown; bind those in Assetto Corsa’s Controls. Next accepts the coach’s drill (or rewinds for a retry); Resume ends the drill and puts the car back where it started. bridge.py ignores buttons.")
                 }
 
                 Section("Debug") {
