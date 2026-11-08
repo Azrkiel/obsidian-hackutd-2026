@@ -1,0 +1,123 @@
+# NomadSim
+
+One-corner practice coach for Assetto Corsa (HackUTD 2026).
+
+## Thinking engine
+
+Nemotron reads a scored attempt's metrics and picks one coaching action; the car is reset and the retry is scored.
+This package is the engine only. The game, telemetry reader, input bridge and dashboard integrate through injected callables.
+
+Layout:
+
+- `engine/models.py`, `config.py` - dataclasses, corner/attempt loaders
+- `engine/evidence.py` - `build_packet(...)` evidence packet
+- `engine/tools.py` - tool schemas + `validate(call, packet)`
+- `engine/rules.py` - `rule_decide(packet)` deterministic fallback
+- `engine/nemotron.py` - NVIDIA / OpenRouter clients (think/fast, streaming, json transport)
+- `engine/ladder.py` - `decide()` deadlines, fallback ladder, circuit breaker, `warm_up()`
+- `engine/state.py` - `Coach` state machine
+- `engine/trace.py` - JSONL decision traces (`traces/<session>.jsonl`)
+- `engine/live_cue.py` - live audio cues during retries (no LLM)
+- `fixtures/` - placeholder Monza T1 corner, reference lap, sample attempts
+- `scripts/spike_nemotron.py` - live API latency/reliability spike
+
+Setup and tests (needs `--system-certs` behind TLS interception):
+
+```
+uv sync --system-certs
+uv run pytest -q
+```
+
+Demo (falls back to rules without keys):
+
+```
+uv run python -m engine.demo fixtures/attempts/late_brake.json
+uv run python -m engine.demo fixtures/attempts/late_brake.json --retry fixtures/attempts/retry_close.json
+```
+
+Live spike (needs `NVIDIA_API_KEY`; run once keys exist):
+
+```
+uv run python scripts/spike_nemotron.py --n 5
+```
+
+Env vars:
+
+| Var | Purpose |
+| --- | --- |
+| `NEMOTRON_BASE_URL` | self-hosted vLLM on Brev, e.g. `http://<brev-host>:8000/v1`; tried first when set |
+| `NEMOTRON_API_KEY` | the `--api-key` the vLLM server was started with (optional) |
+| `NVIDIA_API_KEY`, `OPENROUTER_API_KEY` | hosted provider keys (provider skipped if unset) |
+| `NEMOTRON_BREV_MODEL`, `NEMOTRON_MODEL`, `NEMOTRON_OPENROUTER_MODEL` | model ids (brev default `nemotron`) |
+| `NEMOTRON_REASONING_BUDGET`, `NEMOTRON_MAX_TOKENS_THINK`, `NEMOTRON_MAX_TOKENS_FAST` | budgets (512 / 900 / 200) |
+| `NEMOTRON_TRANSPORT` | `tools` (default) or `json` |
+| `ENGINE_THINK_DEADLINE_S`, `ENGINE_FAST_DEADLINE_S`, `ENGINE_TOTAL_DEADLINE_S` | deadlines (6 / 4 / 10) |
+
+### Self-hosting on Brev
+
+One H100 80GB, NVFP4 checkpoint, vLLM >= 0.27.1 (`vllm/vllm-openai:v0.28.0`):
+
+```
+vllm serve nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4 \
+  --served-model-name nemotron --port 8000 --api-key $ENGINE_KEY \
+  --quantization modelopt_fp4 --kv-cache-dtype fp8 \
+  --max-model-len 32768 --max-num-seqs 8 --enable-prefix-caching \
+  --mamba-backend flashinfer --mamba-cache-mode align \
+  --moe-backend humming --linear-backend humming \
+  --reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder
+```
+
+Then on the PC: `NEMOTRON_BASE_URL=http://<brev-host>:8000/v1 NEMOTRON_API_KEY=$ENGINE_KEY uv run python scripts/spike_nemotron.py --provider brev`.
+vLLM has no hosted-style `reasoning_budget`; thinking length is bounded by the prompt, `max_tokens` and the ladder deadline.
+
+Pick a **stoppable** H100 offer (Nebius; `brev search gpu --gpu-name H100 --stoppable`). Lambda and Scaleway offers are "No stop/start" and can only be deleted. On the instance, set `HF_HOME=/home/ubuntu/workspace/hf` so the model download survives a stop.
+
+#### Idle auto-stop
+
+`scripts/brev_idle_stop.py` runs on your machine, reads vLLM's `/metrics` every minute, and runs `brev stop <instance>` after 30 idle minutes. It never deletes. While the box is stopped the engine falls back to build.nvidia.com.
+
+```
+NEMOTRON_BASE_URL=http://<brev-host>:8000/v1 uv run python scripts/brev_idle_stop.py --instance <name>
+```
+
+- Needs the brev CLI logged in where it runs (Brev supports Windows through WSL; `--brev-bin` points at another command).
+- `--idle-min 30`, `--poll-s 60`; `--dry-run` logs instead of stopping.
+- Judging: `touch .brev-hold` (or `--hold-until 11:30`) and it will not stop; delete the file after.
+- After a stop: `brev start <name>`, restart vLLM, restart the watchdog.
+
+## Coach program
+
+One asyncio process on the Windows PC: telemetry reader, corner scorer, engine `Coach`, reset manager, live audio cue and the dashboard web server. The phone/Arduino input bridge is a separate process.
+
+```
+coach/telemetry.py   Sample + ACSharedMemory (original AC), SimSource, ReplaySource, Recorder
+coach/scorer.py      CornerScorer: samples -> runs -> engine Attempt + brake trace
+coach/reset.py       ResetManager: 3-2-1 countdown, load request (udp/hotkey/manual/sim), telemetry confirmation
+coach/app.py         CoachApp: wiring, commands, status
+coach/dashboard.py   aiohttp: GET /, GET /ws (events out, commands in), GET /state
+csp/nomadsim_reset/  CSP Lua app (draft, untested)
+```
+
+Run with the simulator (no game needed; click Accept on the dashboard):
+
+```
+uv run python -m coach --telemetry sim --reset sim
+```
+
+Run with Assetto Corsa (original AC, offline practice at Monza):
+
+```
+uv run python -m coach --telemetry ac --reset udp          # CSP Lua app does the load
+uv run python -m coach --telemetry ac --reset hotkey       # presses F7 (load) / F6 (save) via SendInput
+uv run python -m coach --telemetry ac --reset manual       # you press your own load key
+```
+
+Dashboard: http://127.0.0.1:8020 (second screen; `--host 0.0.0.0` to open it on the LAN, `--port` to change; 8000 is the vLLM port-forward). Space/Enter = Accept.
+
+Flow: drive the corner once, then **Save checkpoint** on the approach (a few hundred metres before the start gate, at speed), drive the baseline, accept the offered drill, the car is reset, the retry is scored and judged. **Set reference** makes the last valid run the reference (`data/reference.json` + `data/reference_trace.json`; default is `fixtures/reference.json`). Checkpoint is `data/checkpoint.json`. Other flags: `--corner`, `--reference`, `--record` (samples to `data/recordings/*.jsonl`, replay with `--telemetry replay FILE`), `--sound/--no-sound` (winsound cues, on by default on Windows), `--countdown N`, `--traces DIR`. The AI badge and engine env vars are the ones in the table above (`NEMOTRON_BASE_URL`, `NVIDIA_API_KEY`, ...); with none set the rules coach runs and the badge says so.
+
+CSP reset app (draft): copy `csp/nomadsim_reset/` to `<assettocorsa>/apps/lua/nomadsim_reset/`, enable it in the in-game app list (needs Custom Shaders Patch with Lua apps). It listens on UDP 127.0.0.1:9101 (`SAVE` -> `SAVED x y z speed`, `RESET <id>` -> `ACK <id>`). Offline practice only; loading a state invalidates the lap. Verify the `TODO(verify)` API calls in `nomadsim_reset.lua` first; if they fail use `--reset hotkey` with a key bound to your own save/load state.
+
+Not tested without AC: the shared-memory struct offsets against a live game (layout copied from the CSP `sim_info.py`, parsing is unit-tested on fake buffers), the CSP Lua API calls, `SendInput` hotkeys, `winsound` playback, and the corner positions (placeholders until real laps are logged).
+
+Corner positions in `fixtures/corner_monza_t1.json` are placeholders; replace after logging real laps.

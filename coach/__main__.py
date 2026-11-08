@@ -1,0 +1,101 @@
+"""uv run python -m coach [--telemetry ac|sim|replay FILE] [--reset udp|hotkey|manual|sim] [--port 8020]"""
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import sys
+from pathlib import Path
+
+from engine.config import load_attempt, load_corner
+from engine.nemotron import default_providers
+
+from .app import CoachApp
+from .dashboard import Dashboard
+from .telemetry import ACSharedMemory, Recorder, ReplaySource, SimSource
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def build_parser() -> argparse.ArgumentParser:
+    ap = argparse.ArgumentParser(prog="coach", description=__doc__)
+    ap.add_argument("--telemetry", nargs="+", default=["sim"], metavar="ac|sim|replay [FILE]")
+    ap.add_argument("--reset", choices=["udp", "hotkey", "manual", "sim"], default=None)
+    ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument("--port", type=int, default=8020)
+    ap.add_argument("--corner", default=str(ROOT / "fixtures" / "corner_monza_t1.json"))
+    ap.add_argument("--reference", default=None)
+    ap.add_argument("--data-dir", default=str(ROOT / "data"))
+    ap.add_argument("--traces", default=str(ROOT / "traces"))
+    ap.add_argument("--record", action="store_true", help="write samples to data/recordings/")
+    ap.add_argument("--sound", action=argparse.BooleanOptionalAction, default=None)
+    ap.add_argument("--countdown", type=int, default=3)
+    ap.add_argument("--brake-board", type=float, default=86.0, help="sim: first-run brake board (m)")
+    ap.add_argument("--transport", choices=["tools", "json"], default=None)
+    return ap
+
+
+def build_app(args: argparse.Namespace) -> CoachApp:
+    corner = load_corner(args.corner)
+    data = Path(args.data_dir)
+    if args.reference:
+        ref_path = Path(args.reference)
+    elif (data / "reference.json").exists():
+        ref_path = data / "reference.json"
+    else:
+        ref_path = ROOT / "fixtures" / "reference.json"
+    ref_trace_path = ref_path.with_name(ref_path.stem + "_trace.json")
+    ref_trace = json.loads(ref_trace_path.read_text(encoding="utf-8")) if ref_trace_path.exists() else []
+    kind = args.telemetry[0]
+    if kind == "sim":
+        source = SimSource(corner, brake_board_m=args.brake_board)
+        reset = args.reset or "sim"
+    elif kind == "ac":
+        source = ACSharedMemory(corner.track_length_m)
+        reset = args.reset or "manual"
+    elif kind == "replay":
+        if len(args.telemetry) < 2:
+            raise SystemExit("--telemetry replay needs a FILE")
+        source = ReplaySource(args.telemetry[1], realtime=True)
+        reset = args.reset or "manual"
+    else:
+        raise SystemExit(f"unknown telemetry source {kind!r}")
+    if reset == "sim" and kind != "sim":
+        raise SystemExit("--reset sim needs --telemetry sim")
+    return CoachApp(corner, load_attempt(ref_path), source,
+                    default_providers(transport=args.transport), reset_mode=reset,
+                    reference_trace=ref_trace, data_dir=data, trace_dir=args.traces,
+                    recorder=Recorder(data / "recordings") if args.record else None,
+                    sound=args.sound, countdown=args.countdown,
+                    persist_checkpoint=kind != "sim")
+
+
+async def amain(args: argparse.Namespace) -> None:
+    app = build_app(args)
+    dash = Dashboard(app, args.host, args.port)
+    await dash.start()
+    await app.start()
+    print(f"NomadSim coach: telemetry={args.telemetry[0]} reset={app.reset.mode} "
+          f"dashboard http://{args.host}:{args.port}", flush=True)
+    try:
+        await asyncio.Event().wait()
+    finally:
+        await app.stop()
+        await dash.stop()
+
+
+def main() -> None:
+    args = build_parser().parse_args()
+    try:
+        import truststore
+        truststore.inject_into_ssl()
+    except ImportError:
+        pass
+    try:
+        asyncio.run(amain(args))
+    except KeyboardInterrupt:
+        pass
+
+
+if __name__ == "__main__":
+    main()
