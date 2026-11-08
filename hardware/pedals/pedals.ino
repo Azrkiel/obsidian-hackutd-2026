@@ -1,12 +1,12 @@
 #define MEASURE 0   // 1 = show distances so you can find the numbers, 0 = normal pedal output
 
-// Fill these in after measuring: [gas, brake]
-const float REST[2]  = {9.2, 8.5};   // distance in cm with the pedal up
-const float PRESS[2] = {3.4, 3.8};     // distance in cm with the pedal at its stop
+// [gas, brake]: distance in cm with the pedal up / at its stop
+const float REST[2]  = {9.2, 8.5};
+const float PRESS[2] = {3.4, 3.8};
 
-const int TRIG[2] = {4, 2};
+const int TRIG[2] = {4, 2};   // [gas sensor, brake sensor]
 const int ECHO[2] = {5, 3};
-const unsigned long GAP_MS = 5;
+const unsigned long GAP_MS = 3;   // wait after each ping; raise to 4 or 5 if readings spike
 
 float hist[2][3];
 int hn[2] = {0, 0};
@@ -31,11 +31,17 @@ float med3(float a, float b, float c) {
 }
 
 void update(int i, float cm) {
-  if (cm < 0) return;
+  if (cm < 0) return;                       // timeout: ignore
   hist[i][0] = hist[i][1]; hist[i][1] = hist[i][2]; hist[i][2] = cm;
   if (hn[i] < 3) hn[i]++;
   float m = (hn[i] < 3) ? cm : med3(hist[i][0], hist[i][1], hist[i][2]);
-  filt[i] = (filt[i] < 0) ? m : filt[i] + 0.4 * (m - filt[i]);
+  if (filt[i] < 0) {
+    filt[i] = m;
+  } else {
+    // fast when the pedal moves, smooth when it is still
+    float a = (fabs(m - filt[i]) > 1.0) ? 0.8 : 0.3;
+    filt[i] += a * (m - filt[i]);
+  }
   if (filt[i] < mn[i]) mn[i] = filt[i];
   if (filt[i] > mx[i]) mx[i] = filt[i];
 }
@@ -45,8 +51,8 @@ int pedal(int i) {
   if (span < 0.5 || filt[i] < 0) return 0;
   float v = (REST[i] - filt[i]) / span;
   v = constrain(v, 0.0, 1.0);
-  if (v < 0.03) v = 0;
-  if (v > 0.97) v = 1;
+  if (v < 0.03) v = 0;                      // dead zone at the top
+  if (v > 0.97) v = 1;                      // full at the bottom stop
   return (int)(v * 1000);
 }
 

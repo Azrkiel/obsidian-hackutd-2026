@@ -12,7 +12,7 @@ Calibration (cm): REST gas 9.2 brake 8.5, PRESS gas 3.4 brake 3.8
 
 
 
-Demo: plug in the Arduino, run `python bridge.py`, start the game.
+Demo: run the team bridge (bridge\bridge.py on the pc-bridge branch), NOT hardware\bridge.py. Two bridges make two virtual pads in the game. hardware\bridge.py is only a standalone pedal tester.
 
 Needs Python 3, the ViGEmBus driver, and `pip install -r requirements.txt`.
 
