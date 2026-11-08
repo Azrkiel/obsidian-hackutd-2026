@@ -248,8 +248,7 @@ function connect(){
 }
 function accept(){ if(S.state==="OFFERED"&&S.offer) send({type:"accept",decision_id:S.offer.decision_id}); }
 $("b-accept").onclick=accept;
-for(const k of ["retry","resume","retry_reset","save_checkpoint","set_reference","new_session","toggle_cue_next"])
-for(const k of ["retry","retry_reset","save_checkpoint","set_reference","new_session","toggle_cue_next","toggle_mute","mark_board"])
+for(const k of ["retry","resume","retry_reset","save_checkpoint","set_reference","new_session","toggle_cue_next","toggle_mute","mark_board"])
   $("b-"+k).onclick=()=>send({type:k});
 document.addEventListener("keydown",ev=>{
   if(ev.code==="KeyM"){ send({type:"toggle_mute"}); return; }
