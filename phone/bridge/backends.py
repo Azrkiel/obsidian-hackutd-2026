@@ -54,25 +54,28 @@ class GamepadBackend:
 
     def __init__(self):
         try:
-            import vgamepad  # noqa: F401  (Windows only)
+            import vgamepad  # imported lazily: Windows only
         except ImportError as error:
             raise RuntimeError(
                 "vgamepad is not installed. On Windows, install ViGEmBus, then run "
                 "`py -m pip install -r bridge\\requirements.txt`."
             ) from error
-        raise NotImplementedError("GamepadBackend is not implemented yet; use --backend dryrun")
+        self._buttons = {name: getattr(vgamepad.XUSB_BUTTON, attr) for name, attr in BUTTONS.items()}
+        self._pad = vgamepad.VX360Gamepad()
 
     def set_axes(self, steer, throttle, brake):
-        raise NotImplementedError
+        self._pad.left_joystick_float(x_value_float=steer, y_value_float=0.0)
+        self._pad.right_trigger_float(value_float=throttle)
+        self._pad.left_trigger_float(value_float=brake)
 
     def press(self, button):
-        raise NotImplementedError
+        self._pad.press_button(button=self._buttons[button])
 
     def release(self, button):
-        raise NotImplementedError
+        self._pad.release_button(button=self._buttons[button])
 
     def update(self):
-        raise NotImplementedError
+        self._pad.update()
 
 
 class Driver:

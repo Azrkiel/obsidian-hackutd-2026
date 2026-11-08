@@ -12,9 +12,11 @@ import signal
 import socket
 import subprocess
 import sys
+import time
 
 from arduino import ArduinoPedals
 from backends import DryRunBackend, Driver, GamepadBackend
+from bindings import BINDINGS
 from protocol import ControlPacket, EventDeduper, EventPacket, parse_packet
 
 SERVICE_TYPE = "_stealth-racing._udp"
@@ -103,6 +105,32 @@ def run(args):
             advertisement.wait()
 
 
+PULSE_AXES = {
+    "steer-left": (-1.0, 0.0, 0.0),
+    "steer-right": (1.0, 0.0, 0.0),
+    "throttle": (0.0, 1.0, 0.0),
+    "brake": (0.0, 0.0, 1.0),
+}
+
+
+def pulse(backend, target, seconds=5.0, on=0.3, off=0.3):
+    """Repeatedly pulse one input so a game's Controls screen can detect it."""
+    print(f"Pulsing {target} for {seconds:.0f} s. Click the binding in Assetto Corsa now.", flush=True)
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if target in PULSE_AXES:
+            backend.set_axes(*PULSE_AXES[target])
+        else:
+            backend.press(BINDINGS[target])
+        backend.update()
+        time.sleep(on)
+        backend.set_axes(0.0, 0.0, 0.0)
+        if target not in PULSE_AXES:
+            backend.release(BINDINGS[target])
+        backend.update()
+        time.sleep(off)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Drive Assetto Corsa from the Stealth Racing phone app.")
     parser.add_argument("--port", type=int, default=5005, help="UDP port (default: 5005)")
@@ -110,13 +138,19 @@ def main(argv=None):
                         help="dryrun logs inputs; gamepad drives a virtual Xbox 360 controller")
     parser.add_argument("--arduino-port", help="serial port of the Arduino pedals (not implemented yet)")
     parser.add_argument("--invert-steer", action="store_true", help="flip steering direction")
+    parser.add_argument("--pulse", choices=sorted(BINDINGS) + sorted(PULSE_AXES), metavar="INPUT",
+                        help="pulse one input for ~5 s for binding in-game, then exit: "
+                             "a command name, steer-left, steer-right, throttle, or brake")
     args = parser.parse_args(argv)
     if not 1 <= args.port <= 65535:
         parser.error("--port must be between 1 and 65535")
 
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     try:
-        run(args)
+        if args.pulse:
+            pulse(make_backend(args.backend), args.pulse)
+        else:
+            run(args)
     except RuntimeError as error:
         parser.exit(1, f"error: {error}\n")
 

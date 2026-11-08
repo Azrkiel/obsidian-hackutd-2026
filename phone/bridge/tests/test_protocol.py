@@ -172,5 +172,43 @@ class DryRunTests(unittest.TestCase):
         self.assertEqual(len(lines), 3)
 
 
+class GamepadBackendTests(unittest.TestCase):
+    """Checks vgamepad call shapes with a fake module (the real one is Windows-only)."""
+
+    def test_calls_vgamepad(self):
+        import types
+        from unittest import mock
+
+        from backends import GamepadBackend
+        from bindings import BUTTONS
+
+        pad = mock.Mock()
+        fake = types.SimpleNamespace(
+            VX360Gamepad=mock.Mock(return_value=pad),
+            XUSB_BUTTON=types.SimpleNamespace(**{attr: attr for attr in BUTTONS.values()}),
+        )
+        with mock.patch.dict(sys.modules, {"vgamepad": fake}):
+            backend = GamepadBackend()
+        backend.set_axes(-0.5, 0.75, 0.25)
+        backend.press("RB")
+        backend.release("RB")
+        backend.update()
+        pad.left_joystick_float.assert_called_once_with(x_value_float=-0.5, y_value_float=0.0)
+        pad.right_trigger_float.assert_called_once_with(value_float=0.75)
+        pad.left_trigger_float.assert_called_once_with(value_float=0.25)
+        pad.press_button.assert_called_once_with(button="XUSB_GAMEPAD_RIGHT_SHOULDER")
+        pad.release_button.assert_called_once_with(button="XUSB_GAMEPAD_RIGHT_SHOULDER")
+        pad.update.assert_called_once_with()
+
+    def test_missing_vgamepad_is_a_clear_error(self):
+        from unittest import mock
+
+        from backends import GamepadBackend
+
+        with mock.patch.dict(sys.modules, {"vgamepad": None}):
+            with self.assertRaisesRegex(RuntimeError, "vgamepad is not installed"):
+                GamepadBackend()
+
+
 if __name__ == "__main__":
     unittest.main()
