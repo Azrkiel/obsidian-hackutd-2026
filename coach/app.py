@@ -1,4 +1,10 @@
-"""CoachApp: wires telemetry -> scorer -> engine Coach, reset manager, live cue, dashboard broadcast."""
+"""CoachApp: wires telemetry -> scorer -> engine Coach, reset manager, live cue, dashboard broadcast.
+
+With an InputHub it is also the input receiver: phone + Arduino -> virtual pad, and each scored run
+carries an input summary (which device drove the pedals, link drops) into the coach's evidence.
+With auto_retry, an accepted drill loops on its own (rewind, retry, decide) until it ends, then the
+car is put back where the drill started; "resume" ends the drill early the same way.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -15,19 +21,20 @@ from engine import ladder
 from engine.agent_tools import AgentSession
 from engine.live_cue import LiveCue, NullPlayer
 from engine.models import Attempt, CornerConfig
-from engine.state import AWAIT_RESET, DONE, IDLE, OFFERED, RETRY, Coach
+from engine.state import AWAIT_RESET, DECIDING, DONE, IDLE, OFFERED, RETRY, Coach
 from engine.trace import TraceWriter
 from engine.voice import ADVICE, REMINDER, VERDICT, Announcer
 
+from .inputs import InputHub, RunInputs
 from .reset import ResetManager
 from .scorer import CornerScorer
 from .telemetry import Recorder, Sample, SimSource
 
 COMMANDS = {"accept", "retry", "save_checkpoint", "set_reference", "new_session",
-            "toggle_cue_next", "retry_reset", "toggle_mute", "mark_board"}
+            "toggle_cue_next", "retry_reset", "toggle_mute", "mark_board", "resume"}
 LAP_TOTAL_DEADLINE_S = 8.0  # lap mode: slower than this and the rules sentence is spoken instead
 ACTIVITY_TYPES = {"run", "decision", "reset_request", "reset_confirmed", "reset_failed",
-                  "checkpoint", "reference", "session"}
+                  "checkpoint", "reference", "session", "input", "resume_point", "resumed"}
 
 
 def _make_player(sound: bool | None):
@@ -50,7 +57,8 @@ class CoachApp:
                  countdown: int = 3, tick_s: float = 1.0, persist_checkpoint: bool = True,
                  reconnect_s: float = 2.0, decide_kwargs: dict | None = None,
                  reset_kwargs: dict | None = None, mode: str = "drill", speaker: Any = None,
-                 muted: bool = False, announcer_kwargs: dict | None = None, agent: bool = False):
+                 muted: bool = False, announcer_kwargs: dict | None = None, agent: bool = False,
+                 inputs: InputHub | None = None, auto_retry: bool = False):
         if mode not in ("drill", "lap"):
             raise ValueError(f"mode must be drill or lap, not {mode!r}")
         self.mode = mode
@@ -72,6 +80,10 @@ class CoachApp:
         self.retry_run: dict | None = None
         self.last_decision: dict | None = None
         self.cue_next_off = False
+        self.inputs, self.auto_retry = inputs, auto_retry
+        self._run_inputs = RunInputs()
+        if inputs is not None:
+            inputs.emit = self.broadcast
         self._health_key: str | None = None
         self.player = _make_player(sound)
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -88,7 +100,7 @@ class CoachApp:
         self.reset = ResetManager(
             reset_mode, self.broadcast, self._on_reset_confirmed, scorer=self.scorer, sim=self.sim,
             checkpoint_path=self.data_dir / "checkpoint.json" if persist_checkpoint else None,
-            countdown=countdown, tick_s=tick_s, **(reset_kwargs or {}))
+            countdown=countdown, tick_s=tick_s, on_resumed=self._on_resumed, **(reset_kwargs or {}))
         if self.sim is not None and reset_mode == "sim" and not self.reset.checkpoint:
             self.reset.set_checkpoint(self.sim.start_pos_m, self.sim.v0_kmh)
             self.activity.clear()
@@ -143,15 +155,22 @@ class CoachApp:
         if t == "decision":
             return f"decision {e['action']} ({e['mode']}): {e.get('cue') or e.get('summary')}"
         if t == "reset_request":
-            return f"reset requested ({e['mode']})"
+            return f"{'resume' if e.get('slot') == 'resume' else 'reset'} requested ({e['mode']})"
         if t == "reset_confirmed":
-            return "reset confirmed: car at checkpoint"
+            return ("resumed: car back where the drill started" if e.get("slot") == "resume"
+                    else "reset confirmed: car at checkpoint")
         if t == "reset_failed":
             return f"reset failed: {e['reason']}"
         if t == "checkpoint":
             return f"checkpoint saved at {e['pos_m']:.0f} m, {e['speed_kmh']:.0f} km/h"
         if t == "reference":
             return f"reference set from {e['attempt']['attempt_id']}"
+        if t == "input":
+            return e["message"]
+        if t == "resume_point":
+            return f"resume point saved at {e['pos_m']:.0f} m, {e['speed_kmh']:.0f} km/h"
+        if t == "resumed":
+            return "drill ended; back to free driving"
         return "new session"
 
     def _spawn(self, coro) -> asyncio.Task:
@@ -172,6 +191,15 @@ class CoachApp:
         self.broadcast(e)
         if e["type"] == "decision":
             self._speak_decision(e)
+        if not self.auto_retry or e["type"] != "status" or "message" in e:
+            return
+        c = self.coach
+        if e["state"] == OFFERED and c.offer and c.drill and c.drill.tries > 0:
+            # mid-drill: the driver already opted in, so rewind straight away
+            self._spawn(c.on_accept(c.offer.decision_id))
+        elif e["state"] == DONE and self.reset.resume_point is not None:
+            # drill finished (mistake fixed, or no progress): back to where it started
+            self._spawn(self.reset.resume("drill-done"))
 
     def _speak_decision(self, e: dict) -> None:
         if self.announcer is None:
@@ -186,16 +214,24 @@ class CoachApp:
         self.announcer.say(text, kind, **meta)
 
     async def _request_reset(self, decision_id: str) -> None:
+        drill = self.coach.drill
+        if self.reset.resume_point is None and self.reset.can_resume and (drill is None or drill.tries == 0):
+            await self.reset.save_resume_point()  # first rewind of this drill: where to come back to
         await self.reset.reset(decision_id)
+
+    def _on_resumed(self) -> None:
+        self.coach.reset_session()
+        self.broadcast({"type": "resumed"})
 
     def _on_reset_confirmed(self) -> None:
         if self.coach.state == AWAIT_RESET:
             self.coach.on_reset_confirmed()
 
     def _on_run(self, attempt: Attempt, trace: list) -> None:
-        self._spawn(self._handle_run(attempt, trace))
+        inputs, self._run_inputs = self._run_inputs.summary(), RunInputs()
+        self._spawn(self._handle_run(attempt, trace, inputs))
 
-    async def _handle_run(self, attempt: Attempt, trace: list) -> None:
+    async def _handle_run(self, attempt: Attempt, trace: list, inputs: dict | None = None) -> None:
         if self.coach.state == DONE:
             # a finished drill (or "no coaching needed") must not block the next lap:
             # the next run through the corner is a fresh baseline (demo: clean run, then late brake)
@@ -205,16 +241,17 @@ class CoachApp:
         role = "retry" if state == RETRY else "baseline" if state == IDLE else "reference_candidate"
         d = asdict(attempt)
         d["brake_board_m"] = round(self.corner.board_zero_m - attempt.brake_onset_m, 1) if attempt.valid else None
-        ev = {"type": "run", "role": role, "attempt": d, "trace": trace}
+        ev = {"type": "run", "role": role, "attempt": d, "trace": trace, "inputs": inputs}
         self.last_run = ev
         if attempt.valid:
             self.last_valid_run = ev
         if role == "baseline":
             self.baseline_run, self.retry_run = ev, None
+            self.reset.clear_resume_point()  # a new baseline starts a new drill
         elif role == "retry":
             self.retry_run = ev
         self.broadcast(ev)
-        await self.coach.on_scored(attempt, trace)
+        await self.coach.on_scored(attempt, trace, {"inputs": inputs} if inputs else None)
 
     # -- telemetry --
     def _on_sample(self, s: Sample) -> None:
@@ -225,6 +262,11 @@ class CoachApp:
         if self.announcer:
             self.announcer.on_position(s.pos_m)
         self.live_cue.on_sample(s.t, s.pos_m, s.speed_kmh)
+        if self.inputs is not None:
+            if self.scorer.in_run:
+                self._run_inputs.add(self.inputs.snapshot(), s.gas, s.brake)
+            elif self._run_inputs.n:
+                self._run_inputs = RunInputs()  # the last run was aborted
         self.scorer.add(s)
         if self.announcer:
             self.announcer.pump()
@@ -270,6 +312,9 @@ class CoachApp:
             "providers": {getattr(p, "name", "?"): bool(getattr(p, "available", False))
                           for p in self.providers},
             "cue_next_off": self.cue_next_off,
+            "inputs": self.inputs.status() if self.inputs is not None else None,
+            "auto_retry": self.auto_retry,
+            "resume_available": self.reset.resume_point is not None,
             "mode": self.mode,
             "agent": self.coach.agent is not None,
             "voice": None if self.announcer is None else {
@@ -329,11 +374,18 @@ class CoachApp:
             self.set_reference()
         elif kind == "new_session":
             c.reset_session()
+            self.reset.clear_resume_point()
             self.baseline_run = self.retry_run = self.last_decision = None
             self.broadcast({"type": "session"})
         elif kind == "toggle_cue_next":
             self.cue_next_off = c.toggle_cue_next_try()
             self.broadcast(self.health())
+        elif kind == "resume":
+            if self.reset.resume_point is None:
+                return self._note("nothing to resume")
+            if c.state == DECIDING:
+                return self._note("wait for the decision, then resume")
+            self._spawn(self.reset.resume())
         elif kind == "retry_reset":
             if c.state != AWAIT_RESET and self.reset.status != "failed":
                 return self._note("no reset to retry")
@@ -385,6 +437,8 @@ class CoachApp:
     # -- lifecycle --
     async def start(self) -> None:
         self._loop, self._loop_thread = asyncio.get_running_loop(), threading.get_ident()
+        if self.inputs is not None:
+            await self.inputs.start()
         self._main = [asyncio.create_task(self._telemetry_loop()),
                       asyncio.create_task(self._health_loop())]
         self._spawn(ladder.warm_up(self.providers))
@@ -395,6 +449,8 @@ class CoachApp:
         for t in self._main + list(self._tasks):
             t.cancel()
         await asyncio.gather(*self._main, *self._tasks, return_exceptions=True)
+        if self.inputs is not None:
+            await self.inputs.stop()
         if self.recorder:
             self.recorder.close()
 

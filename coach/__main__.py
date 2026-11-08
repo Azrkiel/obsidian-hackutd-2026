@@ -1,5 +1,9 @@
 """uv run python -m coach [--mode lap|drill] [--telemetry ac|sim|replay FILE] [--reset udp|hotkey|manual|sim]
-[--voice auto|windows|nvidia|silent|off] [--port 8020]"""
+[--voice auto|windows|nvidia|silent|off] [--port 8020]
+
+The coach is also the input receiver: phone (UDP 5005) + Arduino pedals -> one virtual Xbox 360 pad.
+Do not run bridge/bridge.py or hardware/bridge.py alongside it (two virtual pads confuse AC).
+"""
 from __future__ import annotations
 
 import argparse
@@ -14,6 +18,7 @@ from engine.voice import make_speaker
 
 from .app import CoachApp
 from .dashboard import Dashboard
+from .inputs import InputHub, make_pad
 from .telemetry import ACSharedMemory, Recorder, ReplaySource, SimSource
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -34,6 +39,17 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--countdown", type=int, default=3)
     ap.add_argument("--brake-board", type=float, default=86.0, help="sim: first-run brake board (m)")
     ap.add_argument("--transport", choices=["tools", "json"], default=None)
+    g = ap.add_argument_group("inputs (phone + Arduino -> virtual pad)")
+    g.add_argument("--no-inputs", action="store_true", help="don't receive inputs (another bridge runs)")
+    g.add_argument("--pad", choices=["auto", "vgamepad", "none"], default="auto",
+                   help="auto = vgamepad on Windows, none elsewhere (inputs are still read and logged)")
+    g.add_argument("--phone-port", type=int, default=5005)
+    g.add_argument("--arduino", default="auto", metavar="auto|off|COMx", help="serial pedals")
+    g.add_argument("--arduino-udp-port", type=int, default=None,
+                   help="also accept 'gas,brake' pedal datagrams on this UDP port (e.g. 5006)")
+    g.add_argument("--invert-steer", action="store_true")
+    ap.add_argument("--auto-retry", action=argparse.BooleanOptionalAction, default=True,
+                    help="after Accept, keep rewinding until the drill ends, then resume (default on)")
     ap.add_argument("--mode", choices=["lap", "drill"], default="drill",
                     help="lap: keep driving, the coach talks (no Accept/reset). drill: Accept, reset, retry")
     ap.add_argument("--voice", choices=["auto", "windows", "nvidia", "silent", "off"], default=None,
@@ -46,6 +62,17 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--lap-gap", type=float, default=12.0,
                     help="sim lap mode: seconds between corner passes")
     return ap
+
+
+def build_inputs(args: argparse.Namespace) -> InputHub | None:
+    if args.no_inputs:
+        return None
+    try:
+        pad = make_pad(args.pad)
+    except RuntimeError as e:
+        raise SystemExit(f"error: {e}") from e
+    return InputHub(pad, phone_port=args.phone_port, arduino=args.arduino,
+                    arduino_udp_port=args.arduino_udp_port, invert_steer=args.invert_steer)
 
 
 def build_app(args: argparse.Namespace) -> CoachApp:
@@ -85,7 +112,8 @@ def build_app(args: argparse.Namespace) -> CoachApp:
                     recorder=Recorder(data / "recordings") if args.record else None,
                     sound=args.sound, countdown=args.countdown,
                     persist_checkpoint=kind != "sim", mode=args.mode, speaker=speaker,
-                    muted=args.mute, agent=args.agent)
+                    muted=args.mute, agent=args.agent, inputs=build_inputs(args),
+                    auto_retry=args.auto_retry)
 
 
 async def amain(args: argparse.Namespace) -> None:
@@ -96,6 +124,11 @@ async def amain(args: argparse.Namespace) -> None:
     voice = "off" if app.announcer is None else app.announcer.speaker.name
     print(f"NomadSim coach: mode={app.mode} agent={'on' if app.coach.agent else 'off'} telemetry={args.telemetry[0]} reset={app.reset.mode} "
           f"voice={voice} dashboard http://{args.host}:{args.port}", flush=True)
+    if app.inputs is not None:
+        i = app.inputs
+        print(f"inputs: phone UDP :{i.phone_port}, arduino {i.arduino}"
+              f"{f' + UDP :{i.arduino_udp_port}' if i.arduino_udp_port else ''}, pad {type(i.pad).__name__}",
+              flush=True)
     try:
         await asyncio.Event().wait()
     finally:

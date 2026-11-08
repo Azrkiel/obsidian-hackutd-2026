@@ -88,7 +88,9 @@ class Coach:
         self._set(IDLE)
 
     # -- events --
-    async def on_scored(self, attempt: Attempt, trace: list | None = None) -> None:
+    async def on_scored(self, attempt: Attempt, trace: list | None = None,
+                        context: dict | None = None) -> None:
+        """context: extra evidence merged into the packet (e.g. {"inputs": {...}} from the input hub)."""
         if self.state == DECIDING:
             return self._ignored("decision in flight")
         if self.state not in (IDLE, RETRY):
@@ -100,6 +102,8 @@ class Coach:
             self.baseline = attempt
         packet = build_packet(attempt, self.reference, self.baseline, self.corner,
                               self.drill if retry else None, self.previous, voice=self.voice)
+        if context:
+            packet.update(context)
         turn = self._agent_turn(attempt, trace, packet, retry) if self.agent is not None else None
         if retry and self.live_cue and packet["target_gap"]:
             key, gap = next(iter(packet["target_gap"].items()))

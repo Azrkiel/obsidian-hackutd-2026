@@ -9,6 +9,13 @@ dependencies = [
     "truststore>=0.10.5",
 ]
 
+[project.optional-dependencies]
+# The coach's input receiver on the race PC: `uv run --extra pc python -m coach ...`
+pc = [
+    "vgamepad>=0.1.0; sys_platform == 'win32'",
+    "pyserial>=3.5",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=9.2.0",
