@@ -23,6 +23,7 @@ MAX_WORDS = 9              # a bubble is a glance, not a paragraph: the voice sa
 MAX_REST_WORDS = 12        # the second sentence: the action ("Brake at the 100 board and turn in late.")
 WARN_HOLD_S = 2.0          # a problem must last this long before Rev warns (cables wobble)
 PAIR_GRACE_S = 2.5         # an already-paired phone usually reconnects on its own: wait before the QR
+PARKED_S = 60.0            # stopped this long = a real stop (pits, restart): idle bubble and "Lights out." again
 
 
 def read_time(text: str) -> float:
@@ -75,6 +76,8 @@ class RevModel:
         self._drive_since: float | None = None
         self._still_since: float | None = None
         self.racing = False
+        self.session_started = False     # the car has driven this session
+        self._was_parked = False         # stopped for PARKED_S since then
         self.talk_id: int | None = None
         self.talk_text = ""
         self.talk_until: float | None = None
@@ -156,12 +159,17 @@ class RevModel:
             self._drive_since = self._drive_since if self._drive_since is not None else now
             if not self.racing and now - self._drive_since >= 1.0:
                 self.racing = True
-                self._show(Moment("Lights out.", "", "text", "hop", 1.6, "go"), now)
+                # once per session: not again after a spin or an off, only after a real stop
+                if not self.session_started or self._was_parked:
+                    self._show(Moment("Lights out.", "", "text", "hop", 1.6, "go"), now)
+                self.session_started, self._was_parked = True, False
         else:
             self._drive_since = None
             self._still_since = self._still_since if self._still_since is not None else now
             if self.racing and now - self._still_since >= (5.0 if live else 2.0):
                 self.racing = False
+            if now - self._still_since >= PARKED_S:
+                self._was_parked = True
         m = self.reactor.feed(e, now)
         # a warning (lock-up, wheels off) may cut in on a cosmetic moment, never the other way round
         if m is not None and (self.moment is None or self.moment[1] < now
@@ -346,12 +354,13 @@ class RevModel:
             bubble = {"kind": "thinking", "cells": 1 + int((now * 2) % 3), "label": self.thinking_label}
         elif pairing:
             bubble, want = {"kind": "pairing", "uri": self.pair_uri}, BASE
-        elif not self.racing:
+        elif not self.racing and (not self.session_started or self._was_parked):
+            # before the first lap or after a real stop; a spin or an off gets no "Ready when you are"
             bubble = {"kind": "idle", "title": "Rev", "sub": "Ready when you are"}
         else:
             bubble = None
-        if self.online and self.racing and want == RACER:
-            want = HELMET
+        if self.online and want == RACER and (self.racing or (self.session_started and not self._was_parked)):
+            want = HELMET                # the helmet stays on through a spin or an off
 
         # an outfit never changes while Rev is talking
         if want != self._outfit and not speaking:

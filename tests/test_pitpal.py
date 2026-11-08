@@ -316,6 +316,30 @@ async def test_rev_lines_only_react_to_real_moments_and_not_too_often():
     assert [e["moment"] for e in app.sent] == ["quick_lap", "fixed"]
 
 
+def test_an_off_or_spin_is_not_a_new_session():
+    m = RevModel()
+    m.feed({"type": "_conn", "online": True}, 0.0)
+    m.feed(health(phone="live"), 0.0)
+    drive = lambda kmh, t: m.feed({"type": "telemetry", "status": "live", "speed_kmh": kmh, "gas": 0.3,
+                                   "brake": 0.0, "slip_f": 0.0, "slip_r": 0.0, "tyres_out": 0}, t)
+    for i in range(20):
+        drive(120.0, 1.0 + i * 0.1)
+    assert m.view(2.0).bubble["bold"] == "Lights out."
+    for i in range(80):                       # spun: 8 s stopped, then away again
+        drive(0.0, 4.0 + i * 0.1)
+    v = m.view(12.0)
+    assert v.bubble is None and v.outfit == HELMET          # no "Ready when you are", helmet stays on
+    for i in range(20):
+        drive(120.0, 12.1 + i * 0.1)
+    assert (m.view(14.5).bubble or {}).get("bold") != "Lights out."   # not a second "Lights out."
+    for i in range(700):                      # a real stop: over a minute
+        drive(0.0, 15.0 + i * 0.1)
+    assert m.view(85.0).bubble["sub"] == "Ready when you are"
+    for i in range(20):
+        drive(120.0, 86.0 + i * 0.1)
+    assert m.view(87.5).bubble["bold"] == "Lights out."     # a new run after a real stop
+
+
 def test_reactions_ask_the_coach_to_say_them():
     m = RevModel()
     t = 100.0
