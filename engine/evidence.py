@@ -147,3 +147,56 @@ def build_packet(attempt: Attempt, reference: Attempt, baseline: Attempt | None,
     if voice:
         packet["voice"] = dict(voice)
     return packet
+
+
+# --- whole lap (W6) -------------------------------------------------------------------------------
+LAP_METRICS = ("brake_onset_m", "release_s", "throttle_pickup_m")
+TOP_CORNERS = 3
+
+
+def worst_metric(packet: dict) -> dict | None:
+    """The coachable metric furthest over tolerance (in multiples of it) on a valid, comparable run."""
+    if not packet["valid"] or not packet["comparable"]:
+        return None
+    d, tol, best = packet["delta"], packet["tolerance"], None
+    for k in LAP_METRICS:
+        if k in d and k in tol and tol[k] and abs(d[k]) > tol[k]:
+            over = abs(d[k]) / tol[k]
+            if best is None or over > best[0]:
+                best = (over, {"metric": k, "delta": d[k], "tolerance": tol[k]})
+    return best[1] if best else None
+
+
+def lap_summary(lap: int, runs: dict[str, Attempt], references: dict[str, Attempt],
+                packets: dict[str, dict], names: dict[str, str], lap_time_s: float | None = None,
+                top: int = TOP_CORNERS) -> dict:
+    """Per-lap evidence, about 1.5 KB: time lost in the scored corners and the top corners by time
+    lost that have a metric over tolerance (biggest first). Corner order in `runs` = lap order."""
+    corners, lost_total = [], 0.0
+    for cid, a in runs.items():
+        ref = references.get(cid)
+        lost = round(a.section_s - ref.section_s, 2) if a.valid and ref is not None else None
+        lost_total += lost or 0.0
+        corners.append({"corner_id": cid, "time_lost_s": lost, "valid": a.valid,
+                        "worst": worst_metric(packets[cid]) if cid in packets else None})
+    ranked = sorted((c for c in corners if c["worst"] is not None and c["time_lost_s"] is not None),
+                    key=lambda c: -c["time_lost_s"])
+    top_list = []
+    for c in ranked[:top]:
+        p = packets[c["corner_id"]]
+        top_list.append({"corner_id": c["corner_id"], "name": names.get(c["corner_id"], c["corner_id"]),
+                         "attempt_id": p["attempt_id"], "time_lost_s": c["time_lost_s"], "worst": c["worst"],
+                         "delta": {k: p["delta"][k] for k in LAP_METRICS if k in p["delta"]},
+                         "suggested": {k: v for k, v in p["suggested"].items() if k in p["allowed"]["drills"]}})
+    # the decision runs at the last corner, before the lap line: lap_time_s is the last full lap
+    return {"lap": lap, "last_lap_time_s": lap_time_s, "delta_s": round(lost_total, 2),
+            "corners_scored": len(corners),
+            "invalid": [{"corner_id": cid, "reason": a.invalid_reason} for cid, a in runs.items() if not a.valid],
+            "top": top_list}
+
+
+def focus_corner(summary: dict, runs: dict[str, Attempt]) -> str:
+    """Corner to decide on: the top corner by time lost; else the first valid one; else any."""
+    if summary["top"]:
+        return summary["top"][0]["corner_id"]
+    return next((cid for cid, a in runs.items() if a.valid), next(iter(runs)))
