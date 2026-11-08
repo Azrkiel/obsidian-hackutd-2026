@@ -343,8 +343,11 @@ class SimSource:
 
 
 # --- whole-lap simulator --------------------------------------------------------------------------
-_DEFAULT_APEX_KMH = {"t1": 74.0, "roggia": 110.0, "lesmo1": 170.0, "lesmo2": 160.0,
-                     "ascari": 190.0, "parabolica": 160.0}
+# Mazda 787B in AC at Monza (Track Titan guide, 1:43.2 lap): minimum speed and brake board per corner
+_DEFAULT_APEX_KMH = {"t1": 67.0, "roggia": 85.0, "lesmo1": 140.0, "lesmo2": 121.0, "ascari": 120.0,
+                     "parabolica": 131.0}
+DEFAULT_BOARD_M = {"t1": 215.0, "roggia": 190.0, "lesmo1": 95.0, "lesmo2": 90.0, "ascari": 195.0,
+                   "parabolica": 180.0}
 
 
 class TrackSimSource:
@@ -364,7 +367,7 @@ class TrackSimSource:
         self.vmax_kmh, self.accel = vmax_kmh, accel
         self.knobs: dict[str, dict[str, float]] = {}
         for c in track.corners:
-            k = {"board_m": 100.0, "apex_kmh": _DEFAULT_APEX_KMH.get(c.id, 120.0),
+            k = {"board_m": DEFAULT_BOARD_M.get(c.id, 100.0), "apex_kmh": _DEFAULT_APEX_KMH.get(c.id, 120.0),
                  "pickup_after_apex_m": 20.0, "release_s": 0.55}
             k.update({a: float(b) for a, b in (dict(corners or {}).get(c.id) or {}).items()})
             self.knobs[c.id] = k

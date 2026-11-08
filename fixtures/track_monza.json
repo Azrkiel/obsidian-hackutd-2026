@@ -1,11 +1,11 @@
 {
- "_note": "Corner positions measured from real F1 data (W3, 2026-11-08): MultiViewer's official Monza circuit line and corner markers, plus 20 fastest 2024/2025 qualifying laps from OpenF1 (speed, brake, throttle, x/y). Distances are fractions of the lap x 5793 m from the F1 timing line, assumed to be AC's lap line. Board zero = 15 m before the first apex (F1 then brakes at the T1 100 board). Start gates sit 250 m before F1's brake onset so the slower 787B's braking is inside them. _f1 = what F1 did there. Still to check in the game: lap line, boards (press B at each board), 787B brake points. Measurements in fixtures/monza_f1_corners.json, scripts in scripts/monza_f1/.",
+ "_note": "Corner positions measured from real F1 data (W3, 2026-11-08): MultiViewer's official Monza circuit line and corner markers, plus 20 fastest 2024/2025 qualifying laps from OpenF1 (speed, brake, throttle, x/y). Distances are fractions of the lap x 5793 m from the F1 timing line, assumed to be AC's lap line. Board zero = 15 m before the first apex (F1 then brakes at the T1 100 board). Start gates sit 250 m before F1's brake onset; _787b = the Mazda 787B in AC (Track Titan guide, 1:43.2 lap: brake metres before the apex, minimum speed), which brakes 25 to 120 m earlier than F1 and still starts inside every gate. _f1 = what F1 did there. Still to check in the game: lap line, boards (press B at each board), 787B brake points. Measurements in fixtures/monza_f1_corners.json, scripts in scripts/monza_f1/.",
  "name": "Monza",
  "length_m": 5793.0,
  "reference": "track_monza_reference.json",
  "talk_zones": [
   [
-   1040,
+   1070,
    1731
   ],
   [
@@ -17,7 +17,7 @@
    2664
   ],
   [
-   2930,
+   2960,
    3559
   ],
   [
@@ -25,7 +25,7 @@
    4767
   ],
   [
-   5258,
+   5270,
    510
   ]
  ],
@@ -47,7 +47,7 @@
    "brake_point": {
     "marker_m": [
      30,
-     250
+     320
     ],
     "peak_brake": [
      0.6,
@@ -78,7 +78,7 @@
     875,
     955
    ],
-   "exit_gate_m": 1030,
+   "exit_gate_m": 1060,
    "reminder_m": 300,
    "_f1": {
     "brake_onset_m": 769.5,
@@ -90,6 +90,13 @@
      885.2,
      942.2
     ]
+   },
+   "_787b": {
+    "brake_before_apex_m": 232,
+    "brake_onset_m": 653,
+    "board": 217,
+    "min_kmh": 67,
+    "start_gate_margin_m": 134
    }
   },
   {
@@ -113,6 +120,13 @@
      2109.0,
      2161.0
     ]
+   },
+   "_787b": {
+    "brake_before_apex_m": 203,
+    "brake_onset_m": 1906,
+    "board": 188,
+    "min_kmh": 85,
+    "start_gate_margin_m": 165
    }
   },
   {
@@ -135,6 +149,13 @@
     "markers_m": [
      2522.6
     ]
+   },
+   "_787b": {
+    "brake_before_apex_m": 112,
+    "brake_onset_m": 2411,
+    "board": 97,
+    "min_kmh": 140,
+    "start_gate_margin_m": 108
    }
   },
   {
@@ -146,7 +167,7 @@
     2834,
     2867
    ],
-   "exit_gate_m": 2920,
+   "exit_gate_m": 2950,
    "reminder_m": 2609,
    "_f1": {
     "brake_onset_m": 2766.3,
@@ -157,6 +178,13 @@
     "markers_m": [
      2843.5
     ]
+   },
+   "_787b": {
+    "brake_before_apex_m": 103,
+    "brake_onset_m": 2740,
+    "board": 88,
+    "min_kmh": 121,
+    "start_gate_margin_m": 67
    }
   },
   {
@@ -181,6 +209,13 @@
      4010.2,
      4112.5
     ]
+   },
+   "_787b": {
+    "brake_before_apex_m": 211,
+    "brake_onset_m": 3708,
+    "board": 196,
+    "min_kmh": 120,
+    "start_gate_margin_m": 139
    }
   },
   {
@@ -192,7 +227,7 @@
     5150,
     5218
    ],
-   "exit_gate_m": 5248,
+   "exit_gate_m": 5260,
    "reminder_m": 4577,
    "_f1": {
     "brake_onset_m": 5027.4,
@@ -203,6 +238,13 @@
     "markers_m": [
      5205.5
     ]
+   },
+   "_787b": {
+    "brake_before_apex_m": 242,
+    "brake_onset_m": 4964,
+    "board": 181,
+    "min_kmh": 131,
+    "start_gate_margin_m": 186
    }
   }
  ]

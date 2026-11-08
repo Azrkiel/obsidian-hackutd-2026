@@ -7,7 +7,7 @@ from aiohttp.test_utils import TestClient, TestServer
 from coach.__main__ import build_app, build_parser
 from coach.app import CoachApp
 from coach.dashboard import make_web_app
-from coach.telemetry import TrackSimSource
+from coach.telemetry import DEFAULT_BOARD_M, TrackSimSource
 from engine.config import load_track, load_track_reference
 from engine.models import Attempt, ModelResult, ToolCall
 from engine.nemotron import ProviderError
@@ -16,7 +16,7 @@ from engine.track_coach import TrackCoach
 from engine.voice import SilentSpeaker
 
 FIX = Path(__file__).resolve().parent.parent / "fixtures"
-DEMO = {"ascari": {"board_m": 135}, "roggia": {"board_m": 120}, "parabolica": {"release_s": 0.15}}
+DEMO = {"ascari": {"board_m": DEFAULT_BOARD_M["ascari"] + 35}, "roggia": {"board_m": DEFAULT_BOARD_M["roggia"] + 25}, "parabolica": {"release_s": 0.15}}
 
 
 def track():

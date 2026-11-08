@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from coach.scorer import TrackScorer
-from coach.telemetry import TrackSimSource
+from coach.telemetry import DEFAULT_BOARD_M, TrackSimSource
 from engine.config import load_track, load_track_reference
 from engine.evidence import build_packet, focus_corner, lap_summary, worst_metric
 from engine.models import ToolCall
@@ -21,8 +21,8 @@ IDS = TRACK.ids
 NAMES = {c.id: c.name for c in TRACK.corners}
 REF_ATTEMPTS = {cid: r[0] for cid, r in REFS.items()}
 VOICE = {"max_cue_words": 14, "max_reminder_words": 4}
-BAD = {"ascari": {"board_m": 135}, "roggia": {"board_m": 120}}
-VERY_BAD = {cid: {"board_m": 135} for cid in ("roggia", "lesmo1", "lesmo2", "ascari")}
+BAD = {"ascari": {"board_m": DEFAULT_BOARD_M["ascari"] + 35}, "roggia": {"board_m": DEFAULT_BOARD_M["roggia"] + 25}}
+VERY_BAD = {cid: {"board_m": DEFAULT_BOARD_M[cid] + 35} for cid in ("roggia", "lesmo1", "lesmo2", "ascari")}
 
 
 def _sim_laps(knobs, laps=3.2):
@@ -184,12 +184,12 @@ def test_run_tool_driving_profile_default_and_explicit_corner(laps):
     aid = p["attempt_id"]
     assert aid == "L02-roggia"
     r = s.run_tool("get_driving_profile", {}, aid, p)
-    assert r["corner_id"] == "roggia" and r["attempt_id"] == aid and r["profile"]["brake_board_m"] > 100
+    assert r["corner_id"] == "roggia" and r["attempt_id"] == aid and r["profile"]["brake_board_m"] > DEFAULT_BOARD_M["roggia"]
     r = s.run_tool("get_driving_profile", {"attempt_id": aid}, aid, p)
     assert r["corner_id"] == "roggia"
     r = s.run_tool("get_driving_profile", {"corner_id": "ascari"}, aid, p)
     assert r["corner_id"] == "ascari" and r["attempt_id"] == "L02-ascari"
-    assert r["profile"]["brake_board_m"] > 130 and r["reference"]["brake_board_m"] < 105
+    assert r["profile"]["brake_board_m"] > DEFAULT_BOARD_M["ascari"] + 30 and r["reference"]["brake_board_m"] < DEFAULT_BOARD_M["ascari"] + 5
 
 
 def test_run_tool_unknown_corner_is_an_error(laps):
@@ -246,9 +246,15 @@ def call(p, goals, name="set_plan"):
     return ToolCall(name, {"attempt_id": p["attempt_id"], "goals": goals})
 
 
-def goal(cid, drill="brake_point", cue=None, marker=100):
+def default_marker(cid):
+    """The brake_point marker the packet suggests at the reference board (reference rounded to 10 m)."""
+    return int(round(DEFAULT_BOARD_M[cid], -1))
+
+
+def goal(cid, drill="brake_point", cue=None, marker=None):
+    marker = default_marker(cid) if marker is None else marker
     return {"corner_id": cid, "drill_id": drill, "target": {"marker_m": marker},
-            "cue": cue or f"{NAMES[cid]}: brake at the 100 m board."}
+            "cue": cue or f"{NAMES[cid]}: brake at the {marker} m board."}
 
 
 @pytest.fixture
@@ -309,7 +315,7 @@ def test_validate_cue_number_from_other_corner_packet(turn, laps):
     # a number that appears only in ascari's packet, not in roggia's packet or the lap summary
     num = next(v for k, v in asc["attempt"].items() if k in ("apex_kmh", "exit_kmh", "min_pos_m", "min_kmh")
                and float(v) not in known)
-    cue = f"Ascari: entry was {num} km/h, brake at the 100 m board."
+    cue = f"Ascari: entry was {num} km/h, brake at the {default_marker('ascari')} m board."
     ok, why = t.validate(call(p, [goal("ascari", cue=cue)]), p)
     assert ok, why
     # the same number quoted at roggia (the packet corner) is not in that goal's evidence

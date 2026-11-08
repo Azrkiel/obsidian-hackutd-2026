@@ -28,8 +28,9 @@ from .inputs import InputHub, make_pad
 from .telemetry import ACSharedMemory, Recorder, ReplaySource, SimSource, TrackSimSource
 
 ROOT = Path(__file__).resolve().parent.parent
-# track sim demo: three corners with a mistake (two brake early, one snaps off the brake)
-DEMO_SIM_CORNERS = {"ascari": {"board_m": 135}, "roggia": {"board_m": 120}, "parabolica": {"release_s": 0.15}}
+# track sim demo (787B defaults in coach.telemetry.DEFAULT_BOARD_M): Ascari 35 m and Roggia 25 m early,
+# Parabolica snaps off the brake
+DEMO_SIM_CORNERS = {"ascari": {"board_m": 230}, "roggia": {"board_m": 215}, "parabolica": {"release_s": 0.15}}
 
 
 def build_parser() -> argparse.ArgumentParser:

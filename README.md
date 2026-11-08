@@ -220,12 +220,12 @@ uv run python -m coach --track fixtures/track_monza.json --sim-corner ascari:boa
 - If the coached corner does not score on a lap (went off, data gap), the goal and its cue carry over.
 - Set reference uses every valid corner of the last lap and writes `data/track_reference.json` (used on the next start).
 - Dashboard: a Laps table (lap time, seconds lost per corner, the coached corner outlined); the metrics and trace show the coached corner. `GET /track` returns the corners, talk zones and recent laps.
-- Sim: `--sim-corner ID:KEY=V[,KEY=V]` sets per-corner knobs (`board_m`, `release_s`, `apex_kmh`, `pickup_after_apex_m`); without it a demo set has three mistakes (Ascari and Roggia brake early, Parabolica snaps off the brake).
+- Sim: `--sim-corner ID:KEY=V[,KEY=V]` sets per-corner knobs (`board_m`, `release_s`, `apex_kmh`, `pickup_after_apex_m`); without it a demo set has three mistakes (Ascari 35 m and Roggia 25 m early, Parabolica snaps off the brake). The sim drives 787B minimum speeds and brake boards.
 
-`fixtures/track_monza.json` is a placeholder: T1 matches `corner_monza_t1.json`, the other five corners are approximate positions. Build the real one from the AI line, then check every corner's gates against logged laps (W3):
+`fixtures/track_monza.json` positions are measured (W3): MultiViewer's official circuit line and corner markers plus the 20 fastest 2024/2025 Monza qualifying laps from OpenF1 (`scripts/monza_f1/`, numbers in `fixtures/monza_f1_corners.json`). Brake points for the car we drive come from Track Titan's Mazda 787B guide for AC Monza (1:43.2 lap): the 787B brakes 25 to 120 m earlier than F1 (T1 about 232 m before the apex, about the 215 m board) and every 787B brake point sits 67 to 186 m inside its start gate. Still to check in the game: the lap line, the board positions (press B at each board) and a clean 787B lap as the reference (Set reference). Or build the track from the AI line:
 
 ```
 uv run python scripts/ac_track_extract.py "<assettocorsa>/content/tracks/monza" --track-out fixtures/track_monza.json --track-ref-out fixtures/track_monza_reference.json
 ```
 
-`fixtures/track_monza_reference.json` comes from the track simulator at its ideal knobs (`scripts/track_sim_reference.py`); it is only right for the sim.
+`fixtures/track_monza_reference.json` comes from the track simulator driving 787B speeds and boards (99.2 s lap vs 103.2 s for the Track Titan 787B lap; `scripts/track_sim_reference.py`); it is only right for the sim. In the game, press Set reference after a clean lap.

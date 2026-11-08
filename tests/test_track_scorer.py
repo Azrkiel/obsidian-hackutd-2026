@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 
 from coach.scorer import TrackScorer
-from coach.telemetry import Sample, TrackSimSource
+from coach.telemetry import DEFAULT_BOARD_M, Sample, TrackSimSource
 from engine.config import load_track, load_track_reference
 
 FIX = Path(__file__).resolve().parent.parent / "fixtures"
@@ -89,8 +89,8 @@ async def test_on_track_lap_time_matches_reference_with_ideal_knobs():
 
 
 async def test_track_lap_delta_positive_at_early_braking_corner():
-    # board 135 = braking 35 m earlier than the reference's 100 m board -> slower section
-    rec = await drive(Rec(), corners={"ascari": {"board_m": 135}})
+    # default board + 35 = braking 35 m earlier than the reference -> slower section
+    rec = await drive(Rec(), corners={"ascari": {"board_m": DEFAULT_BOARD_M["ascari"] + 35}})
     e = rec.laps[0]
     d = {c["corner_id"]: c["delta_s"] for c in e["corners"]}
     assert d["ascari"] > 0.05
