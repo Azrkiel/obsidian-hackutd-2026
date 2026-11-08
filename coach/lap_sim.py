@@ -58,6 +58,13 @@ class LapSim:
     def stop(self) -> None:
         self._stop = True
 
+    # SimSource learns toward the drill target; here the planted mistakes decide each attempt
+    def set_target_board(self, board_m: float) -> None:
+        pass
+
+    def set_target_release(self, release_s: float) -> None:
+        pass
+
     # -- model --
     def _enter(self, c: TrackCorner) -> None:
         n = self.attempts.get(c.id, 0)

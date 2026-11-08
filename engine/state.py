@@ -78,6 +78,17 @@ class Coach:
             return None
         return self.agent.plan.to_dict(self.corner.tolerance)
 
+    def set_corner(self, corner: CornerConfig, reference: Attempt) -> bool:
+        """Coach another corner (whole-lap mode). Only between drills: a drill belongs to one corner."""
+        if self.state not in (IDLE, DONE):
+            self._ignored(f"cannot change corner in {self.state}")
+            return False
+        self.corner, self.reference = corner, reference
+        if self.live_cue:
+            self.live_cue.corner = corner
+        self.reset_session()
+        return True
+
     def reset_session(self) -> None:
         if self.agent is not None:
             self.agent.reset()

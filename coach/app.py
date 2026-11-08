@@ -32,10 +32,10 @@ from .telemetry import Recorder, Sample, SimSource
 
 COMMANDS = {"accept", "retry", "save_checkpoint", "set_reference", "new_session",
             "toggle_cue_next", "retry_reset", "toggle_mute", "mark_board", "resume",
-            "new_pairing"}
+            "new_pairing", "select_corner"}
 LAP_TOTAL_DEADLINE_S = 8.0  # lap mode: slower than this and the rules sentence is spoken instead
 ACTIVITY_TYPES = {"run", "decision", "reset_request", "reset_confirmed", "reset_failed",
-                  "checkpoint", "reference", "session", "input", "resume_point", "resumed"}
+                  "checkpoint", "reference", "session", "input", "resume_point", "resumed", "corner"}
 
 
 def _make_player(sound: bool | None):
@@ -59,11 +59,17 @@ class CoachApp:
                  reconnect_s: float = 2.0, decide_kwargs: dict | None = None,
                  reset_kwargs: dict | None = None, mode: str = "drill", speaker: Any = None,
                  muted: bool = False, announcer_kwargs: dict | None = None, agent: bool = False,
-                 inputs: InputHub | None = None, auto_retry: bool = False, max_retries: int = 5):
+                 inputs: InputHub | None = None, auto_retry: bool = False, max_retries: int = 5,
+                 track: Any = None, references: Any = None, lead_time_s: float = 4.0):
         if mode not in ("drill", "lap"):
             raise ValueError(f"mode must be drill or lap, not {mode!r}")
         self.mode = mode
         self.corner, self.source, self.providers = corner, source, providers
+        # whole-lap mode (coach.track.Track): `corner` is the base config (tolerances, drill limits);
+        # select_corner() points every per-corner piece at one corner of the track
+        self.track, self.references, self.lead_time_s = track, references, lead_time_s
+        self.base_corner, self.corner_id = corner, None
+        self._agent = agent
         self.data_dir = Path(data_dir)
         self.recorder, self.reconnect_s = recorder, reconnect_s
         self.reference, self.reference_trace = reference, reference_trace or []
@@ -98,12 +104,12 @@ class CoachApp:
         self.live_cue = LiveCue(corner, self.player, say=say)
         self.trace = TraceWriter(trace_dir)
         self.scorer = CornerScorer(corner, self._on_run)
-        self.sim = source if isinstance(source, SimSource) else None
+        self.sim = source if isinstance(source, SimSource) or hasattr(source, "teleport_to") else None
         self.reset = ResetManager(
             reset_mode, self.broadcast, self._on_reset_confirmed, scorer=self.scorer, sim=self.sim,
             checkpoint_path=self.data_dir / "checkpoint.json" if persist_checkpoint else None,
             countdown=countdown, tick_s=tick_s, on_resumed=self._on_resumed, **(reset_kwargs or {}))
-        if self.sim is not None and reset_mode == "sim" and not self.reset.checkpoint:
+        if isinstance(self.sim, SimSource) and reset_mode == "sim" and not self.reset.checkpoint:
             self.reset.set_checkpoint(self.sim.start_pos_m, self.sim.v0_kmh)
             self.activity.clear()
         dk = dict(decide_kwargs or {})
@@ -167,6 +173,8 @@ class CoachApp:
             return f"checkpoint saved at {e['pos_m']:.0f} m, {e['speed_kmh']:.0f} km/h"
         if t == "reference":
             return f"reference set from {e['attempt']['attempt_id']}"
+        if t == "corner":
+            return f"coaching {e['name']}"
         if t == "input":
             return e["message"]
         if t == "resume_point":
@@ -398,6 +406,8 @@ class CoachApp:
             self._spawn(self.reset.save_checkpoint())
         elif kind == "set_reference":
             self.set_reference()
+        elif kind == "select_corner":
+            self.select_corner(str(msg.get("corner_id", "")))
         elif kind == "new_session":
             c.reset_session()
             self.reset.clear_resume_point()
@@ -444,6 +454,41 @@ class CoachApp:
         (self.data_dir / "reference.json").write_text(json.dumps(ad), encoding="utf-8")
         (self.data_dir / "reference_trace.json").write_text(json.dumps(run["trace"]), encoding="utf-8")
         self.broadcast({"type": "reference", "attempt": run["attempt"], "trace": run["trace"]})
+        return True
+
+    def select_corner(self, corner_id: str, reference: Attempt | None = None) -> bool:
+        """Coach one corner of the track: scorer, live cue, quiet zone, agent and the coach itself.
+        Between drills only. In sim reset mode the checkpoint moves to the corner's anchor."""
+        if self.track is None:
+            self._note("select_corner needs a track")
+            return False
+        c = self.track.get(corner_id)
+        if c is None:
+            self._note(f"unknown corner {corner_id!r}")
+            return False
+        cfg = self.track.corner_config(c, self.base_corner)
+        if reference is None:
+            reference = self.references.get(corner_id).as_attempt() if self.references else self.reference
+        if not self.coach.set_corner(cfg, reference):
+            return False
+        self.corner, self.corner_id = cfg, corner_id
+        self.reference, self.reference_trace = reference, []
+        if self.scorer.in_run:
+            self.scorer.abort()
+        self.scorer = CornerScorer(cfg, self._on_run)
+        self.reset.scorer = self.scorer
+        self.live_cue.corner = cfg
+        self.live_cue.disarm()
+        if self.announcer:
+            self.announcer.quiet_zone = (cfg.start_gate_m, cfg.exit_gate_m)
+        if self._agent:
+            self.coach.agent = AgentSession(cfg, reference, [])
+        self.baseline_run = self.retry_run = self.last_run = self.last_valid_run = None
+        self._run_inputs = RunInputs()
+        if self.reset.mode == "sim":
+            anchor = self.track.anchor_m(c, self.lead_time_s)
+            self.reset.set_checkpoint(anchor, self.track.ai_kmh(anchor))
+        self.broadcast({"type": "corner", "corner_id": corner_id, "name": c.name, "kind": c.kind})
         return True
 
     def mark_board(self, board_m: Any = None) -> dict | None:
