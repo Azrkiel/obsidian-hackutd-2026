@@ -201,3 +201,31 @@ uv run python scripts/speed_agent.py --n 10 --provider brev --voice
 Done when at least 9 of 10 turns of each kind end in a valid action within the budget (plan 15 s, evaluate 10 s).
 
 Still unverified without the game: the new shared-memory fields (yaw-rate sign, g-forces, wheel slip units, so the lock-up/wheelspin thresholds), the reminder position on the real Monza line, and the extractor on Kunos' `fast_lane.ai`.
+
+## Whole-lap coaching
+
+`--track` scores every corner of the lap and coaches the one or two corners that lose the most time. Lap mode only; drill mode (rewind per corner) stays single-corner with `--corner`.
+
+```
+uv run python -m coach --track fixtures/track_monza.json                    # track sim, rules coach
+uv run python -m coach --track fixtures/track_monza.json --agent            # Nemotron plans across corners
+uv run python -m coach --track fixtures/track_monza.json --telemetry ac     # in the game
+uv run python -m coach --track fixtures/track_monza.json --sim-corner ascari:board_m=135 --sim-corner parabolica:release_s=0.15
+```
+
+- One decision per lap, started at the last corner's exit (Parabolica), so the cue plays on the main straight. Corners a few seconds apart (Lesmo 1 and 2) would get stale per-corner advice.
+- The lap packet (`packet.lap`): last full lap time, `delta_s` (time lost in the scored corners vs the reference) and the top 3 corners by time lost that have a metric over tolerance, each with its worst metric, deltas and suggested targets. The rest of the packet is the full single-corner evidence for the corner being decided on, so the rules coach, validators and drills are unchanged.
+- Plan goals are keyed by (corner, drill): the same drill may be planned at two corners, at most 3 goals, goal 1 = the corner losing the most time. Only the active goal is cued on a lap (one live cue, armed for the next lap). Read tools take `corner_id`; `get_lap_summary` gives every corner's time lost.
+- Voice: quiet inside every corner (start gate to exit gate) and speech only inside the track's `talk_zones` (the straights; a zone may wrap the lap line).
+- If the coached corner does not score on a lap (went off, data gap), the goal and its cue carry over.
+- Set reference uses every valid corner of the last lap and writes `data/track_reference.json` (used on the next start).
+- Dashboard: a Laps table (lap time, seconds lost per corner, the coached corner outlined); the metrics and trace show the coached corner. `GET /track` returns the corners, talk zones and recent laps.
+- Sim: `--sim-corner ID:KEY=V[,KEY=V]` sets per-corner knobs (`board_m`, `release_s`, `apex_kmh`, `pickup_after_apex_m`); without it a demo set has three mistakes (Ascari and Roggia brake early, Parabolica snaps off the brake).
+
+`fixtures/track_monza.json` is a placeholder: T1 matches `corner_monza_t1.json`, the other five corners are approximate positions. Build the real one from the AI line, then check every corner's gates against logged laps (W3):
+
+```
+uv run python scripts/ac_track_extract.py "<assettocorsa>/content/tracks/monza" --track-out fixtures/track_monza.json --track-ref-out fixtures/track_monza_reference.json
+```
+
+`fixtures/track_monza_reference.json` comes from the track simulator at its ideal knobs (`scripts/track_sim_reference.py`); it is only right for the sim.
