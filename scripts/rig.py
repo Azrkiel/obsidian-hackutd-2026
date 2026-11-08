@@ -13,7 +13,9 @@ What it does:
    race PC needs no Node or npm.
 3. Gets a coach identity from the local server once and keeps it in data/spacetime_local.json.
    The first coach to connect owns the database; keep that file with the data folder.
-4. Starts the coach with --history and those settings, then opens the dashboard.
+4. Starts the coach with --history, the Nemotron agent (--agent) and spoken coaching (--voice nvidia,
+   Windows voice without an NVIDIA_API_KEY), then opens the dashboard. Nemotron needs an endpoint:
+   NEMOTRON_BASE_URL (Brev/vLLM), NVIDIA_API_KEY or OPENROUTER_API_KEY; without one the rules coach answers.
 Ctrl+C stops the coach and the server it started.
 """
 from __future__ import annotations
@@ -81,8 +83,12 @@ def coach_identity(server: str, cache: Path) -> str:
 
 
 def coach_command(sim: bool, port: int, host: str, extra: list[str]) -> list[str]:
+    """Nemotron agent and spoken coaching on by default. --voice nvidia uses NVIDIA's Magpie TTS when
+    NVIDIA_API_KEY is set and falls back to the Windows voice per message otherwise. Flags after --
+    come last, so `-- --voice off` or `-- --voice windows` override these."""
     game = ["--telemetry", "sim", "--reset", "sim"] if sim else ["--telemetry", "ac", "--reset", "udp", "--inputs"]
-    return [sys.executable, "-m", "coach", *game, "--history", "--host", host, "--port", str(port), *extra]
+    return [sys.executable, "-m", "coach", *game, "--history", "--agent", "--voice", "nvidia",
+            "--host", host, "--port", str(port), *extra]
 
 
 def start_spacetime(cli: str, port: int, bind: str, data: Path) -> tuple[str, subprocess.Popen | None]:

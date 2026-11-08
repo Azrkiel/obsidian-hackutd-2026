@@ -18,6 +18,9 @@ def test_coach_command_game_and_sim():
     assert game[:3] == [sys.executable, "-m", "coach"]
     assert ["--telemetry", "ac", "--reset", "udp", "--inputs"] == game[3:8]
     assert "--history" in game and game[-1] == "--agent"
+    assert "--agent" in game[:-1] and game[game.index("--voice") + 1] == "nvidia"
+    off = rig.coach_command(False, 8020, "127.0.0.1", ["--voice", "off"])
+    assert off[-2:] == ["--voice", "off"]                     # flags after -- win (argparse keeps the last)
     sim = rig.coach_command(True, 8050, "0.0.0.0", [])
     assert "sim" in sim and "--inputs" not in sim and sim[sim.index("--port") + 1] == "8050"
 
