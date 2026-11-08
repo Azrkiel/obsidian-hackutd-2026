@@ -4,8 +4,6 @@ One-corner practice coach for Assetto Corsa (HackUTD 2026).
 
 Optional persistent race history: start with `--history`. See [HISTORY.md](HISTORY.md) for local storage, SpacetimeDB sync, the live leaderboard, coach memory, and iPhone setup.
 
-Implementation status, test evidence, resume commands, and remaining deployment work: [race history handoff](.Codex/handoffs/2026-11-08-0540.md).
-
 ## Race PC: one command (no hosting)
 
 ```
@@ -16,6 +14,16 @@ uv run python scripts/rig.py -- --agent --track fixtures/track_monza.json   # ex
 ```
 
 Everything runs on the race PC. The dashboard (http://127.0.0.1:8020) shows live telemetry, the Nemotron coach, the Monza map and the brake chart, and its buttons control the game through the coach (rewind, retry, resume, checkpoint, mark board). Race history is saved in `data/history.sqlite3`. If the SpacetimeDB CLI is installed (`spacetime` on PATH or `SPACETIME_CLI`), the script also starts a local SpacetimeDB server on 127.0.0.1:3000 (data in `data/spacetime`), publishes the race-history module from `spacetime/prebuilt/` (no Node or npm needed) and gives the coach a writer identity kept in `data/spacetime_local.json`; the header then shows "Synced to SpacetimeDB". Keep `data/` between sessions. Ctrl+C stops the coach and the local server.
+
+### Control the game from a laptop
+
+The coach has to run on the PC that runs Assetto Corsa (it reads AC's shared memory and talks to the CSP reset app on 127.0.0.1:9101). A laptop on the same Wi-Fi only needs a browser:
+
+1. On the game PC: install the CSP reset app (see "Coach program" below), start AC, then `uv run python scripts/rig.py --lan`. Allow Python through the Windows firewall when asked (dashboard port 8020, SpacetimeDB 3000).
+2. The script prints the game PC's address, for example `dashboard: http://192.168.1.20:8020/`. Open it on the laptop. Every button there (Accept, Retry, Resume, Save checkpoint, Set reference, Mark board) controls the game through the coach, and the leaderboard is at `/history-viewer/`.
+3. Phones on the same network can open the same address or scan the leaderboard's QR code.
+
+`--lan` makes the dashboard reachable by anyone on that network, controls included: use it on a network you trust.
 
 ## Thinking engine
 
