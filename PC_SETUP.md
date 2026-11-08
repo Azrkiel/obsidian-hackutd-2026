@@ -46,6 +46,11 @@ Merge notes:
 4. Planned next (not built yet; agree before implementing): a **reset / next-action button** sent as a
    separate packet on the same port, `c1,<seq>,next`. The bridge will forward it to the coach, which does
    "accept" when a drill is offered and "reset for retry" otherwise. Send it once per tap (not repeated).
+   **Proposed instead (branch `feat/unified-receiver`, needs Dhanush's OK):** the app already sends its
+   buttons as `evt,<id>,<command>,<tap|down|up>`, three times per id, de-duplicated by the receiver. Make
+   the coach buttons two more commands: `evt,<id>,coach_next,tap` (accept the offer, else rewind for a retry)
+   and `evt,<id>,coach_resume,tap` (end the drill, back to where it started). `coach --inputs` handles both;
+   `bridge/bridge.py` ignores `evt` packets, so nothing breaks.
 5. Networking at the venue: venue Wi-Fi blocks device-to-device traffic. Use the iPhone **Personal Hotspot**,
    connect the PC to it, get the PC's IP with `ipconfig` (IPv4 of the hotspot adapter), enter it in the app.
    Test on the PC with `D:\bridge-venv\Scripts\python.exe bridge\bridge.py --no-arduino --debug` and
@@ -72,7 +77,7 @@ Merge notes:
 ## Ports
 | Port | Who | What |
 |---|---|---|
-| UDP 5005 | phone -> bridge | `v1,seq,steer,throttle,brake` (steer -1..1, others 0..1) |
+| UDP 5005 | phone -> bridge (or `coach --inputs`) | `v1,seq,steer,throttle,brake` (steer -1..1, others 0..1); `evt,id,command,phase` buttons (coach only) |
 | UDP 127.0.0.1:9101 | coach -> CSP app | `SAVE` -> `SAVED x y z kmh`; `RESET <id>` -> `ACK <id>` / `ERR <reason>` |
 | TCP 8020 | coach | dashboard `http://127.0.0.1:8020` (`/`, `/state`, `/ws`) |
 | TCP 8000 | Brev tunnel | Nemotron (vLLM, OpenAI-compatible) at `http://localhost:8000/v1`, model name `nemotron` |
@@ -112,10 +117,20 @@ Merge notes:
    ```
    Open `http://127.0.0.1:8020` (second screen). It should say "Nemotron · ready". Save checkpoint on the
    T1 approach at speed -> drive baseline -> Accept -> 3-2-1 -> car resets -> retry.
+   With `feat/unified-receiver`: after that one Accept the drill loops by itself (rewind, retry, judge) until
+   the coach ends it or `--max-retries` (5) is hit, then the car is loaded back where you accepted (CSP app
+   `SAVE resume` / `RESUME <id>`: re-copy `csp/nomadsim_reset/` into AC). **Resume (end drill)** stops it early.
+   `--no-auto-retry` restores "Accept before every retry".
    No game: `--telemetry sim --reset sim`. Reset fallbacks: `--reset manual` or `--reset hotkey`.
 4. **Bridge** (only when driving with phone/pedals):
    `D:\bridge-venv\Scripts\python.exe bridge\bridge.py --debug` (auto-detects Arduino) or `--no-arduino --debug`.
    Pedals silent > 200 ms or unplugged -> gas/brake 0 and prints `INVALID` (not yet reported to the coach).
+   **Or** (`feat/unified-receiver`) let the coach be the receiver and do not start `bridge.py`:
+   `uv run --with vgamepad --with pyserial python -m coach --telemetry ac --reset udp --inputs`.
+   `--with` keeps the bridge packages out of the uv `.venv`. Differences from `bridge.py`: when the
+   Arduino drops, the phone's on-screen pedals take over, instead of going to 0; a run with a dropout is
+   marked invalid and not coached; the phone's paddles/buttons work. Without `--inputs` the coach behaves
+   as before.
 5. **Brev lifecycle** (WSL). Status as of Sun 00:45 CT: `nomadsim-h100` was **deleted** (no billing).
    - Recreate (~10-15 min, re-downloads the 18 GB model):
      `cd /mnt/d/D-Downloads/obsidian-hackutd-2026 && brev create nomadsim-h100 --type gpu-h100-sxm.1gpu-16vcpu-200gb --min-disk 200 --startup-script @scripts/brev_vllm_startup.sh`
@@ -156,7 +171,8 @@ Merge notes:
 - `tests/test_ladder.py::test_total_deadline_rules` is timing-sensitive (flaky: failed once, passed after).
 - The tunnel drops when WSL shuts down (see "How to run").
 - Decisions take 4-10 s in think mode (user finds this slow).
-- Pedal failsafe `INVALID` is printed by the bridge but not sent to the coach yet.
+- Pedal failsafe `INVALID` is printed by the bridge but not sent to the coach yet. (`coach --inputs` on
+  `feat/unified-receiver` does report it: the run is marked `pedal_dropout` / `steering_dropout`.)
 
 ## Next up (agreed, not started)
 1. **Phone reset/next-action button**: waiting for teammate B to merge the iOS app. Proposed protocol so the

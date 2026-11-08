@@ -2,20 +2,26 @@
 
 // [gas, brake]: distance in cm with the pedal up / at its stop
 const float REST[2]  = {9.2, 8.5};
-const float PRESS[2] = {3.4, 3.8};
+const float PRESS[2] = {4.0, 3.8};   // gas re-measured on the game PC: rest 9.4, full press 3.9
 
 const int TRIG[2] = {4, 2};   // [gas sensor, brake sensor]
 const int ECHO[2] = {5, 3};
 const unsigned long GAP_MS = 3;   // wait after each ping; raise to 4 or 5 if readings spike
+
+const unsigned long LOST_MS = 120;  // no good echo for this long -> that pedal reads 0 (never freeze)
+const float MIN_CM = 2.0;           // HC-SR04 cannot measure closer than ~2 cm
 
 float hist[2][3];
 int hn[2] = {0, 0};
 float filt[2] = {-1, -1};
 float mn[2] = {999, 999};
 float mx[2] = {-1, -1};
+unsigned long lastGood[2] = {0, 0};
+unsigned long lastWarn = 0;
 unsigned long lastPrint = 0;
 
 float ping(int i) {
+  if (digitalRead(ECHO[i]) == HIGH) return -1.0;  // still busy with the last ping: don't re-trigger
   digitalWrite(TRIG[i], LOW);  delayMicroseconds(2);
   digitalWrite(TRIG[i], HIGH); delayMicroseconds(10);
   digitalWrite(TRIG[i], LOW);
@@ -31,7 +37,8 @@ float med3(float a, float b, float c) {
 }
 
 void update(int i, float cm) {
-  if (cm < 0) return;                       // timeout: ignore
+  if (cm < MIN_CM) return;                  // timeout / impossible reading: ignore (pedal() handles loss)
+  lastGood[i] = millis();
   hist[i][0] = hist[i][1]; hist[i][1] = hist[i][2]; hist[i][2] = cm;
   if (hn[i] < 3) hn[i]++;
   float m = (hn[i] < 3) ? cm : med3(hist[i][0], hist[i][1], hist[i][2]);
@@ -49,6 +56,7 @@ void update(int i, float cm) {
 int pedal(int i) {
   float span = REST[i] - PRESS[i];
   if (span < 0.5 || filt[i] < 0) return 0;
+  if (millis() - lastGood[i] > LOST_MS) return 0;   // sensor silent: release, never hold the last value
   float v = (REST[i] - filt[i]) / span;
   v = constrain(v, 0.0, 1.0);
   if (v < 0.03) v = 0;                      // dead zone at the top
@@ -79,4 +87,13 @@ void loop() {
 #else
   Serial.print(pedal(0)); Serial.print(","); Serial.println(pedal(1));
 #endif
+  // once a second, say which sensor is silent ("#" lines are ignored by the receivers)
+  if (millis() - lastWarn >= 1000) {
+    for (int i = 0; i < 2; i++) {
+      if (millis() - lastGood[i] > LOST_MS) {
+        lastWarn = millis();
+        Serial.println(i == 0 ? "#lost gas" : "#lost brake");
+      }
+    }
+  }
 }

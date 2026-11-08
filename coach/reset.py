@@ -1,4 +1,10 @@
-"""ResetManager: countdown, ask the game to load the saved checkpoint, confirm from telemetry."""
+"""ResetManager: countdown, ask the game to load a saved state, confirm from telemetry.
+
+Two saved states:
+  checkpoint  on the corner approach; every retry rewinds here
+  resume      taken when a drill starts; "resume" loads it and the session carries on
+              (udp and sim modes only: hotkey/manual have a single save slot)
+"""
 from __future__ import annotations
 
 import asyncio
@@ -85,10 +91,11 @@ class ResetManager:
                  countdown: int = 3, tick_s: float = 1.0, confirm_timeout_s: float | None = None,
                  udp_addr: tuple[str, int] = ("127.0.0.1", 9101), udp_ack_s: float = 2.0,
                  load_key: str = "F7", save_key: str = "F6", pos_tol_m: float = 20.0,
-                 speed_tol_kmh: float = 10.0, run_wait_s: float = 15.0):
+                 speed_tol_kmh: float = 10.0, run_wait_s: float = 15.0,
+                 on_resumed: Callable[[], None] | None = None):
         if mode not in MODES:
             raise ValueError(f"reset mode must be one of {MODES}")
-        self.mode, self.emit, self.on_confirmed = mode, emit, on_confirmed
+        self.mode, self.emit, self.on_confirmed, self.on_resumed = mode, emit, on_confirmed, on_resumed
         self.scorer, self.sim = scorer, sim
         self.checkpoint_path = Path(checkpoint_path) if checkpoint_path else None
         self.countdown, self.tick_s = countdown, tick_s
@@ -97,12 +104,15 @@ class ResetManager:
         self.load_key, self.save_key = load_key, save_key
         self.pos_tol_m, self.speed_tol_kmh, self.run_wait_s = pos_tol_m, speed_tol_kmh, run_wait_s
         self.checkpoint: dict | None = None
+        self.resume_point: dict | None = None
         self.last: Sample | None = None
         self.last_decision_id: str | None = None
+        self.last_slot = "checkpoint"
         self.status = "idle"   # idle | countdown | loading | confirming | failed
         self.busy = False
         self._waiting = False
         self._confirmed = asyncio.Event()
+        self._target: dict | None = None
         if self.checkpoint_path and self.checkpoint_path.exists():
             try:
                 self.checkpoint = json.loads(self.checkpoint_path.read_text(encoding="utf-8"))
@@ -115,11 +125,11 @@ class ResetManager:
     # -- telemetry feed --
     def on_sample(self, s: Sample) -> None:
         self.last = s
-        if self._waiting and self.checkpoint and self._near(s):
+        if self._waiting and self._target and self._near(s):
             self._confirmed.set()
 
     def _near(self, s: Sample) -> bool:
-        cp = self.checkpoint
+        cp = self._target
         return (abs(s.pos_m - cp["pos_m"]) <= self.pos_tol_m
                 and abs(s.speed_kmh - cp["speed_kmh"]) <= self.speed_tol_kmh)
 
@@ -145,12 +155,39 @@ class ResetManager:
         self.set_checkpoint(s.pos_m, s.speed_kmh)
         return True
 
+    @property
+    def can_resume(self) -> bool:
+        return self.mode in ("udp", "sim")
+
+    async def save_resume_point(self) -> bool:
+        """Remember where the driver was before the drill so `resume` can put them back."""
+        if not self.can_resume:
+            self.emit({"type": "status", "message": f"resume is not available in {self.mode} reset mode"})
+            return False
+        if self.last is None:
+            self.emit({"type": "status", "message": "no telemetry, cannot save the resume point"})
+            return False
+        s = self.last
+        if self.mode == "udp":
+            reply = await udp_roundtrip(self.udp_addr, "SAVE resume", "SAVED", self.udp_ack_s)
+            if reply is None:
+                self.emit({"type": "status", "message": "resume point: no SAVED reply from the Lua app"})
+                return False
+        self.resume_point = {"pos_m": float(s.pos_m), "speed_kmh": float(s.speed_kmh)}
+        self.emit({"type": "resume_point", **self.resume_point})
+        return True
+
+    def clear_resume_point(self) -> None:
+        self.resume_point = None
+
     # -- reset --
-    async def _request_load(self, decision_id: str) -> None:
+    async def _request_load(self, decision_id: str, slot: str = "checkpoint") -> None:
+        target = self._target
         if self.mode == "sim":
-            self.sim.teleport_to(self.checkpoint["pos_m"], self.checkpoint["speed_kmh"])
+            self.sim.teleport_to(target["pos_m"], target["speed_kmh"])
         elif self.mode == "udp":
-            ack = await udp_roundtrip(self.udp_addr, f"RESET {decision_id}", f"ACK {decision_id}",
+            verb = "RESUME" if slot == "resume" else "RESET"
+            ack = await udp_roundtrip(self.udp_addr, f"{verb} {decision_id}", f"ACK {decision_id}",
                                       self.udp_ack_s)
             if ack is None:  # telemetry is the source of truth; keep waiting for it
                 self.emit({"type": "status", "message": "no ACK from the Lua app; waiting on telemetry"})
@@ -165,13 +202,23 @@ class ResetManager:
         return False
 
     async def retry(self) -> bool:
+        """Repeat the last failed load (checkpoint or resume point)."""
+        if self.last_slot == "resume":
+            return await self.reset(self.last_decision_id or "resume", abort_run=True, slot="resume")
         return await self.reset(self.last_decision_id or "retry")
 
-    async def reset(self, decision_id: str, abort_run: bool = False) -> bool:
+    async def resume(self, decision_id: str = "resume") -> bool:
+        """Load the resume point (pre-drill state). Aborts a run in progress."""
+        if self.resume_point is None:
+            self.emit({"type": "status", "message": "ignored: no resume point saved"})
+            return False
+        return await self.reset(decision_id, abort_run=True, slot="resume")
+
+    async def reset(self, decision_id: str, abort_run: bool = False, slot: str = "checkpoint") -> bool:
         if self.busy:
             self.emit({"type": "status", "message": "ignored: reset already in progress"})
             return False
-        self.busy, self.last_decision_id = True, decision_id
+        self.busy, self.last_decision_id, self.last_slot = True, decision_id, slot
         try:
             if self.scorer is not None and self.scorer.in_run:
                 if abort_run:
@@ -183,28 +230,34 @@ class ResetManager:
                         await asyncio.sleep(0.05)
                     if self.scorer.in_run:
                         return self._fail("run in progress")
-            if not self.checkpoint:
-                return self._fail("no checkpoint saved")
+            self._target = self.resume_point if slot == "resume" else self.checkpoint
+            if not self._target:
+                return self._fail("no resume point saved" if slot == "resume" else "no checkpoint saved")
             self._status("countdown")
             for n in range(self.countdown, 0, -1):
                 self.emit({"type": "countdown", "n": n})
                 await asyncio.sleep(self.tick_s)
             self.emit({"type": "countdown", "n": 0})
             self._status("loading")
-            self.emit({"type": "reset_request", "decision_id": decision_id, "mode": self.mode})
+            self.emit({"type": "reset_request", "decision_id": decision_id, "mode": self.mode, "slot": slot})
             self._confirmed.clear()
             self._waiting = True
-            await self._request_load(decision_id)
+            await self._request_load(decision_id, slot)
             self._status("confirming")
             try:
                 await asyncio.wait_for(self._confirmed.wait(), self.confirm_timeout_s)
             except asyncio.TimeoutError:
-                return self._fail("timeout waiting for the car at the checkpoint")
+                return self._fail("timeout waiting for the car at the " + ("resume point" if slot == "resume" else "checkpoint"))
             finally:
                 self._waiting = False
             self._status("idle")
-            self.emit({"type": "reset_confirmed", "decision_id": decision_id})
-            self.on_confirmed()
+            self.emit({"type": "reset_confirmed", "decision_id": decision_id, "slot": slot})
+            if slot == "resume":
+                self.resume_point = None
+                if self.on_resumed:
+                    self.on_resumed()
+            else:
+                self.on_confirmed()
             return True
         except Exception as e:  # noqa: BLE001 - never wedge the busy flag
             return self._fail(f"{type(e).__name__}: {e}")

@@ -7,8 +7,10 @@
 --   require('shared/socket') -> LuaSocket (extension/internal/lua-shared/socket.lua)
 --
 -- Protocol (UDP, 127.0.0.1:9101), same as coach/reset.py:
---   "SAVE"        -> save the current car state; reply "SAVED <x> <y> <z> <speed_kmh>"
---   "RESET <id>"  -> load the saved state; reply "ACK <id>" (or "ERR <reason>")
+--   "SAVE"         -> save the current car state; reply "SAVED <x> <y> <z> <speed_kmh>"
+--   "SAVE resume"  -> same, into a second slot: where the driver was when a drill started
+--   "RESET <id>"   -> load the saved state; reply "ACK <id>" (or "ERR <reason>")
+--   "RESUME <id>"  -> load the resume slot; reply "ACK <id>" (or "ERR <reason>")
 -- Offline practice only. Loading a car state invalidates the lap.
 --
 -- Crash hardening (AC died with heap corruption 0xc0000374 right after CSP reloaded this script):
@@ -18,7 +20,7 @@
 --   * every stage writes to the CSP log via ac.log (search custom_shaders_patch.log for "NomadSim").
 
 local PORT = 9101
-local savedState = nil       -- binary blob from ac.saveCarStateAsync
+local saved = {}             -- slot ('checkpoint' | 'resume') -> binary blob from ac.saveCarStateAsync
 local savedInfo = ''
 local lastMsg = 'waiting'
 local udp = nil
@@ -62,7 +64,7 @@ local function reply(msg, ip, port)
   if udp and ip and port then pcall(udp.sendto, udp, msg, ip, port) end
 end
 
-local function handleSave(ip, port)
+local function handleSave(slot, ip, port)
   local car = ac.getCar(0)
   if not car then reply('ERR nocar', ip, port) return end
   local pos, speed = car.position, car.speedKmh
@@ -72,19 +74,20 @@ local function handleSave(ip, port)
       reply('ERR save ' .. tostring(err), ip, port)
       return
     end
-    savedState = data
+    saved[slot] = data
     savedInfo = string.format('%.2f %.2f %.2f %.1f', pos.x, pos.y, pos.z, speed)
-    log('saved ' .. savedInfo .. ' (' .. #data .. ' bytes)')
+    log('saved ' .. slot .. ' ' .. savedInfo .. ' (' .. #data .. ' bytes)')
     reply('SAVED ' .. savedInfo, ip, port)
   end)
 end
 
-local function handleReset(id, ip, port)
-  if savedState == nil then
+local function handleReset(slot, id, ip, port)
+  local state = saved[slot]
+  if state == nil then
     reply('ERR nostate', ip, port)
     return
   end
-  local ok, res = pcall(ac.loadCarState, savedState)
+  local ok, res = pcall(ac.loadCarState, state)
   if not ok then
     log('load error: ' .. tostring(res))
     reply('ERR load', ip, port)
@@ -103,16 +106,20 @@ function script.update(dt)
     if not ok or not data then break end
     data = data:gsub('%s+$', '')
     if data == 'SAVE' then
-      handleSave(ip, port)
+      handleSave('checkpoint', ip, port)
+    elseif data == 'SAVE resume' then
+      handleSave('resume', ip, port)
     else
       local id = data:match('^RESET%s+(.+)$')
-      if id then handleReset(id, ip, port) end
+      if id then handleReset('checkpoint', id, ip, port) end
+      local rid = data:match('^RESUME%s+(.+)$')
+      if rid then handleReset('resume', rid, ip, port) end
     end
   end
 end
 
 function windowMain(dt)
   if udp then ui.text('UDP 127.0.0.1:' .. PORT) else ui.text('socket OFF: ' .. tostring(sockErr)) end
-  ui.text('state saved: ' .. tostring(savedState ~= nil))
+  ui.text('checkpoint saved: ' .. tostring(saved.checkpoint ~= nil) .. '   resume saved: ' .. tostring(saved.resume ~= nil))
   ui.text('last: ' .. lastMsg)
 end

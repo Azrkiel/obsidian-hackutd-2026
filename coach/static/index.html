@@ -54,6 +54,7 @@ button:disabled{opacity:.35;cursor:not-allowed}
   <span class="badge" id="ai">Rules (AI unavailable)</span>
   <span class="badge" id="tel">telemetry: no data</span>
   <span class="badge" id="rst">reset: idle</span>
+  <span class="badge" id="inp">inputs: off</span>
   <span class="badge" id="mode">drill mode</span>
   <span class="badge" id="vox">voice: off</span>
 </header>
@@ -77,6 +78,7 @@ button:disabled{opacity:.35;cursor:not-allowed}
 <div class="btns">
   <button id="b-accept" class="primary" disabled>Accept (Space)</button>
   <button id="b-retry">Retry</button>
+  <button id="b-resume" style="display:none">Resume (end drill)</button>
   <button id="b-retry_reset" style="display:none">Retry reset</button>
   <button id="b-save_checkpoint">Save checkpoint</button>
   <button id="b-set_reference">Set reference</button>
@@ -148,6 +150,9 @@ function renderTop(){
   $("b-accept").disabled=S.state!=="OFFERED";
   $("b-retry_reset").style.display=(S.state==="AWAIT_RESET"||r.status==="failed")?"":"none";
   $("b-toggle_cue_next").textContent=h.cue_next_off?"Cue off next try: ON":"Cue off next try";
+  $("b-resume").style.display=h.resume_available?"":"none";
+  const i=h.inputs; if(i) badge($("inp"),"pedals: "+i.pedal_source+" · phone "+i.phone+" · arduino "+i.arduino+(i.serial_error&&i.arduino!=="live"?" ("+i.serial_error+")":""),
+    i.pedal_source==="arduino"?"ok":i.pedal_source==="phone"?"warn":"bad");
   const lap=h.mode==="lap";
   badge($("mode"),lap?"lap mode: keep driving":"drill mode",lap?"ok":"");
   for(const k of ["accept","retry","save_checkpoint"]) $("b-"+k).classList.toggle("hidden",lap);
@@ -243,7 +248,7 @@ function connect(){
 }
 function accept(){ if(S.state==="OFFERED"&&S.offer) send({type:"accept",decision_id:S.offer.decision_id}); }
 $("b-accept").onclick=accept;
-for(const k of ["retry","retry_reset","save_checkpoint","set_reference","new_session","toggle_cue_next","toggle_mute","mark_board"])
+for(const k of ["retry","resume","retry_reset","save_checkpoint","set_reference","new_session","toggle_cue_next","toggle_mute","mark_board"])
   $("b-"+k).onclick=()=>send({type:k});
 document.addEventListener("keydown",ev=>{
   if(ev.code==="KeyM"){ send({type:"toggle_mute"}); return; }

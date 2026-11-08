@@ -31,7 +31,8 @@ SYSTEM_PROMPT = """You are a racing coach for one corner of a track in a simulat
 5. Reason in under 120 words. Cue under 20 words, phrased as an action at a visible marker.
 6. Answer with exactly one tool call.
 7. Drills: brake_point (target marker_m = brake board), brake_release (target release_s = seconds from peak brake to off; a fast downforce car needs a progressive release or the fronts lock), throttle_pickup (target marker_m = metres past the apex). Offer a drill only for a delta over tolerance; take targets from suggested.
-8. If the packet has "voice", the driver hears you at speed: cue (and end_drill summary) is one short spoken sentence, second person, one action tied to a board or kerb, at most voice.max_cue_words words, e.g. "Next time, brake a little earlier, at the 100 m board." After a retry, say how it went first: "Better, 4 m earlier. Keep that." With offer_drill also give reminder: at most voice.max_reminder_words words for the approach next lap, e.g. "Brake earlier."."""
+8. If the packet has "voice", the driver hears you at speed: cue (and end_drill summary) is one short spoken sentence, second person, one action tied to a board or kerb, at most voice.max_cue_words words, e.g. "Next time, brake a little earlier, at the 100 m board." After a retry, say how it went first: "Better, 4 m earlier. Keep that." With offer_drill also give reminder: at most voice.max_reminder_words words for the approach next lap, e.g. "Brake earlier.".
+9. invalid_reason pedal_dropout or steering_dropout means the phone or the pedals cut out during the run, not a driver mistake: say the lap did not count because the input dropped. inputs, when present, says which device drove the pedals."""
 
 JSON_TRANSPORT_SUFFIX = (
     '\nTools are not available. Answer with only one JSON object: '

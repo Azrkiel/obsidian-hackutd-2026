@@ -92,12 +92,13 @@ NEMOTRON_BASE_URL=http://<brev-host>:8000/v1 uv run python scripts/brev_idle_sto
 
 ## Coach program
 
-One asyncio process on the Windows PC: telemetry reader, corner scorer, engine `Coach`, reset manager, live audio cue and the dashboard web server. The phone/Arduino input bridge is a separate process.
+One asyncio process on the Windows PC: telemetry reader, corner scorer, engine `Coach`, reset manager, live audio cue and the dashboard web server. With `--inputs` it is also the input receiver (phone + Arduino -> virtual Xbox 360 pad) and replaces `bridge/bridge.py`. Without `--inputs`, run `bridge/bridge.py` next to it as before. Never run both: they fight over UDP 5005, the COM port and the virtual pad.
 
 ```
 coach/telemetry.py   Sample + ACSharedMemory (original AC), SimSource, ReplaySource, Recorder
 coach/scorer.py      CornerScorer: samples -> runs -> engine Attempt + brake trace
-coach/reset.py       ResetManager: 3-2-1 countdown, load request (udp/hotkey/manual/sim), telemetry confirmation
+coach/inputs.py      InputHub: phone UDP + Arduino serial/UDP -> one virtual pad; per-run input summary
+coach/reset.py       ResetManager: 3-2-1 countdown, load request (udp/hotkey/manual/sim), telemetry confirmation, resume point
 coach/app.py         CoachApp: wiring, commands, status
 coach/dashboard.py   aiohttp: GET /, GET /ws (events out, commands in), GET /state
 csp/nomadsim_reset/  CSP Lua app (draft, untested)
@@ -117,11 +118,48 @@ uv run python -m coach --telemetry ac --reset hotkey       # presses F7 (load) /
 uv run python -m coach --telemetry ac --reset manual       # you press your own load key
 ```
 
+With the coach as the input receiver (instead of `bridge/bridge.py`). The pad and serial packages stay out of the uv `.venv` (see `PC_SETUP.md`), so `--with` adds them for this run only:
+
+```
+uv run --with vgamepad --with pyserial python -m coach --telemetry ac --reset udp --inputs
+```
+
+### Inputs
+
+| Input | Transport | Format |
+| --- | --- | --- |
+| Phone (Stealth Racing app) | UDP `--phone-port` (5005), IPv4 + IPv6, Bonjour if `dns-sd` exists | `v1,seq,steer,throttle,brake` ~100 Hz; `evt,id,command,tap/down/up` buttons; replies `ack,seq` every 30 |
+| Arduino pedals | serial (`--arduino auto`, a COM port, or `off`) | `gas,brake` ints 0..1000 per line (`hardware/pedals/pedals.ino`) |
+| Arduino pedals (wireless) | UDP `--arduino-udp-port` (off by default; e.g. 5006) | same `gas,brake` text, one reading per datagram |
+
+- Steering always comes from the phone.
+- Gas and brake come from the Arduino while it is fresh (under 200 ms old), otherwise from the phone's fallback pedals, otherwise 0.
+- If the phone goes silent, steering centres and the phone's held buttons are released. If both go silent, the pad goes fully neutral.
+- Phone buttons map to pad buttons in `BINDINGS` (`coach/inputs.py`): paddles are RB/LB.
+- `--pad none` reads and mixes inputs without a virtual pad (default off Windows).
+- `--invert-steer` flips steering.
+- The receiver is off unless `--inputs` is given. If UDP 5005 is already taken (by `bridge/bridge.py` or `listen.py`), the coach stops with an error naming them.
+- Phone coach buttons are events too. `evt,<id>,coach_next,tap` accepts the offered drill, or rewinds for a retry when nothing is offered. `evt,<id>,coach_resume,tap` ends the drill and loads the resume point. Both are ignored by `bridge/bridge.py`.
+
+Each scored run carries an `inputs` summary into the evidence packet and the trace: which device drove the pedals, the phone-fallback share, link drops, and the gap between the pedal input and what the game reported. The dashboard's inputs badge shows the live pedal source.
+
+**Input dropouts don't count.** A run is marked invalid before any coaching if the phone dropped out (`steering_dropout`: steering went to centre). It is also marked invalid if the Arduino dropped out, or the pedals were missing for more than 10% of the run (`pedal_dropout`: the game saw the pedals let go). Then every mode treats it like any other invalid run: a baseline is declined, a retry is "that lap did not count, same again". Both Nemotron prompts (normal and agent) say to blame the input, not the driver. Runs where the receiver never saw pedals or the phone (e.g. a real wheel) are left alone.
+
+### Drill loop and resume
+
+- Accepting a drill saves a **resume point** (where the car is now), then rewinds to the checkpoint.
+- With `--auto-retry` (the default), each retry is scored and judged. If the coach offers the same drill again, the car rewinds automatically. The loop ends when the coach ends the drill (target hit, or no progress), or after `--max-retries` retries (default 5). The car is then loaded back at the resume point.
+- In `--agent` mode, moving to the plan's next goal waits for Accept (or the phone's `coach_next`), so the new cue is heard before the car is rewound. Retries of the same goal loop on their own.
+- Lap mode never rewinds, so none of this applies there.
+- **Resume (end drill)** on the dashboard stops the loop at any time. It aborts a retry in progress and loads the resume point.
+- Use `--no-auto-retry` to confirm each retry with Accept.
+- Resume needs a second saved state, so it works with `--reset udp` (CSP app `SAVE resume` / `RESUME <id>`) and `--reset sim`. In hotkey and manual modes the drill just ends where the car is.
+
 Dashboard: http://127.0.0.1:8020 (second screen; `--host 0.0.0.0` to open it on the LAN, `--port` to change; 8000 is the vLLM port-forward). Space/Enter = Accept.
 
 Flow: drive the corner once, then **Save checkpoint** on the approach (a few hundred metres before the start gate, at speed), drive the baseline, accept the offered drill, the car is reset, the retry is scored and judged. **Set reference** makes the last valid run the reference (`data/reference.json` + `data/reference_trace.json`; default is `fixtures/reference.json`). Checkpoint is `data/checkpoint.json`. Other flags: `--corner`, `--reference`, `--record` (samples to `data/recordings/*.jsonl`, replay with `--telemetry replay FILE`), `--sound/--no-sound` (winsound cues, on by default on Windows), `--countdown N`, `--traces DIR`. The AI badge and engine env vars are the ones in the table above (`NEMOTRON_BASE_URL`, `NVIDIA_API_KEY`, ...); with none set the rules coach runs and the badge says so.
 
-CSP reset app (draft): copy `csp/nomadsim_reset/` to `<assettocorsa>/apps/lua/nomadsim_reset/`, enable it in the in-game app list (needs Custom Shaders Patch with Lua apps). It listens on UDP 127.0.0.1:9101 (`SAVE` -> `SAVED x y z speed`, `RESET <id>` -> `ACK <id>`). Offline practice only; loading a state invalidates the lap. Verify the `TODO(verify)` API calls in `nomadsim_reset.lua` first; if they fail use `--reset hotkey` with a key bound to your own save/load state.
+CSP reset app (draft): copy `csp/nomadsim_reset/` to `<assettocorsa>/apps/lua/nomadsim_reset/`, enable it in the in-game app list (needs Custom Shaders Patch with Lua apps). It listens on UDP 127.0.0.1:9101 (`SAVE` -> `SAVED x y z speed`, `RESET <id>` -> `ACK <id>`, plus the resume slot: `SAVE resume`, `RESUME <id>`). Offline practice only; loading a state invalidates the lap. Verify the `TODO(verify)` API calls in `nomadsim_reset.lua` first; if they fail use `--reset hotkey` with a key bound to your own save/load state.
 
 Not tested without AC: the shared-memory struct offsets against a live game (layout copied from the CSP `sim_info.py`, parsing is unit-tested on fake buffers), the CSP Lua API calls, `SendInput` hotkeys, `winsound` playback, and the corner positions (placeholders until real laps are logged).
 
