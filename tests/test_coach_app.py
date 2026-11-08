@@ -20,8 +20,10 @@ async def drive_to_done(app, max_accepts=6):
             return accepts
         accepts += 1
         assert accepts <= max_accepts
-        await app.handle_command({"type": "accept", "decision_id": app.coach.offer.decision_id})
-        await app.wait_for(lambda: app.coach.state != "OFFERED", 20)
+        did = app.coach.offer.decision_id
+        await app.handle_command({"type": "accept", "decision_id": did})
+        # the offline sim can go OFFERED -> ... -> OFFERED between polls: wait for a new offer
+        await app.wait_for(lambda: app.coach.state != "OFFERED" or app.coach.offer.decision_id != did, 20)
 
 
 async def test_full_sim_loop(corner, ref, tmp_path):
