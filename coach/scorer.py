@@ -24,15 +24,21 @@ class _Pt:
     yaw: float = 0.0
     slip_f: float = 0.0
     slip_r: float = 0.0
+    gear: int | None = None
+    x: float | None = None
+    z: float | None = None
 
 
 def _lerp(a: _Pt, b: _Pt, r: float) -> _Pt:
     f = (r - a.r) / (b.r - a.r) if b.r != a.r else 0.0
 
-    def m(x: float, y: float) -> float:
+    def m(x: float | None, y: float | None) -> float | None:
+        if x is None or y is None:
+            return None
         return x + f * (y - x)
     return _Pt(m(a.t, b.t), r, m(a.speed, b.speed), m(a.gas, b.gas), m(a.brake, b.brake),
-               m(a.steer, b.steer), m(a.yaw, b.yaw), m(a.slip_f, b.slip_f), m(a.slip_r, b.slip_r))
+               m(a.steer, b.steer), m(a.yaw, b.yaw), m(a.slip_f, b.slip_f), m(a.slip_r, b.slip_r),
+               b.gear if f >= 1 else a.gear, m(a.x, b.x), m(a.z, b.z))
 
 
 def _sustained(pts: list[_Pt], i0: int, key: Callable[[_Pt], float], thr: float) -> float | None:
@@ -85,7 +91,7 @@ class CornerScorer:
 
     def add(self, s: Sample) -> None:
         pt = _Pt(s.t, self._rel(s.pos_m), s.speed_kmh, s.gas, s.brake, s.steer,
-                 getattr(s, "yaw_rate", 0.0), getattr(s, "slip_f", 0.0), getattr(s, "slip_r", 0.0))
+                 getattr(s, "yaw_rate", 0.0), getattr(s, "slip_f", 0.0), getattr(s, "slip_r", 0.0), s.gear, s.x, s.z)
         prev, self._prev = self._prev, pt
         if prev is None:
             return
@@ -143,14 +149,14 @@ class CornerScorer:
                 reason = "no throttle pickup"
         peak = max((p.brake for p in pts if p.r <= a1), default=0.0)
         self._n += 1
-        # trace rows: [pos, brake, gas, speed, t, steer, yaw, slip_f, slip_r] (see engine.analysis)
+        # trace rows: [pos, brake, gas, speed, t, steer, yaw, slip_f, slip_r, gear, x, z] (see engine.analysis)
         trace, last = [], None
         t0 = pts[0].t
         for p in pts:
-            if last is None or p.r - last >= TRACE_STEP_M or p is pts[-1]:
+            if last is None or p.r - last >= TRACE_STEP_M or p is pts[-1] or (trace and p.gear != trace[-1][9]):
                 trace.append([round(s + p.r, 1), round(p.brake, 3), round(p.gas, 3), round(p.speed, 1),
                               round(p.t - t0, 3), round(p.steer, 3), round(p.yaw, 3),
-                              round(p.slip_f, 3), round(p.slip_r, 3)])
+                              round(p.slip_f, 3), round(p.slip_r, 3), p.gear, p.x, p.z])
                 last = p.r
         prof = driving_profile(trace, self.corner) if reason is None else {}
         attempt = Attempt(
@@ -162,7 +168,9 @@ class CornerScorer:
             section_s=(ex.t if ex else pts[-1].t) - pts[0].t,
             release_s=prof.get("release_s"), trail_brake_share=prof.get("trail_brake_share"),
             lockup_s=prof.get("lockup_s"), wheelspin_s=prof.get("wheelspin_s"),
-            min_kmh=prof.get("min_kmh"), min_pos_m=prof.get("min_pos_m"))
+            min_kmh=prof.get("min_kmh"), min_pos_m=prof.get("min_pos_m"),
+            **{k: prof.get(k) for k in ("time_to_peak_s", "coast_s", "min_vs_apex_m",
+                                      "full_throttle_s", "turn_in_m", "last_downshift_m", "line_offset_m")})
         self.on_run(attempt, trace)
 
 

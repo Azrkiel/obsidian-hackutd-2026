@@ -14,6 +14,11 @@ final class ReceiverSession {
     private(set) var receivers: [NWEndpoint] = []
     private(set) var discoveryIssue: LocalizedStringResource?
     private(set) var packetPreview = ""
+    private(set) var lastSectionSeconds: Double?
+    private(set) var bestTodaySeconds: Double?
+    private(set) var historySource = "Waiting for history"
+    @ObservationIgnored private var lastHistoryLap: String?
+    @ObservationIgnored private var historyTask: Task<Void, Never>?
     private(set) var steering = 0.0
     private(set) var canRecenter = false
     var throttle = 0.0
@@ -136,6 +141,12 @@ final class ReceiverSession {
     }
 
     func disconnect() {
+        historyTask?.cancel()
+        historyTask = nil
+        lastHistoryLap = nil
+        lastSectionSeconds = nil
+        bestTodaySeconds = nil
+        historySource = "Waiting for history"
         guard let connection else { return }
         transmitTask?.cancel()
         transmitTask = nil
@@ -207,6 +218,12 @@ final class ReceiverSession {
             MainActor.assumeIsolated {
                 guard let self, let connection, self.connection === connection else { return }
                 self.isReceiving = false
+                if error == nil, let data,
+                   let packet = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   packet["type"] as? String == "race_history",
+                   let history = packet["history"] as? [String: Any] {
+                    self.receiveHistory(history)
+                }
                 if error == nil, let data, let reply = String(data: data, encoding: .utf8),
                    reply.hasPrefix("ack,"), let acknowledged = Int(reply.dropFirst(4)),
                    acknowledged >= self.firstSequence, acknowledged < self.sequence {
@@ -214,6 +231,76 @@ final class ReceiverSession {
                 }
             }
         }
+    }
+
+    /// The local recorder remains authoritative while cloud sync is offline or catching up.
+    private func receiveHistory(_ history: [String: Any]) {
+        lastSectionSeconds = history["last_s"] as? Double
+        bestTodaySeconds = history["best_today_s"] as? Double
+        historySource = history["last_valid"] as? Bool == false ? "Last pass invalid" : "Saved on race PC"
+        guard let lap = history["lap_id"] as? String, lap != lastHistoryLap else { return }
+        lastHistoryLap = lap
+        historyTask?.cancel()
+        guard let cloud = history["cloud"] as? [String: Any],
+              let server = cloud["url"] as? String, let database = cloud["database"] as? String,
+              !database.isEmpty, let driver = cloud["driver_id"] as? String,
+              UUID(uuidString: driver) != nil, let base = URL(string: server),
+              ["https", "http"].contains(base.scheme?.lowercased() ?? ""), base.host != nil,
+              base.user == nil, base.password == nil else { return }
+        let endpoint = base.appendingPathComponent("v1/database").appendingPathComponent(database).appendingPathComponent("sql")
+        let quoted: (String) -> String = { "'" + $0.replacingOccurrences(of: "'", with: "''") + "'" }
+        var sql = "SELECT lap.* FROM lap JOIN session ON lap.session_id = session.session_id WHERE session.driver_id = \(quoted(driver))"
+        for field in ["track", "car", "corner"] {
+            if let value = cloud[field] as? String { sql += " AND session.\(field) = \(quoted(value))" }
+        }
+        let query = sql
+        historyTask = Task { [weak self] in
+            // Give the outbox time to deliver this lap. Each pass triggers at most four reads.
+            for delay in [0, 1, 2, 4] {
+                if delay > 0 {
+                    do { try await Task.sleep(for: .seconds(delay)) } catch { return }
+                }
+                guard !Task.isCancelled else { return }
+                do {
+                    var request = URLRequest(url: endpoint)
+                    request.httpMethod = "POST"
+                    request.setValue("text/plain", forHTTPHeaderField: "Content-Type")
+                    request.httpBody = Data(query.utf8)
+                    request.timeoutInterval = 3
+                    let (data, response) = try await URLSession.shared.data(for: request)
+                    guard let response = response as? HTTPURLResponse, response.statusCode == 200,
+                          let results = try JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+                          let result = results.first, let schema = result["schema"] as? [String: Any],
+                          let elements = schema["elements"] as? [[String: Any]],
+                          let rows = result["rows"] as? [[Any]] else { continue }
+                    let names = elements.map { element -> String in
+                        if let name = element["name"] as? String { return name }
+                        return (element["name"] as? [String: String])?["some"] ?? ""
+                    }
+                    guard !names.contains(""), Set(names).count == names.count else { continue }
+                    let records = rows.filter { $0.count == names.count }.map { Dictionary(uniqueKeysWithValues: zip(names, $0)) }
+                    guard let latest = records.first(where: { $0["lap_id"] as? String == lap }),
+                          let self, self.lastHistoryLap == lap, !Task.isCancelled else { continue }
+                    self.lastSectionSeconds = latest["valid"] as? Bool == true ? Self.sqlNumber(latest["section_s"]) : nil
+                    let midnight = Calendar.current.startOfDay(for: Date()).timeIntervalSince1970
+                    self.bestTodaySeconds = records.compactMap { row -> Double? in
+                        guard row["valid"] as? Bool == true,
+                              let at = Self.sqlNumber(row["at"]), at >= midnight,
+                              let seconds = Self.sqlNumber(row["section_s"]), seconds > 0 else { return nil }
+                        return seconds
+                    }.min()
+                    self.historySource = latest["valid"] as? Bool == true ? "Live history" : "Last pass invalid"
+                    return
+                } catch { /* Keep the local packet values; steering is independent of this task. */ }
+            }
+        }
+    }
+
+    private static func sqlNumber(_ value: Any?) -> Double? {
+        if let number = value as? Double, number.isFinite { return number }
+        if let option = value as? [String: Any] { return sqlNumber(option["some"]) }
+        if let option = value as? [Any], option.count == 2, option[0] as? Int == 0 { return sqlNumber(option[1]) }
+        return nil
     }
 
     private func transmit(to connection: NWConnection, refreshPreview: Bool) {

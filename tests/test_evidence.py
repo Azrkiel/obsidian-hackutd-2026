@@ -18,7 +18,7 @@ def test_board_numbers(mk_packet):
     p = mk_packet("late_brake")
     assert p["reference"]["brake_board_m"] == 100.0
     assert p["attempt"]["brake_board_m"] == 85.8
-    assert p["suggested"] == {"brake_point": 100, "throttle_pickup": 20, "brake_release": 0.5}
+    assert {k: p["suggested"][k] for k in ("brake_point", "throttle_pickup", "brake_release")} == {"brake_point": 100, "throttle_pickup": 20, "brake_release": 0.5}
 
 
 def test_comparable(mk_packet):

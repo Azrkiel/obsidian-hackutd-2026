@@ -9,10 +9,10 @@ from .evidence import DRILL_METRIC, DRILL_TARGET
 from .models import ToolCall
 
 END_REASONS = ["no_coaching_needed", "drill_complete", "no_progress", "not_comparable", "invalid_run"]
-DRILLS = ["brake_point", "brake_release", "throttle_pickup"]
+from .drills import DRILLS as REGISTRY, TARGET_KEYS, TARGET_PROPERTIES, eligible, target_hit
+DRILLS = list(REGISTRY)
 MAX_CUE_WORDS = 20
 DRILL_DELTA = DRILL_METRIC
-TARGET_KEYS = {"marker_m", "peak_brake", "release_s"}
 
 
 def _fn(name: str, desc: str, props: dict, required: list[str]) -> dict:
@@ -28,9 +28,8 @@ TOOLS: list[dict] = [
         {"attempt_id": {"type": "string"},
          "drill_id": {"type": "string", "enum": DRILLS},
          "target": {"type": "object", "description":
-                    "brake_point/throttle_pickup: marker_m (and peak_brake); brake_release: release_s",
-                    "properties": {"marker_m": {"type": "number"}, "peak_brake": {"type": "number"},
-                                   "release_s": {"type": "number"}}},
+                    "Use the registered drill target key and packet.allowed ranges.",
+                    "properties": TARGET_PROPERTIES},
          "cue": {"type": "string", "description": "Under 20 words (voice.max_cue_words when spoken), "
                                                   "an action at a visible marker."},
          "verdict": {"type": "string", "enum": ["repeat", "adjust"]},
@@ -96,6 +95,14 @@ def validate(call: ToolCall | None, packet: dict) -> tuple[bool, str | None]:
     if call.name == "end_drill":
         if a.get("reason") not in END_REASONS:
             return False, f"reason must be one of {END_REASONS}"
+        if a["reason"] == "drill_complete":
+            dr = packet.get("drill") or {}
+            spec = REGISTRY.get(dr.get("id"))
+            gap = (packet.get("target_gap") or {}).get(spec.metric) if spec else None
+            tol = packet["tolerance"].get(spec.metric) if spec else None
+            if not packet["valid"] or not packet["comparable"] or gap is None or tol is None \
+                    or not target_hit(dr["id"], gap, tol):
+                return False, "target not met or missing retry evidence"
         if a["reason"] == "no_coaching_needed":
             over = _baseline_over_tolerance(packet)
             if over:
@@ -130,19 +137,23 @@ def _baseline_over_tolerance(packet: dict) -> str | None:
     """Same check as rules.rule_decide: on a valid, comparable baseline, name the first delta over tolerance."""
     if packet["phase"] == "retry" or not packet["valid"] or not packet["comparable"]:
         return None
-    d, tol = packet["delta"], packet["tolerance"]
-    for k in ("brake_onset_m", "release_s", "throttle_pickup_m"):
-        if k in d and k in tol and abs(d[k]) > tol[k]:
-            return f"delta {k} {d[k]} vs tolerance {tol[k]}"
+    for name in DRILLS:
+        if eligible(packet, name):
+            return f"delta {DRILL_DELTA[name]} over tolerance"
     return None
 
 
 def _validate_offer(a: dict, packet: dict) -> tuple[bool, str | None]:
     allowed = packet["allowed"]
     drill_id = a.get("drill_id")
-    if drill_id not in allowed["drills"]:
+    if not isinstance(drill_id, str) or drill_id not in REGISTRY or drill_id not in allowed["drills"]:
         return False, f"drill_id {drill_id} not allowed"
     retry = packet["phase"] == "retry"
+    spec = REGISTRY[drill_id]
+    if any(not packet.get("telemetry_verified", {}).get(k, False) for k in spec.requires):
+        return False, "telemetry calibration required"
+    if retry and packet["valid"] and spec.metric not in packet["attempt"]:
+        return False, "missing retry metric"
     if not packet["valid"]:
         # a retry with an invalid run may only repeat the same drill/target
         same = retry and packet.get("drill") and drill_id == packet["drill"]["id"] \
@@ -160,10 +171,8 @@ def _validate_offer(a: dict, packet: dict) -> tuple[bool, str | None]:
             a.pop("verdict", None)
     if not retry and packet["valid"] and packet["comparable"]:
         # same mapping as rules.rule_decide: only coach what is actually outside tolerance
-        key = DRILL_DELTA.get(drill_id)
-        d, tol = packet["delta"], packet["tolerance"]
-        if key in d and key in tol and abs(d[key]) <= tol[key]:
-            return False, f"delta {key} {d[key]} is inside tolerance {tol[key]}; no {drill_id} drill"
+        if not eligible(packet, drill_id):
+            return False, f"{drill_id}: missing evidence, unverified telemetry, or delta inside tolerance"
     target = a.get("target")
     tkey = DRILL_TARGET.get(drill_id, "marker_m")
     if not isinstance(target, dict) or tkey not in target:

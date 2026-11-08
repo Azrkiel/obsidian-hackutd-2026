@@ -1,7 +1,7 @@
 """Driving profile, micro-sector splits and run comparison: pure functions over a corner trace.
 
 A trace is a list of rows sampled every ~2 m between the start and exit gates:
-    [pos_m, brake, gas, speed_kmh, t_s, steer, yaw_rate, slip_front, slip_rear]
+    [pos_m, brake, gas, speed_kmh, t_s, steer, yaw_rate, slip_front, slip_rear, gear, world_x, world_z]
 Only the first four columns are required (older traces and the reference fixture have just
 those); time is then integrated from distance and speed, and the columns that need steering,
 yaw or wheel slip come back as None.
@@ -9,11 +9,13 @@ yaw or wheel slip come back as None.
 from __future__ import annotations
 
 import statistics
+import math
+from bisect import bisect_right
 from typing import Any, Sequence
 
 from .models import CornerConfig
 
-POS, BRAKE, GAS, SPEED, T, STEER, YAW, SLIP_F, SLIP_R = range(9)
+POS, BRAKE, GAS, SPEED, T, STEER, YAW, SLIP_F, SLIP_R, GEAR, X, Z = range(12)
 BRAKE_ON = 0.10          # brake "pressed"
 GAS_ON = 0.20            # throttle "picked up"
 COAST = 0.05             # both pedals below this = coasting
@@ -33,7 +35,7 @@ SECTORS = (("approach", "start_m", "brake_m"), ("braking", "brake_m", "turn_in_m
 
 # ---------------------------------------------------------------- helpers
 def _has(trace: Sequence[Sequence[float]], col: int) -> bool:
-    return bool(trace) and all(len(r) > col and r[col] is not None for r in trace)
+    return bool(trace) and all(len(r) > col and isinstance(r[col], (int, float)) and math.isfinite(r[col]) for r in trace)
 
 
 def times(trace: Sequence[Sequence[float]]) -> list[float]:
@@ -115,6 +117,23 @@ def driving_profile(trace: Sequence[Sequence[float]], corner: CornerConfig) -> d
         out["trail_brake_share"] = _r(len(turning) / len(braking))
     else:
         out["trail_brake_share"] = None
+    turn = next((i for i in range(on, n) if abs(trace[i][STEER]) > STEER_ON), None) \
+        if on is not None and _has(trace, STEER) else None
+    out["turn_in_m"] = _r(pos[turn], 1) if turn is not None else None
+    # Ignore neutral/reverse transitions, and shifts on the exit acceleration.
+    shifts = []
+    if _has(trace, GEAR):
+        previous_gear = None
+        for i, row in enumerate(trace):
+            gear = row[GEAR]
+            if gear < 1:  # retain the last forward gear through a neutral blip
+                continue
+            if previous_gear is not None and gear < previous_gear and on is not None \
+                    and i >= on and pos[i] <= corner.gate("apex1_m"):
+                shifts.append(i)
+            previous_gear = gear
+    out["last_downshift_m"] = _r(pos[shifts[-1]], 1) if shifts else None
+    out["line_offset_m"] = line_offset(trace, corner)
     # coasting between brake onset and the exit
     start = on if on is not None else 0
     out["coast_s"] = _r(_dur(ts, [i for i in range(start, n - 1)
@@ -122,12 +141,12 @@ def driving_profile(trace: Sequence[Sequence[float]], corner: CornerConfig) -> d
     # lock-up / wheelspin
     if _has(trace, SLIP_F):
         out["lockup_s"] = _r(_dur(ts, [i for i in range(n) if brake[i] > BRAKE_ON
-                                       and trace[i][SLIP_F] > LOCK_SLIP]))
+                                       and abs(trace[i][SLIP_F]) > LOCK_SLIP]))
     else:
         out["lockup_s"] = None
     if _has(trace, SLIP_R):
         out["wheelspin_s"] = _r(_dur(ts, [i for i in range(n) if gas[i] > GAS_ON
-                                          and trace[i][SLIP_R] > SPIN_SLIP]))
+                                          and abs(trace[i][SLIP_R]) > SPIN_SLIP]))
     else:
         out["wheelspin_s"] = None
     # minimum speed and where, relative to the apex window
@@ -247,3 +266,39 @@ def compare_runs(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
             if x != y:
                 out[k] = {"a": x, "b": y}
     return out
+
+
+def line_offset(trace: Sequence[Sequence[float]], corner: CornerConfig) -> float | None:
+    """RMS lateral distance to nearby AI line segments in world x/z metres.
+
+    Progress confines projection to the local section, avoiding a nearby parallel
+    part of a chicane. No extrapolation beyond the supplied AI line is allowed.
+    O2 coordinate calibration is enforced by drill eligibility, independently.
+    """
+    line = corner.racing_line
+    if not line or len(line) < 2 or not (_has(trace, X) and _has(trace, Z)):
+        return None
+    if any(len(p) != 3 or not all(isinstance(v, (int, float)) and math.isfinite(v) for v in p)
+           for p in line) or any(b[0] <= a[0] for a, b in zip(line, line[1:])):
+        return None
+    progress = [p[0] for p in line]
+    distances = []
+    for r in trace:
+        if not corner.gate("turn_in_m") <= r[POS] <= corner.exit_gate_m:
+            continue
+        if not progress[0] <= r[POS] <= progress[-1]:
+            return None
+        i = min(max(bisect_right(progress, r[POS]) - 1, 0), len(line) - 2)
+        candidates = []
+        for j in range(max(0, i - 2), min(len(line) - 1, i + 3)):
+            a, b = line[j], line[j + 1]
+            dx, dz = b[1] - a[1], b[2] - a[2]
+            length2 = dx * dx + dz * dz
+            if length2 <= 1e-12:
+                continue
+            f = min(1.0, max(0.0, ((r[X] - a[1]) * dx + (r[Z] - a[2]) * dz) / length2))
+            candidates.append((r[X] - a[1] - f * dx) ** 2 + (r[Z] - a[2] - f * dz) ** 2)
+        if not candidates:
+            return None
+        distances.append(min(candidates))
+    return round(math.sqrt(sum(distances) / len(distances)), 2) if distances else None

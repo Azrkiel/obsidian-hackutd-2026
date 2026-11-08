@@ -16,7 +16,7 @@ def load_corner(path: str | Path) -> CornerConfig:
 
 def load_attempt(path: str | Path) -> Attempt:
     d = json.loads(Path(path).read_text(encoding="utf-8"))
-    return Attempt.from_dict(d)
+    return Attempt.from_dict(d.get("attempt", d))
 
 
 def load_track(path: str | Path) -> Track:

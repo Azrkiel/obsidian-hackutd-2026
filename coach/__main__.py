@@ -17,6 +17,7 @@ import asyncio
 import json
 import sys
 from pathlib import Path
+from uuid import UUID
 
 from engine.config import load_attempt, load_corner, load_track, load_track_reference
 from engine.nemotron import default_providers
@@ -45,11 +46,16 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--reset", choices=["udp", "hotkey", "manual", "sim"], default=None)
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8020)
-    ap.add_argument("--corner", default=str(ROOT / "fixtures" / "corner_monza_t1.json"))
+    ap.add_argument("--corner", default=str(ROOT / "fixtures" / "corner_monza_t1_measured.json"),
+                    help="corner JSON (default: Monza T1 at its measured position)")
     ap.add_argument("--reference", default=None)
     ap.add_argument("--data-dir", default=str(ROOT / "data"))
     ap.add_argument("--traces", default=str(ROOT / "traces"))
     ap.add_argument("--record", action="store_true", help="write samples to data/recordings/")
+    ap.add_argument("--history", action="store_true", help="save race history to data/history.sqlite3 (opt-in)")
+    ap.add_argument("--driver-name", help="history driver name (default: AC player name, or Driver)")
+    ap.add_argument("--driver-id", type=lambda value: str(UUID(value)),
+                    help="stable UUID for a driver; use when two drivers share a name")
     ap.add_argument("--sound", action=argparse.BooleanOptionalAction, default=None)
     ap.add_argument("--countdown", type=int, default=3)
     ap.add_argument("--brake-board", type=float, default=86.0, help="sim: first-run brake board (m)")
@@ -99,6 +105,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="sim: first-run brake release time in s (0.15 = snaps off: triggers brake_release)")
     ap.add_argument("--lap-gap", type=float, default=12.0,
                     help="sim lap mode: seconds between corner passes")
+    ap.add_argument("--map", default="auto", metavar="FILE|auto|off",
+                    help="dashboard track map (default: fixtures/track_<track>_map.json if it exists)")
     t = ap.add_argument_group("whole lap (lap mode over every corner of a track)")
     t.add_argument("--track", default=None, metavar="FILE",
                    help="track JSON (e.g. fixtures/track_monza.json): score and coach every corner; implies --mode lap")
@@ -151,6 +159,19 @@ def track_reference_path(args: argparse.Namespace, track_path: Path) -> Path:
     return track_path.parent / ref
 
 
+def load_map(args: argparse.Namespace, track_name: str) -> dict | None:
+    """--map: a JSON polyline for the dashboard. auto = fixtures/track_<first word of the track>_map.json."""
+    if args.map == "off":
+        return None
+    path = (ROOT / "fixtures" / f"track_{track_name.split()[0].lower()}_map.json" if args.map == "auto"
+            else Path(args.map))
+    if not path.is_file():
+        if args.map != "auto":
+            raise SystemExit(f"--map: no such file {path}")
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def build_track_app(args: argparse.Namespace) -> CoachApp:
     tpath = Path(args.track)
     track = load_track(tpath)
@@ -158,6 +179,9 @@ def build_track_app(args: argparse.Namespace) -> CoachApp:
     missing = [c for c in track.ids if c not in refs]
     if missing:
         raise SystemExit(f"the track reference has no corner {missing}")
+    if args.history:
+        # History stores one corner per session; per-corner whole-lap rows are W11 (not built yet)
+        print("warning: --history is single-corner only for now; whole-lap laps are not saved", file=sys.stderr)
     kind = args.telemetry[0]
     retries = not args.no_retries
     model = rrefs = store = None
@@ -198,7 +222,8 @@ def build_track_app(args: argparse.Namespace) -> CoachApp:
                     mode="lap", speaker=speaker, muted=args.mute, agent=args.agent,
                     inputs=build_inputs(args), auto_retry=False, max_retries=args.max_retries,
                     track=track, track_references=refs, track_model=model, references=rrefs,
-                    lead_time_s=args.lead_time, whole_lap=retries, store=store)
+                    lead_time_s=args.lead_time, whole_lap=retries, store=store,
+                    track_map=load_map(args, track.name))
 
 
 def build_inputs(args: argparse.Namespace) -> InputHub | None:
@@ -229,10 +254,13 @@ def build_app(args: argparse.Namespace) -> CoachApp:
         ref_path = Path(args.reference)
     elif (data / "reference.json").exists():
         ref_path = data / "reference.json"
-    else:
-        ref_path = ROOT / "fixtures" / "reference.json"
+    else:  # the corner file names its own reference ("_reference"), else the generic one
+        named = json.loads(Path(args.corner).read_text(encoding="utf-8")).get("_reference")
+        ref_path = Path(args.corner).with_name(named) if named else ROOT / "fixtures" / "reference.json"
     ref_trace_path = ref_path.with_name(ref_path.stem + "_trace.json")
-    ref_trace = json.loads(ref_trace_path.read_text(encoding="utf-8")) if ref_trace_path.exists() else []
+    ref_doc = json.loads(ref_path.read_text(encoding="utf-8"))
+    ref_trace = (json.loads(ref_trace_path.read_text(encoding="utf-8")) if ref_trace_path.exists()
+                 else ref_doc.get("trace", []))
     kind = args.telemetry[0]
     lap = args.mode == "lap"
     track = refs = store = None
@@ -271,6 +299,8 @@ def build_app(args: argparse.Namespace) -> CoachApp:
                     persist_checkpoint=kind != "sim", mode=args.mode, speaker=speaker,
                     muted=args.mute, agent=args.agent, inputs=build_inputs(args),
                     auto_retry=args.auto_retry, max_retries=args.max_retries,
+                    history=args.history, driver_name=args.driver_name, driver_id=args.driver_id,
+                    track_map=load_map(args, corner.name),
                     track_model=track, references=refs, lead_time_s=args.lead_time,
                     whole_lap=args.whole_lap, store=store)
 
