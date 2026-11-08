@@ -22,6 +22,7 @@ The original project plan is at `/Users/kevendiaz/Library/Mobile Documents/iClou
 | `stealth-racing/DrivingView.swift` | Landscape cockpit: touch-down paddle shifters (top corners), spring-loaded fallback brake/throttle pads, steering gauge with tilting mascot, Recenter, and a grid of sim buttons. |
 | `Info.plist` | Declares the Bonjour service type. The project build settings provide the Local Network permission text. |
 | `listen.py` | Python 3.9+ receiver with no pip dependencies. Prints the first-packet success message and every payload. Binds to IPv4 and IPv6 where supported, with an IPv4 fallback. |
+| `bridge/` | Windows Assetto Corsa bridge. `ac_bridge.py` turns v1/evt packets into a virtual Xbox 360 controller via `vgamepad` (`--backend gamepad`) or logs them (`--backend dryrun`). Mapping lives in `bindings.py`; `protocol.py` parses, clamps, de-duplicates and runs the 250 ms watchdog. Setup and binding steps: `bridge/README.md`. Tests: `python3 -m unittest discover bridge/tests`. |
 
 ## Wire format
 
@@ -54,3 +55,10 @@ The iPhone hotspot previously gave the Mac a translation-only IPv4 address in `1
 - On the Mac, the listener received and acknowledged IPv4 and IPv6 test packets without Bonjour. A separate Swift Network framework test discovered the listener via Bonjour, sent a v1 packet, and received its reply.
 - The current UI has not been exercised on a supported simulator or a physical iPhone. A live iPhone-to-Windows test and iPhone-to-Mac Bonjour test over the hotspot are still open.
 - For the next live test, verify steering direction and recentering, slider values, receipt confirmation, and reconnect after stopping and restarting the receiver. If you extend the Windows game bridge, preserve the v1 payload and add the optional reply only if the app should confirm receipt from that bridge.
+
+### Still unverified (as of the bridge work)
+
+- **On-device UI.** The redesign builds with no compiler warnings and installs on the iPhone. Nobody has walked through the screens yet: pairing, paddles while holding a pedal (multi-touch), pedal spring-back, center-column fit, and VoiceOver.
+- **Windows bridge.** The dry run and unit tests pass on macOS/Linux. The `vgamepad`/ViGEmBus path has never run on Windows.
+- **In-game bindings.** Nothing is confirmed in Assetto Corsa yet: the binding steps in `bridge/README.md` carry `[VERIFY IN GAME]` markers, and every button in its map is untested in game.
+- **Arduino pedals.** `bridge/arduino.py` is a stub, and `--arduino-port` does nothing yet.
