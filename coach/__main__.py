@@ -39,6 +39,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--voice", choices=["auto", "windows", "nvidia", "silent", "off"], default=None,
                     help="spoken coaching (default: auto in lap mode, off in drill mode)")
     ap.add_argument("--mute", action="store_true", help="start with the voice muted (M toggles)")
+    ap.add_argument("--agent", action="store_true",
+                    help="Nemotron runs the session: read tools (profile, splits, ...) + a 1-3 goal plan")
     ap.add_argument("--release", type=float, default=0.55,
                     help="sim: first-run brake release time in s (0.15 = snaps off: triggers brake_release)")
     ap.add_argument("--lap-gap", type=float, default=12.0,
@@ -83,7 +85,7 @@ def build_app(args: argparse.Namespace) -> CoachApp:
                     recorder=Recorder(data / "recordings") if args.record else None,
                     sound=args.sound, countdown=args.countdown,
                     persist_checkpoint=kind != "sim", mode=args.mode, speaker=speaker,
-                    muted=args.mute)
+                    muted=args.mute, agent=args.agent)
 
 
 async def amain(args: argparse.Namespace) -> None:
@@ -92,7 +94,7 @@ async def amain(args: argparse.Namespace) -> None:
     await dash.start()
     await app.start()
     voice = "off" if app.announcer is None else app.announcer.speaker.name
-    print(f"NomadSim coach: mode={app.mode} telemetry={args.telemetry[0]} reset={app.reset.mode} "
+    print(f"NomadSim coach: mode={app.mode} agent={'on' if app.coach.agent else 'off'} telemetry={args.telemetry[0]} reset={app.reset.mode} "
           f"voice={voice} dashboard http://{args.host}:{args.port}", flush=True)
     try:
         await asyncio.Event().wait()

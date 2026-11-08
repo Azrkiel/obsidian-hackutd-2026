@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from engine import ladder
+from engine.agent_tools import AgentSession
 from engine.live_cue import LiveCue, NullPlayer
 from engine.models import Attempt, CornerConfig
 from engine.state import AWAIT_RESET, DONE, IDLE, OFFERED, RETRY, Coach
@@ -49,7 +50,7 @@ class CoachApp:
                  countdown: int = 3, tick_s: float = 1.0, persist_checkpoint: bool = True,
                  reconnect_s: float = 2.0, decide_kwargs: dict | None = None,
                  reset_kwargs: dict | None = None, mode: str = "drill", speaker: Any = None,
-                 muted: bool = False, announcer_kwargs: dict | None = None):
+                 muted: bool = False, announcer_kwargs: dict | None = None, agent: bool = False):
         if mode not in ("drill", "lap"):
             raise ValueError(f"mode must be drill or lap, not {mode!r}")
         self.mode = mode
@@ -96,7 +97,8 @@ class CoachApp:
             dk.setdefault("total_deadline_s", LAP_TOTAL_DEADLINE_S)
         self.coach = Coach(corner, reference, providers, self._on_coach_event, self._request_reset,
                            trace=self.trace, live_cue=self.live_cue, decide_kwargs=dk,
-                           lap_mode=mode == "lap")
+                           lap_mode=mode == "lap",
+                           agent=AgentSession(corner, reference, self.reference_trace) if agent else None)
 
     # -- broadcast --
     def subscribe(self, cb: Callable[[dict], None]) -> Callable[[], None]:
@@ -174,11 +176,14 @@ class CoachApp:
     def _speak_decision(self, e: dict) -> None:
         if self.announcer is None:
             return
+        meta = {"decision_id": e.get("decision_id"), "mode": e.get("mode")}
         if e["action"] == "offer_drill":
+            if e.get("plan_action") == "advance_plan" and e.get("summary"):
+                self.announcer.say(e["summary"], VERDICT, **meta)  # "On target." then the next goal
             text, kind = e.get("cue") or "", VERDICT if e.get("verdict") else ADVICE
         else:
             text, kind = e.get("summary") or "", VERDICT
-        self.announcer.say(text, kind, decision_id=e.get("decision_id"), mode=e.get("mode"))
+        self.announcer.say(text, kind, **meta)
 
     async def _request_reset(self, decision_id: str) -> None:
         await self.reset.reset(decision_id)
@@ -209,7 +214,7 @@ class CoachApp:
         elif role == "retry":
             self.retry_run = ev
         self.broadcast(ev)
-        await self.coach.on_scored(attempt)
+        await self.coach.on_scored(attempt, trace)
 
     # -- telemetry --
     def _on_sample(self, s: Sample) -> None:
@@ -266,6 +271,7 @@ class CoachApp:
                           for p in self.providers},
             "cue_next_off": self.cue_next_off,
             "mode": self.mode,
+            "agent": self.coach.agent is not None,
             "voice": None if self.announcer is None else {
                 "speaker": getattr(self.announcer.speaker, "name", "?"),
                 "muted": self.announcer.muted, "queued": len(self.announcer.queue)},
@@ -348,6 +354,8 @@ class CoachApp:
         a = Attempt.from_dict(run["attempt"])
         self.reference, self.reference_trace = a, run["trace"]
         self.coach.reference = a
+        if self.coach.agent is not None:
+            self.coach.agent.set_reference(a, run["trace"])
         self.data_dir.mkdir(parents=True, exist_ok=True)
         ad = {k: v for k, v in run["attempt"].items() if k != "brake_board_m"}
         (self.data_dir / "reference.json").write_text(json.dumps(ad), encoding="utf-8")

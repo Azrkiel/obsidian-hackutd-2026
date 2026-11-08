@@ -268,7 +268,8 @@ class NemotronProvider:
         return msgs
 
     async def _once(self, msgs: list[dict], mode: str, transport: str, think_tokens: int | None,
-                    max_tokens: int | None, on_reasoning: Callable[[str], None] | None
+                    max_tokens: int | None, on_reasoning: Callable[[str], None] | None,
+                    tools: list[dict] | None = None
                     ) -> tuple[str, str, ToolCall | None, float | None]:
         think = mode == "think"
         extra = dict(self.cfg.think_extra if think else self.cfg.fast_extra)
@@ -282,7 +283,7 @@ class NemotronProvider:
             max_tokens=max_tokens or (MAX_TOKENS_THINK if think else MAX_TOKENS_FAST),
             extra_body=extra, stream=think)
         if transport == "tools":
-            kwargs.update(tools=TOOLS, tool_choice="auto")
+            kwargs.update(tools=tools or TOOLS, tool_choice="auto")
         t0 = time.monotonic()
         try:
             resp = await self.client.chat.completions.create(**kwargs)
@@ -301,9 +302,14 @@ class NemotronProvider:
 
     async def call(self, packet: dict, mode: str, *, on_reasoning: Callable[[str], None] | None = None,
                    repair: tuple[ToolCall, str] | None = None, transport: str | None = None,
-                   think_tokens: int | None = None, max_tokens: int | None = None) -> ModelResult:
-        """Run one decision call (plus at most one get_attempt_evidence round)."""
+                   think_tokens: int | None = None, max_tokens: int | None = None,
+                   agent: Any = None) -> ModelResult:
+        """Run one decision call (plus at most one get_attempt_evidence round).
+        With `agent` (an AgentTurn): up to agent.max_rounds rounds of read tools, then one action."""
         transport = transport or self.transport
+        if agent is not None:
+            return await self._agent_call(packet, mode, agent, on_reasoning, repair, transport,
+                                          think_tokens, max_tokens)
         msgs = self._messages(packet, transport, repair)
         t0 = time.monotonic()
         content, reasoning, call, first = await self._once(
@@ -321,6 +327,41 @@ class NemotronProvider:
         return ModelResult(call=call, reasoning=reasoning, content=content,
                            latency_ms=(time.monotonic() - t0) * 1000,
                            first_reasoning_ms=first, model=self.model)
+
+    async def _agent_call(self, packet: dict, mode: str, agent: Any,
+                          on_reasoning: Callable[[str], None] | None,
+                          repair: tuple[ToolCall, str] | None, transport: str,
+                          think_tokens: int | None, max_tokens: int | None) -> ModelResult:
+        from .agent_tools import AGENT_JSON_SUFFIX, tool_message
+        system = agent.system_prompt + (AGENT_JSON_SUFFIX if transport == "json" else "")
+        msgs = self._messages(packet, transport, repair)
+        msgs[0] = {"role": "system", "content": system}
+        t0 = time.monotonic()
+        reasoning, first, content, call = "", None, "", None
+        for rnd in range(1, agent.max_rounds + 2):
+            last = rnd > agent.max_rounds
+            content, r, call, f = await self._once(
+                msgs, mode, transport, think_tokens, max_tokens, on_reasoning,
+                tools=agent.action_schemas if last else agent.schemas)
+            reasoning += r
+            first = first if first is not None else f
+            if call is None or last or not agent.is_read(call.name):
+                break
+            res = agent.run(call, rnd)
+            body = tool_message(call, res, agent.max_rounds - rnd)
+            if transport == "json":
+                msgs.append({"role": "assistant",
+                             "content": json.dumps({"tool": call.name, "arguments": call.arguments})})
+                msgs.append({"role": "user", "content": f"Result of {call.name}: {body}"})
+            else:
+                cid = call.id or f"call_{rnd}"
+                msgs.append({"role": "assistant", "content": None, "tool_calls": [{
+                    "id": cid, "type": "function",
+                    "function": {"name": call.name, "arguments": json.dumps(call.arguments)}}]})
+                msgs.append({"role": "tool", "tool_call_id": cid, "content": body})
+        return ModelResult(call=call, reasoning=reasoning, content=content,
+                           latency_ms=(time.monotonic() - t0) * 1000, first_reasoning_ms=first,
+                           model=self.model, extra={"tool_calls": list(agent.log)})
 
     async def warm(self) -> float:
         """One max_tokens=1 call to open the connection. Returns latency in ms."""

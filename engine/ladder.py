@@ -65,12 +65,21 @@ def _to_decision(call: ToolCall, packet: dict, mode: str, prov: Any, latency_ms:
         d.cue, d.verdict = a.get("cue", ""), a.get("verdict")
         d.reminder = a.get("reminder") or ""
         d.summary = d.cue
+    elif call.name in ("set_plan", "revise_plan"):  # agent mode: the Coach turns these into offers
+        d.plan_action, d.plan = call.name, {"goals": a.get("goals") or []}
+        d.summary = a.get("summary") or a.get("reason") or ""
+    elif call.name == "advance_plan":
+        d.plan_action, d.end_reason, d.summary = call.name, a.get("outcome"), a.get("summary", "")
+    elif call.name == "end_session":
+        d.plan_action, d.summary = call.name, a.get("summary", "")
     else:
         d.end_reason, d.summary = a.get("reason"), a.get("summary", "")
     return d
 
 
-def _check(call: ToolCall | None, packet: dict) -> tuple[bool, str | None]:
+def _check(call: ToolCall | None, packet: dict, agent: Any = None) -> tuple[bool, str | None]:
+    if agent is not None:
+        return agent.validate(call, packet)
     if call is not None and call.name == "get_attempt_evidence":
         return False, "call offer_drill or end_drill, not get_attempt_evidence"
     return validate(call, packet)
@@ -79,7 +88,7 @@ def _check(call: ToolCall | None, packet: dict) -> tuple[bool, str | None]:
 async def decide(packet: dict, providers: list, *, on_reasoning: Callable[[str], None] | None = None,
                  think_deadline_s: float | None = None, fast_deadline_s: float | None = None,
                  total_deadline_s: float | None = None, breaker: CircuitBreaker | None = None,
-                 transport: str | None = None) -> tuple[Decision, list[dict]]:
+                 transport: str | None = None, agent: Any = None) -> tuple[Decision, list[dict]]:
     """Return (Decision, rungs). Never raises for provider problems; falls back to rules."""
     env = env_deadlines()
     think_s = env["think_deadline_s"] if think_deadline_s is None else think_deadline_s
@@ -100,6 +109,8 @@ async def decide(packet: dict, providers: list, *, on_reasoning: Callable[[str],
         kw: dict[str, Any] = dict(on_reasoning=on_reasoning, repair=repair)
         if transport:
             kw["transport"] = transport
+        if agent is not None:
+            kw["agent"] = agent
         try:
             res = await asyncio.wait_for(prov.call(packet, mode, **kw), timeout)
             return res.call, res.reasoning, (loop.time() - t0) * 1000, None
@@ -132,7 +143,7 @@ async def decide(packet: dict, providers: list, *, on_reasoning: Callable[[str],
         # --- think ---
         call, reasoning, ms, err = await run(prov, "think", think_s)
         if err is None:
-            ok, why = _check(call, packet)
+            ok, why = _check(call, packet, agent)
             rung(prov, "think", "ok" if ok else "rejected", ms, why)
             if ok:
                 breaker.success(prov.name)
@@ -144,7 +155,7 @@ async def decide(packet: dict, providers: list, *, on_reasoning: Callable[[str],
             call2, _, ms2, err2 = await run(prov, "fast", fast_s,
                                             repair=(call, why) if call is not None else None)
             if err2 is None:
-                ok2, why2 = _check(call2, packet)
+                ok2, why2 = _check(call2, packet, agent)
                 rung(prov, "fast", "ok" if ok2 else "rejected", ms2, why2)
                 if ok2:
                     breaker.success(prov.name)
@@ -159,7 +170,7 @@ async def decide(packet: dict, providers: list, *, on_reasoning: Callable[[str],
         if err in FAST_KINDS and remaining() > 0:
             call2, _, ms2, err2 = await run(prov, "fast", fast_s)
             if err2 is None:
-                ok2, why2 = _check(call2, packet)
+                ok2, why2 = _check(call2, packet, agent)
                 rung(prov, "fast", "ok" if ok2 else "rejected", ms2, why2)
                 if ok2:
                     breaker.success(prov.name)
@@ -171,7 +182,7 @@ async def decide(packet: dict, providers: list, *, on_reasoning: Callable[[str],
                 call3, _, ms3, err3 = await run(prov, "fast", fast_s,
                                                 repair=(call2, why2) if call2 is not None else None)
                 if err3 is None:
-                    ok3, why3 = _check(call3, packet)
+                    ok3, why3 = _check(call3, packet, agent)
                     rung(prov, "fast", "ok" if ok3 else "rejected", ms3, why3)
                     if ok3:
                         breaker.success(prov.name)
