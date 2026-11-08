@@ -52,6 +52,10 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--arduino-udp-port", type=int, default=None,
                    help="also accept 'gas,brake' pedal datagrams on this UDP port (e.g. 5006)")
     g.add_argument("--invert-steer", action="store_true")
+    g.add_argument("--gas-gamma", type=float, default=1.8,
+                   help="throttle curve sent to the game: out = in^gamma. 1 = linear, higher = gentler "
+                        "start (1.8: half pedal = 29%% throttle)")
+    g.add_argument("--brake-gamma", type=float, default=1.0, help="brake curve, same as --gas-gamma")
     ap.add_argument("--auto-retry", action=argparse.BooleanOptionalAction, default=True,
                     help="after Accept, keep rewinding until the drill ends, then resume (default on)")
     ap.add_argument("--max-retries", type=int, default=5,
@@ -78,7 +82,8 @@ def build_inputs(args: argparse.Namespace) -> InputHub | None:
     except RuntimeError as e:
         raise SystemExit(f"error: {e}") from e
     return InputHub(pad, phone_port=args.phone_port, arduino=args.arduino,
-                    arduino_udp_port=args.arduino_udp_port, invert_steer=args.invert_steer)
+                    arduino_udp_port=args.arduino_udp_port, invert_steer=args.invert_steer,
+                    gas_gamma=args.gas_gamma, brake_gamma=args.brake_gamma)
 
 
 def build_app(args: argparse.Namespace) -> CoachApp:

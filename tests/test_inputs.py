@@ -36,6 +36,17 @@ def test_parse_arduino():
         assert parse_arduino(bad) is None
 
 
+def test_pedal_curves_shape_gas_and_brake():
+    clock = Clock()
+    h = InputHub(NullPad(), arduino="off", clock=clock, advertise=False, gas_gamma=2.0, brake_gamma=1.0)
+    h.feed_arduino("500,500")
+    out = h.tick()
+    assert out["gas"] == pytest.approx(0.25) and out["brake"] == pytest.approx(0.5)
+    h.feed_arduino("1000,0")
+    out = h.tick()
+    assert out["gas"] == 1.0 and out["brake"] == 0.0  # full stays full, released stays 0
+
+
 def test_arduino_pedals_win_over_phone(hub):
     hub.feed_phone(b"v1,1,0.3,0.9,0.0", PHONE)
     hub.feed_arduino("200,600")

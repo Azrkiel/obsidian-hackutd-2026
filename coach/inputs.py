@@ -242,8 +242,10 @@ class InputHub:
     def __init__(self, pad: Any = None, phone_port: int = 5005, arduino: str = "auto",
                  arduino_udp_port: int | None = None, invert_steer: bool = False,
                  emit: Callable[[dict], None] | None = None, clock: Callable[[], float] = time.monotonic,
-                 advertise: bool = True):
+                 advertise: bool = True, gas_gamma: float = 1.0, brake_gamma: float = 1.0):
         self.pad = pad or NullPad()
+        # pedal response curves sent to the game: out = in ** gamma (0 and 1 unchanged; >1 = gentler start)
+        self.gas_gamma, self.brake_gamma = gas_gamma, brake_gamma
         self.phone_port, self.arduino, self.arduino_udp_port = phone_port, arduino, arduino_udp_port
         self.invert, self.emit, self.clock, self.advertise = invert_steer, emit or (lambda e: None), clock, advertise
         self.on_command: Callable[[str], None] | None = None  # set by the coach
@@ -356,6 +358,7 @@ class InputHub:
                 self.pad.release(b)
             self._release_due.clear()
             self._releases.clear()
+        gas, brake = gas ** self.gas_gamma, brake ** self.brake_gamma
         prev = self.out
         self.out = {"steer": steer, "gas": gas, "brake": brake, "pedal_source": src,
                     "phone_live": phone, "arduino_live": ard}
@@ -471,18 +474,37 @@ def _bind(port: int, what: str) -> socket.socket:
                            f"hardware/bridge.py or listen.py running? Stop it, or run without --inputs.") from e
 
 
+class _NoDualStack(OSError):
+    """IPv6 dual-stack is unavailable on this machine: fall back to IPv4 only."""
+
+
 def _dual_stack_socket(port: int) -> socket.socket:
-    """Bind IPv4 and IPv6 where supported (the phone may use either), else IPv4 only."""
+    """Bind IPv4 and IPv6 where supported (the phone may use either), else IPv4 only.
+
+    On Windows the port is bound exclusively. Without it, a dual-stack bind next to another program's
+    IPv4 socket on the same port (bridge/bridge.py, hardware/bridge.py, listen.py) succeeds silently and
+    Windows delivers every phone packet to the other program, so the coach would never see the phone."""
+    def exclusive(s: socket.socket) -> None:
+        if sys.platform == "win32":
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+
     try:
-        s = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
         try:
+            s = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
+        except OSError as e:  # no IPv6 on this machine
+            raise _NoDualStack() from e
+        try:
+            exclusive(s)
             s.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
             s.bind(("::", port))
-        except OSError:
+        except OSError as e:
             s.close()
-            raise
-    except OSError:
+            if getattr(e, "winerror", None) in (10013, 10048):  # port taken: don't fall back to IPv4
+                raise
+            raise _NoDualStack() from e
+    except _NoDualStack:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        exclusive(s)
         s.bind(("", port))
     s.setblocking(False)
     return s
