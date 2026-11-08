@@ -18,3 +18,11 @@ node_modules/
 spacetime/dist/
 history-viewer/test-results/
 history-viewer/playwright-report/
+
+# local logs and editor/OS noise
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
