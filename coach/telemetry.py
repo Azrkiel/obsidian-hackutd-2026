@@ -38,6 +38,8 @@ class Sample:
     slip_r: float = 0.0     # max wheelSlip of the two rears
     load_f: float = 0.0     # wheelLoad fronts, N
     load_r: float = 0.0     # wheelLoad rears, N
+    gear: int | None = None  # -1 reverse, 0 neutral, 1.. forward; None in old recordings
+    rpm: int | None = None   # engine rpm (AC physics rpms); None in the simulator and old recordings
     tyres_out: int = 0      # numberOfTyresOut: wheels off the track surface (0..4)
 
 
@@ -119,9 +121,9 @@ def parse_sample(phys: SPageFilePhysics, gfx: SPageFileGraphic, track_len_m: flo
                   steer=float(phys.steerAngle), x=float(c[0]), y=float(c[1]), z=float(c[2]),
                   g_lat=float(phys.accG[0]), g_lon=float(phys.accG[2]),
                   yaw_rate=float(phys.localAngularVel[1]),
-                  slip_f=max(float(ws[0]), float(ws[1])), slip_r=max(float(ws[2]), float(ws[3])),
-                  load_f=float(wl[0]) + float(wl[1]), load_r=float(wl[2]) + float(wl[3]),
-                  tyres_out=int(phys.numberOfTyresOut))
+                  slip_f=max(abs(float(ws[0])), abs(float(ws[1]))), slip_r=max(abs(float(ws[2])), abs(float(ws[3]))),
+                  load_f=float(wl[0]) + float(wl[1]), load_r=float(wl[2]) + float(wl[3]), gear=int(phys.gear) - 1,
+                  rpm=int(phys.rpms), tyres_out=int(phys.numberOfTyresOut))
 
 
 class ACSharedMemory:
@@ -135,6 +137,8 @@ class ACSharedMemory:
         self.fallback_len, self.fixed_length = track_length_m, fixed_length
         self.poll_s = 1.0 / poll_hz
         self.car = self.track = ""
+        self.player_name = ""
+        self.max_rpm = 0  # static maxRpm, for the dashboard shift lights
 
     @staticmethod
     def _open():
@@ -157,6 +161,8 @@ class ACSharedMemory:
             if not st.track:
                 raise ACNotRunning("Assetto Corsa is not running (shared memory is empty)")
             self.car, self.track = st.carModel, st.track
+            self.max_rpm = int(st.maxRpm)
+            self.player_name = " ".join(p for p in (st.playerName, st.playerSurname) if p).strip() or st.playerNick
             length = (self.fallback_len if self.fixed_length and self.fallback_len
                       else float(st.trackSPlineLength) or self.fallback_len)
             if not length:
@@ -317,7 +323,7 @@ class SimSource:
         slip_r = 0.03 + (0.2 if gas > 0.9 and v < 35 else 0.0)
         return Sample(self.t, self.packet, status, self.pos / n, self.pos, speed, gas, brake,
                       steer, self.pos, 0.0, 0.0, g_lat=v * yaw / 9.81, g_lon=g_lon, yaw_rate=yaw,
-                      slip_f=slip_f, slip_r=slip_r)
+                      slip_f=slip_f, slip_r=slip_r, gear=max(1, min(6, int(speed / 55) + 1)))
 
     async def samples(self) -> AsyncIterator[Sample]:
         loop = asyncio.get_running_loop()

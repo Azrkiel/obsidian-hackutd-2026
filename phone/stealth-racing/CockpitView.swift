@@ -32,6 +32,9 @@ struct CockpitView: View {
 
                 VStack(spacing: 8) {
                     topBar
+                    if let source = session.historySource {
+                        historyBar(source: source)
+                    }
                     gauge.frame(maxHeight: .infinity)
                     commandRows.disabled(!isLive)
                 }
@@ -87,6 +90,29 @@ struct CockpitView: View {
         case .unconfirmed, .waiting, .failed: .brand
         default: .caution
         }
+    }
+
+    private func historyBar(source: LocalizedStringResource) -> some View {
+        HStack(spacing: 12) {
+            sectionTime("Last section", seconds: session.lastSectionSeconds)
+            sectionTime("Best today", seconds: session.bestTodaySeconds)
+            Text(source)
+                .font(PPFont.barlow(11, .medium))
+                .foregroundStyle(Theme.inkMuted)
+                .lineLimit(1)
+        }
+    }
+
+    private func sectionTime(_ title: LocalizedStringResource, seconds: Double?) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(title)
+                .font(PPFont.barlow(11, .medium))
+                .foregroundStyle(Theme.inkMuted)
+            Text(seconds.map { String(format: "%.2f s", $0) } ?? "—")
+                .font(PPFont.barlow(15, .bold))
+                .monospacedDigit()
+        }
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: Steering gauge

@@ -41,6 +41,13 @@ final class ReceiverSession {
     private(set) var offersShown = 0
     @ObservationIgnored private var lastAnnouncedOfferID: String?
 
+    // Race history
+    private(set) var lastSectionSeconds: Double?
+    private(set) var bestTodaySeconds: Double?
+    private(set) var historySource: LocalizedStringResource?
+    @ObservationIgnored private var lastHistoryLap: String?
+    @ObservationIgnored private var historyTask: Task<Void, Never>?
+
     // Settings
     /// Fallback throttle/brake for when the Arduino pedals fail. When off, the
     /// phone sends 0 for both and the receiver relies on the Arduino.
@@ -189,6 +196,12 @@ final class ReceiverSession {
         handshakeTask?.cancel()
         handshakeTask = nil
         close(keepingSteps: false)
+        historyTask?.cancel()
+        historyTask = nil
+        lastHistoryLap = nil
+        lastSectionSeconds = nil
+        bestTodaySeconds = nil
+        historySource = nil
         status = .disconnected
         signed = nil
         handshake = nil
@@ -400,6 +413,11 @@ final class ReceiverSession {
         } else if packet.hasPrefix("ofx,") {
             let id = String(packet.dropFirst(4))
             if offer?.id == id { offer = nil }
+        } else if packet.first == "{",
+                  let payload = try? JSONSerialization.jsonObject(with: Data(packet.utf8)) as? [String: Any],
+                  payload["type"] as? String == "race_history",
+                  let history = payload["history"] as? [String: Any] {
+            receiveHistory(history)
         }
     }
 
@@ -416,6 +434,78 @@ final class ReceiverSession {
             offersShown += 1
         }
         offer = next
+    }
+
+    /// The local recorder remains authoritative while cloud sync is offline or catching up.
+    private func receiveHistory(_ history: [String: Any]) {
+        let lap = history["lap_id"] as? String
+        if let lap, lap == lastHistoryLap { return }
+        lastSectionSeconds = history["last_s"] as? Double
+        bestTodaySeconds = history["best_today_s"] as? Double
+        historySource = history["last_valid"] as? Bool == false ? "Last pass invalid" : "Saved on race PC"
+        guard let lap else { return }
+        lastHistoryLap = lap
+        historyTask?.cancel()
+        guard let cloud = history["cloud"] as? [String: Any],
+              let server = cloud["url"] as? String, let database = cloud["database"] as? String,
+              !database.isEmpty, let driver = cloud["driver_id"] as? String,
+              UUID(uuidString: driver) != nil, let base = URL(string: server),
+              ["https", "http"].contains(base.scheme?.lowercased() ?? ""), base.host != nil,
+              base.user == nil, base.password == nil else { return }
+        let endpoint = base.appendingPathComponent("v1/database").appendingPathComponent(database).appendingPathComponent("sql")
+        let quoted: (String) -> String = { "'" + $0.replacingOccurrences(of: "'", with: "''") + "'" }
+        var sql = "SELECT lap.* FROM lap JOIN session ON lap.session_id = session.session_id WHERE session.driver_id = \(quoted(driver))"
+        for field in ["track", "car", "corner"] {
+            if let value = cloud[field] as? String { sql += " AND session.\(field) = \(quoted(value))" }
+        }
+        let query = sql
+        historyTask = Task { [weak self] in
+            // Give the outbox time to deliver this lap. Each pass triggers at most four reads.
+            for delay in [0, 1, 2, 4] {
+                if delay > 0 {
+                    do { try await Task.sleep(for: .seconds(delay)) } catch { return }
+                }
+                guard !Task.isCancelled else { return }
+                do {
+                    var request = URLRequest(url: endpoint)
+                    request.httpMethod = "POST"
+                    request.setValue("text/plain", forHTTPHeaderField: "Content-Type")
+                    request.httpBody = Data(query.utf8)
+                    request.timeoutInterval = 3
+                    let (data, response) = try await URLSession.shared.data(for: request)
+                    guard let response = response as? HTTPURLResponse, response.statusCode == 200,
+                          let results = try JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+                          let result = results.first, let schema = result["schema"] as? [String: Any],
+                          let elements = schema["elements"] as? [[String: Any]],
+                          let rows = result["rows"] as? [[Any]] else { continue }
+                    let names = elements.map { element -> String in
+                        if let name = element["name"] as? String { return name }
+                        return (element["name"] as? [String: String])?["some"] ?? ""
+                    }
+                    guard !names.contains(""), Set(names).count == names.count else { continue }
+                    let records = rows.filter { $0.count == names.count }.map { Dictionary(uniqueKeysWithValues: zip(names, $0)) }
+                    guard let latest = records.first(where: { $0["lap_id"] as? String == lap }),
+                          let self, self.lastHistoryLap == lap, !Task.isCancelled else { continue }
+                    self.lastSectionSeconds = latest["valid"] as? Bool == true ? Self.sqlNumber(latest["section_s"]) : nil
+                    let midnight = Calendar.current.startOfDay(for: Date()).timeIntervalSince1970
+                    self.bestTodaySeconds = records.compactMap { row -> Double? in
+                        guard row["valid"] as? Bool == true,
+                              let at = Self.sqlNumber(row["at"]), at >= midnight,
+                              let seconds = Self.sqlNumber(row["section_s"]), seconds > 0 else { return nil }
+                        return seconds
+                    }.min()
+                    self.historySource = latest["valid"] as? Bool == true ? "Live history" : "Last pass invalid"
+                    return
+                } catch { /* Keep the local packet values; steering is independent of this task. */ }
+            }
+        }
+    }
+
+    private static func sqlNumber(_ value: Any?) -> Double? {
+        if let number = value as? Double, number.isFinite { return number }
+        if let option = value as? [String: Any] { return sqlNumber(option["some"]) }
+        if let option = value as? [Any], option.count == 2, option[0] as? Int == 0 { return sqlNumber(option[1]) }
+        return nil
     }
 
     private func transmit(to connection: NWConnection, refresh: Bool) {

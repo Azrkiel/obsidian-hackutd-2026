@@ -6,6 +6,7 @@ from typing import Any, Awaitable, Callable
 
 from . import ladder
 from .models import Attempt, CornerConfig, Decision, DrillState
+from .drills import target_hit
 from .evidence import DRILL_METRIC, build_packet
 from .plan import Plan, rule_plan
 from .rules import reminder_for, rule_decide
@@ -121,6 +122,9 @@ class Coach:
             key, gap = next(iter(packet["target_gap"].items()))
             self.live_cue.on_run_scored(attempt, gap, self.corner.tolerance[key])
             self.emit({"type": "cue_disarmed"})
+        elif retry and self.live_cue:
+            self.live_cue.disarm()  # missing evidence must not leave an old cue armed
+            self.emit({"type": "cue_disarmed"})
         self._set(DECIDING)
         aid = attempt.attempt_id
 
@@ -140,7 +144,7 @@ class Coach:
             decision.tool_calls = list(turn.log)
             decision = self._apply_plan(decision, packet, turn.kind)
             self.agent.note({"attempt_id": aid, "phase": packet["phase"], "valid": packet["valid"],
-                             "target_gap": packet["target_gap"], "action": decision.action,
+                             "target_gap": packet["target_gap"], "metrics": dict(packet["attempt"]), "action": decision.action,
                              "plan_action": decision.plan_action, "drill_id": decision.drill_id,
                              "verdict": decision.verdict, "end_reason": decision.end_reason,
                              "said": decision.cue if decision.action == "offer_drill" else decision.summary,
@@ -152,7 +156,7 @@ class Coach:
             self.trace.write(decision, packet, rungs)
         self.emit({"type": "decision", **decision.to_dict(), "rungs": rungs})
         if turn is not None:
-            self.emit({"type": "plan", "plan": self.plan_dict()})
+            self.emit({"type": "plan", "attempt_id": aid, "plan": self.plan_dict()})
         if decision.action == "offer_drill":
             same_goal = retry and self.drill and decision.plan_action is None
             self.drill = DrillState(decision.drill_id, dict(decision.target or {}),
@@ -226,7 +230,7 @@ class Coach:
         kind = "evaluate" if retry and plan is not None and plan.goal is not None else "plan"
         if kind == "evaluate" and packet["target_gap"]:
             key, gap = next(iter(packet["target_gap"].items()))
-            plan.record(bool(packet["valid"]) and abs(gap) <= self.corner.tolerance.get(key, 0))
+            plan.record(bool(packet["valid"]) and target_hit(plan.goal.drill_id, gap, self.corner.tolerance.get(key, 0)))
         packet["turn"] = kind
         packet["plan"] = self._plan_packet()
         packet["history"] = ag.history[-5:]
