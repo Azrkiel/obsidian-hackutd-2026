@@ -190,7 +190,9 @@ class SimSource:
     def __init__(self, corner: CornerConfig, seed: int = 1, realtime: bool = True,
                  brake_board_m: float = 86.0, hz: float = 100.0, skill: float = 0.6,
                  apex_kmh: float = 74.0, pickup_after_apex_m: float = 22.0,
-                 start_pos_m: float | None = None, with_pause: bool = False):
+                 start_pos_m: float | None = None, with_pause: bool = False,
+                 laps: bool = False, lap_gap_s: float = 12.0, lap_start_m: float = 0.0,
+                 release_s: float = 0.6):
         self.corner, self.realtime, self.dt, self.skill = corner, realtime, 1.0 / hz, skill
         rng = random.Random(seed)
         self.v0_kmh = 318.0 + rng.uniform(-0.5, 0.5)
@@ -203,6 +205,12 @@ class SimSource:
         self.end_m = corner.exit_gate_m + 100
         self.accel = 8.1
         self.with_pause = with_pause
+        # lap mode: after the corner the car "drives the rest of the lap" (parked for lap_gap_s),
+        # then reappears at lap_start_m: a lap wrap, like AC's position going 5793 -> 0
+        self.laps, self.lap_gap_s, self.lap_start_m = laps, lap_gap_s, lap_start_m
+        self.release_s = release_s  # seconds from peak brake to off (ramp before the apex)
+        self.target_release_s: float | None = None
+        self._parked_at: float | None = None
         self.pos, self.t, self.packet, self.parked = self.start_pos_m, 0.0, 0, False
         self._stop = False
         self._tele = False
@@ -211,9 +219,14 @@ class SimSource:
     def set_target_board(self, board_m: float) -> None:
         self.target_onset_m = self.corner.board_zero_m - board_m
 
+    def set_target_release(self, release_s: float) -> None:
+        self.target_release_s = float(release_s)
+
     def teleport_to(self, pos_m: float, speed_kmh: float) -> None:
         if self.target_onset_m is not None:
             self.onset_m += self.skill * (self.target_onset_m - self.onset_m)
+        if self.target_release_s is not None:
+            self.release_s += self.skill * (self.target_release_s - self.release_s)
         self.pos, self.v0_kmh, self.parked, self._tele = pos_m, speed_kmh, False, True
 
     def stop(self) -> None:
@@ -230,7 +243,13 @@ class SimSource:
             span = max(self.apex_start - self.onset_m, 1.0)
             a = (v0 * v0 - va * va) / (2 * span)
             v = math.sqrt(max(v0 * v0 - 2 * a * (pos - self.onset_m), va * va))
-            return v * 3.6, 0.0, min(1.0, max(0.3, a / 42.0))
+            peak = min(1.0, max(0.3, a / 42.0))
+            # progressive release: brake ramps from peak to 0 over the last release_s before the apex
+            rel_m = max(self.release_s, 0.0) * (va + 0.25 * (v0 - va))
+            left = self.apex_start - pos
+            if rel_m > 0 and left < rel_m:
+                peak *= max(left / rel_m, 0.0)
+            return v * 3.6, 0.0, peak
         if pos < self.pickup_m:
             return self.apex_kmh + 0.02 * (pos - self.apex_start), 0.0, 0.0
         vp = (self.apex_kmh + 0.02 * (self.pickup_m - self.apex_start)) / 3.6
@@ -263,7 +282,9 @@ class SimSource:
             elif not self.parked:
                 self.pos += (s.speed_kmh / 3.6) * self.dt
                 if self.pos >= self.end_m:
-                    self.pos, self.parked = self.end_m, True
+                    self.pos, self.parked, self._parked_at = self.end_m, True, self.t
+            elif self.laps and self.t - (self._parked_at or self.t) >= self.lap_gap_s:
+                self.teleport_to(self.lap_start_m, self.v0_kmh)
             self.t += self.dt
             if self.realtime:
                 await asyncio.sleep(max(0.0, wall0 + self.t - loop.time()))

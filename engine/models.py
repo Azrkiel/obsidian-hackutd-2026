@@ -16,6 +16,24 @@ class CornerConfig:
     comparable_entry_kmh: float
     tolerance: dict[str, float]
     allowed: dict[str, Any]
+    gates: dict[str, float] | None = None  # brake_m, turn_in_m, apex1_m, apex2_m (ac_track_extract)
+    reminder_m: float | None = None  # lap mode: where the spoken reminder plays on the approach
+    wheelbase_m: float = 2.6  # understeer index (787B is about 2.6 m)
+
+    def gate(self, name: str) -> float:
+        """Named corner positions with defaults derived from the placeholder config."""
+        g = self.gates or {}
+        a0, a1 = self.apex_window_m
+        defaults = {"start_m": self.start_gate_m, "brake_m": self.board_zero_m - 150.0,
+                    "turn_in_m": a0 - 30.0, "apex1_m": a0, "apex2_m": a1, "exit_m": self.exit_gate_m}
+        return float(g.get(name, defaults[name]))
+
+    @property
+    def reminder_pos_m(self) -> float:
+        if self.reminder_m is not None:
+            return float(self.reminder_m)
+        # about 300 m before the braking zone, but clear of the lap line (cues disarm on a wrap)
+        return max(self.gate("brake_m") - 300.0, min(50.0, self.start_gate_m / 2))
 
 
 @dataclass
@@ -30,6 +48,13 @@ class Attempt:
     peak_brake: float
     throttle_pickup_m: float
     section_s: float
+    # driving-profile extras (None when the run or an old fixture does not have them)
+    release_s: float | None = None        # peak brake -> brake below 10%
+    trail_brake_share: float | None = None
+    lockup_s: float | None = None
+    wheelspin_s: float | None = None
+    min_kmh: float | None = None
+    min_pos_m: float | None = None
 
     @classmethod
     def from_dict(cls, d: dict) -> "Attempt":
@@ -53,6 +78,7 @@ class Decision:
     target: dict | None = None
     cue: str = ""
     verdict: str | None = None  # repeat | adjust | None
+    reminder: str = ""  # lap mode: spoken on the approach next lap
     end_reason: str | None = None
     summary: str = ""
     mode: str = "rules"  # think | fast | rules
@@ -60,6 +86,9 @@ class Decision:
     model: str | None = None
     latency_ms: float = 0.0
     reasoning: str = ""
+    plan: dict | None = None  # agent mode: the session plan after this decision
+    plan_action: str | None = None  # set_plan | advance_plan | revise_plan | end_session
+    tool_calls: list = field(default_factory=list)  # agent mode: read-tool rounds
 
     def to_dict(self) -> dict:
         return asdict(self)

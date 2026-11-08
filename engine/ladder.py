@@ -63,6 +63,7 @@ def _to_decision(call: ToolCall, packet: dict, mode: str, prov: Any, latency_ms:
     if call.name == "offer_drill":
         d.drill_id, d.target = a.get("drill_id"), a.get("target")
         d.cue, d.verdict = a.get("cue", ""), a.get("verdict")
+        d.reminder = a.get("reminder") or ""
         d.summary = d.cue
     else:
         d.end_reason, d.summary = a.get("reason"), a.get("summary", "")

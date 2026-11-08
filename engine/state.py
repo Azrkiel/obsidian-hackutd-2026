@@ -5,8 +5,10 @@ from typing import Any, Awaitable, Callable
 
 from . import ladder
 from .models import Attempt, CornerConfig, Decision, DrillState
-from .evidence import build_packet
-from .rules import rule_decide
+from .evidence import DRILL_METRIC, build_packet
+from .rules import reminder_for, rule_decide
+
+VOICE_LIMITS = {"max_cue_words": 12, "max_reminder_words": 4}
 
 IDLE, DECIDING, OFFERED, AWAIT_RESET, RETRY, DONE = (
     "IDLE", "DECIDING", "OFFERED", "AWAIT_RESET", "RETRY", "DONE")
@@ -17,11 +19,15 @@ class Coach:
                  emit: Callable[[dict], None],
                  request_reset: Callable[[str], Awaitable[None]],
                  trace: Any = None, live_cue: Any = None,
-                 decide_kwargs: dict | None = None):
+                 decide_kwargs: dict | None = None, lap_mode: bool = False,
+                 voice: dict | None = None):
         self.corner, self.reference, self.providers = corner, reference, providers
         self.emit, self.request_reset = emit, request_reset
         self.trace, self.live_cue = trace, live_cue
         self.decide_kwargs = decide_kwargs or {}
+        # lap mode: no Accept, no reset; the next lap through the corner is the retry
+        self.lap_mode = lap_mode
+        self.voice = voice if voice is not None else (dict(VOICE_LIMITS) if lap_mode else None)
         self.state = IDLE
         self.baseline: Attempt | None = None
         self.previous: Attempt | None = None
@@ -66,7 +72,7 @@ class Coach:
         elif attempt.valid and self.baseline is None:
             self.baseline = attempt
         packet = build_packet(attempt, self.reference, self.baseline, self.corner,
-                              self.drill if retry else None, self.previous)
+                              self.drill if retry else None, self.previous, voice=self.voice)
         if retry and self.live_cue and packet["target_gap"]:
             key, gap = next(iter(packet["target_gap"].items()))
             self.live_cue.on_run_scored(attempt, gap, self.corner.tolerance[key])
@@ -93,7 +99,13 @@ class Coach:
             self.drill = DrillState(decision.drill_id, dict(decision.target or {}),
                                     self.drill.tries if retry and self.drill else 0)
             self.offer = decision
-            self._set(OFFERED)
+            if self.lap_mode:
+                if not decision.reminder:
+                    decision.reminder = self._default_reminder(packet, decision.drill_id)
+                self._set(RETRY)
+                self._arm_cue(wait_wrap=True)
+            else:
+                self._set(OFFERED)
         else:
             self.offer = None
             self._set(DONE)
@@ -112,8 +124,21 @@ class Coach:
         if self.state != AWAIT_RESET or self.offer is None:
             return self._ignored("reset confirmed outside AWAIT_RESET")
         self._set(RETRY)
+        self._arm_cue(wait_wrap=False)
+
+    def _arm_cue(self, wait_wrap: bool) -> None:
         if self.live_cue and not self._skip_cue_once:
-            self.live_cue.arm(self.offer.drill_id, self.offer.target)
+            self.live_cue.arm(self.offer.drill_id, self.offer.target,
+                              reminder=self.offer.reminder if self.lap_mode else "",
+                              wait_wrap=wait_wrap)
             self.emit({"type": "cue_armed", "drill_id": self.offer.drill_id,
-                       "target": self.offer.target})
+                       "target": self.offer.target, "reminder": self.offer.reminder})
         self._skip_cue_once = False
+
+    @staticmethod
+    def _default_reminder(packet: dict, drill_id: str) -> str:
+        if packet.get("target_gap"):
+            gap = next(iter(packet["target_gap"].values()))
+        else:
+            gap = packet["delta"].get(DRILL_METRIC.get(drill_id, ""))
+        return reminder_for(drill_id, gap)

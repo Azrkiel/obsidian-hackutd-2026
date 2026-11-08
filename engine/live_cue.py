@@ -6,7 +6,7 @@ import struct
 import tempfile
 import wave
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 from .models import CornerConfig
 
@@ -70,9 +70,19 @@ class WinsoundPlayer:
 
 
 class LiveCue:
-    def __init__(self, corner: CornerConfig, player: Player, lead_s: float = 0.2):
-        self.corner, self.player, self.lead_s = corner, player, lead_s
+    """Beeps at the target during a retry; in lap mode also a spoken reminder on the approach.
+
+    `say(text)` speaks the reminder (the voice Announcer). `arm(..., wait_wrap=True)` (lap mode)
+    stays dormant until the car crosses the lap line, so arming right after the corner exit
+    survives the rest of the lap.
+    """
+
+    def __init__(self, corner: CornerConfig, player: Player, lead_s: float = 0.2,
+                 say: Callable[[str], None] | None = None):
+        self.corner, self.player, self.lead_s, self.say = corner, player, lead_s, say
         self.armed = False
+        self.pending_wrap = False
+        self.reminder = ""
         self._reset_run()
 
     def _reset_run(self) -> None:
@@ -80,26 +90,40 @@ class LiveCue:
         self._fired: set[str] = set()
         self._prev_t: float | None = None
         self._prev_proj: float | None = None
+        self._prev_pos: float | None = None
 
-    def arm(self, drill_id: str, target: dict) -> None:
+    def arm(self, drill_id: str, target: dict, reminder: str = "", wait_wrap: bool = False) -> None:
         self._reset_run()
-        c, m = self.corner, target["marker_m"]
+        c = self.corner
         if drill_id == "brake_point":
-            mark = c.board_zero_m - m
-            self._cues = [("pre", mark - 50), ("mark", mark)]
+            mark = c.board_zero_m - target["marker_m"]
+            cues = [("pre", mark - 50), ("mark", mark)]
         elif drill_id == "throttle_pickup":
-            self._cues = [("mark", c.apex_window_m[1] + m)]
+            cues = [("mark", c.apex_window_m[1] + target["marker_m"])]
+        elif drill_id == "brake_release":
+            cues = [("mark", c.gate("turn_in_m"))]  # "ease off from here"
         else:
             return
-        self.armed = True
+        self.reminder = reminder if self.say else ""
+        if self.reminder:
+            cues.insert(0, ("say", c.reminder_pos_m))
+        self._cues = cues
+        self.armed, self.pending_wrap = True, wait_wrap
 
     def disarm(self) -> None:
-        self.armed = False
+        self.armed = self.pending_wrap = False
         self._reset_run()
 
     def on_sample(self, t_s: float, pos_m: float, speed_kmh: float) -> None:
         if not self.armed:
             return
+        if self.pending_wrap:
+            wrapped = self._prev_pos is not None and pos_m < self._prev_pos - 100
+            self._prev_pos = pos_m
+            if not wrapped:
+                return
+            self.pending_wrap = False  # new lap: cues between here and the look-ahead may fire now
+            self._prev_t, self._prev_proj = t_s, pos_m
         proj = pos_m + (speed_kmh / 3.6) * self.lead_s
         if self._prev_t is not None:
             # a long gap or a lap wrap (position jumps backward) disarms for the rest of the run
@@ -110,7 +134,13 @@ class LiveCue:
                 for name, cue_pos in self._cues:
                     if name not in self._fired and self._prev_proj < cue_pos <= proj:
                         self._fired.add(name)
-                        self.player.play(name)
+                        if name == "say":
+                            try:
+                                self.say(self.reminder)
+                            except Exception:  # noqa: BLE001 - a voice problem must not stop the beeps
+                                pass
+                        else:
+                            self.player.play(name)
         self._prev_t, self._prev_proj = t_s, proj
 
     def on_run_scored(self, attempt: Any, target_gap: float, tolerance: float) -> None:
