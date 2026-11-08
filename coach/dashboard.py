@@ -92,6 +92,7 @@ def make_web_app(app: CoachApp) -> web.Application:
     web_app.router.add_get("/history-viewer/", viewer)
     web_app.router.add_static("/history-viewer/assets/", STATIC / "history" / "assets")
     web_app.router.add_get("/track", track)
+    web_app.router.add_static("/pitpal/", STATIC / "pitpal")  # Pit Pal fonts and art
     web_app.router.add_get("/ws", ws_handler)
     return web_app
 

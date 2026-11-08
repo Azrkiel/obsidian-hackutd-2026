@@ -31,7 +31,7 @@ from engine.voice import ADVICE, REMINDER, VERDICT, Announcer
 from .inputs import InputHub, RunInputs, dropout_reason
 from .reset import ResetManager
 from .scorer import CornerScorer, TrackScorer
-from .telemetry import Recorder, Sample, SimSource, TrackSimSource
+from .telemetry import ACSharedMemory, Recorder, ReplaySource, Sample, SimSource, TrackSimSource
 
 COMMANDS = {"accept", "retry", "save_checkpoint", "set_reference", "new_session",
             "toggle_cue_next", "retry_reset", "toggle_mute", "mark_board", "resume"}
@@ -50,6 +50,21 @@ def _make_player(sound: bool | None):
         except Exception:  # noqa: BLE001 - no winsound: stay silent
             pass
     return NullPlayer()
+
+
+LIVE_HZ = 10.0
+
+
+def live_event(s: Sample, *, max_rpm: int | None, corners: list[CornerConfig], lap: int | None = None,
+               track: str = "", car: str = "", source: str = "sim") -> dict:
+    """One dashboard "live" message from the latest sample. Not logged or saved: display only."""
+    here = next((c for c in corners if c.start_gate_m <= s.pos_m <= c.exit_gate_m), None)
+    return {"type": "live", "status": s.status, "speed_kmh": round(s.speed_kmh, 1), "gear": s.gear,
+            "rpm": s.rpm, "max_rpm": max_rpm or None, "gas": round(s.gas, 3), "brake": round(s.brake, 3),
+            "steer": round(s.steer, 3), "pos_m": round(s.pos_m, 1), "pos_norm": round(s.pos_norm, 4),
+            "g_lat": round(s.g_lat, 2), "g_lon": round(s.g_lon, 2),
+            "corner": here.name if here else None, "corner_id": getattr(here, "id", None) if here else None,
+            "lap": lap, "track": track, "car": car, "source": source}
 
 
 class CoachApp:
@@ -193,7 +208,7 @@ class CoachApp:
 
     def broadcast(self, event: dict) -> None:
         event = {"ts": time.time(), **event}
-        if event["type"] != "health":
+        if event["type"] not in ("health", "live"):
             self.events.append(event)
             del self.events[:-2000]
         if event["type"] == "voice" and event["status"] in ("spoken", "dropped", "error"):
@@ -523,6 +538,22 @@ class CoachApp:
             self.broadcast(h)
             await asyncio.sleep(1.0)
 
+    async def _live_loop(self) -> None:
+        """Dashboard live telemetry at LIVE_HZ: speed, gear, rpm, pedals, steering, where on the lap."""
+        while True:
+            s = self.latest
+            if s is not None and time.monotonic() - self._latest_at < 1.0:
+                corners = self.track.corners if self.track is not None else [self.corner]
+                src = self.source
+                kind = ("ac" if isinstance(src, ACSharedMemory) else "replay" if isinstance(src, ReplaySource)
+                        else "sim")
+                name = lambda v: v if isinstance(v, str) else ""  # the track sim's .track is a Track
+                self.broadcast(live_event(
+                    s, max_rpm=getattr(src, "max_rpm", 0), corners=corners,
+                    lap=getattr(self.scorer, "lap", None) if self.track is not None else None,
+                    track=name(getattr(src, "track", "")), car=name(getattr(src, "car", "")), source=kind))
+            await asyncio.sleep(1.0 / LIVE_HZ)
+
     # -- commands --
     def _note(self, msg: str) -> None:
         self.broadcast({"type": "status", "state": self.coach.state, "message": f"ignored: {msg}"})
@@ -646,7 +677,8 @@ class CoachApp:
                 self.history_sync = HistorySync(self.history, config)
                 self.history_sync.start()
         self._main = [asyncio.create_task(self._telemetry_loop()),
-                      asyncio.create_task(self._health_loop())]
+                      asyncio.create_task(self._health_loop()),
+                      asyncio.create_task(self._live_loop())]
         self._spawn(ladder.warm_up(self.providers))
 
     async def stop(self) -> None:
