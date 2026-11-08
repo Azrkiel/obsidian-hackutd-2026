@@ -64,7 +64,7 @@ def test_phones_that_stop_driving_get_nothing():
 class FakeApp:
     def __init__(self, inputs, clock):
         from coach.track import Track
-        self.track, self.lead_time_s, self.inputs = Track.load(), 4.0, inputs
+        self.track_model, self.lead_time_s, self.inputs = Track.load(), 4.0, inputs
         self.base_corner = None
         self.broadcast = lambda e: None
         self.offers_clock = clock

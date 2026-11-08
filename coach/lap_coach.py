@@ -43,7 +43,7 @@ class LapCoach:
                  picker: CheckpointPicker | None = None, offers: OfferManager | None = None,
                  store: Any = None, max_retries: int = 5, tick_s: float = 0.05,
                  live_budget: dict | None = None):
-        self.app, self.track = app, app.track
+        self.app, self.track = app, app.track_model
         self.detector = detector or EventDetector()
         self.picker = picker or CheckpointPicker(self.track, lead_s=app.lead_time_s)
         self.offers = offers or OfferManager(on_change=app.broadcast)

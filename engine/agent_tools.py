@@ -105,6 +105,10 @@ def _short(name: str, res: dict) -> str:
         return res.get("name", "corner")
     if name == "get_attempt_evidence":
         return "evidence packet"
+    if name == "get_lap_summary":  # whole-lap mode (engine.track_agent)
+        lost = [c for c in res.get("corners", []) if c.get("time_lost_s") is not None]
+        worst = max(lost, key=lambda c: c["time_lost_s"], default={})
+        return f"lap {res.get('lap')}: {res.get('delta_s')} s lost, most at {worst.get('corner_id')}"
     return "ok"
 
 
@@ -341,22 +345,34 @@ class AgentTurn:
             if not isinstance(g, dict):
                 return False, f"goal {i} is not an object"
             d = g.get("drill_id")
-            if d in seen:
-                return False, f"goal {i}: {d} twice"
-            seen.add(d)
+            gev, why = self._goal_evidence(g, ev)
+            if gev is None:
+                return False, f"goal {i}: {why}"
+            key = self._goal_key(g)
+            if key in seen:
+                return False, f"goal {i}: {' at '.join(str(k) for k in key if k)} twice"
+            seen.add(key)
             if g.get("in_a_row") not in (None, 1, 2):
                 return False, f"goal {i}: in_a_row must be 1 or 2"
-            offer = {"attempt_id": ev["attempt_id"], "drill_id": d, "target": g.get("target"),
+            offer = {"attempt_id": gev["attempt_id"], "drill_id": d, "target": g.get("target"),
                      "cue": g.get("cue")}
             if g.get("reminder"):
                 offer["reminder"] = g["reminder"]
-            ok, why = base_tools._validate_offer(offer, ev)
+            ok, why = base_tools._validate_offer(offer, gev)
             if not ok:
                 return False, f"goal {i}: {why}"
             g["target"] = offer["target"]  # validation may drop stray keys
             if "reminder" not in offer:
                 g.pop("reminder", None)
         return True, None
+
+
+    # hooks: whole-lap mode validates each goal against its own corner (engine.track_agent)
+    def _goal_evidence(self, goal: dict, ev: dict) -> tuple[dict | None, str | None]:
+        return ev, None
+
+    def _goal_key(self, goal: dict) -> tuple:
+        return (goal.get("drill_id"),)
 
 
 def tool_message(call: ToolCall, result: dict, rounds_left: int) -> str:

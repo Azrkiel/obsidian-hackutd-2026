@@ -59,13 +59,13 @@ def test_cli_writes_the_track(tmp_path):
     ai = tmp_path / "fast_lane.ai"
     ai.write_bytes(synth_track.ai_bytes(synth_track.monza_points()))
     out = tmp_path / "monza.json"
-    assert ex.main([str(ai), "--track-out", str(out), "--names", ",".join(NAMES)]) == 0
+    assert ex.main([str(ai), "--model-out", str(out), "--names", ",".join(NAMES)]) == 0
     t = Track.load(out)
     assert [c.name for c in t.corners] == NAMES and t.length_m == pytest.approx(5793, abs=1)
 
 
 def test_committed_track_matches_the_generator(points, track):
-    fresh = ex.build_track(points, track.name, NAMES)
+    fresh = ex.build_track_model(points, track.name, NAMES)
     assert [c.name for c in track.corners] == [c["name"] for c in fresh["corners"]]
     assert track.synthetic   # flagged until the real fast_lane.ai replaces it
     assert DEFAULT_TRACK.exists()

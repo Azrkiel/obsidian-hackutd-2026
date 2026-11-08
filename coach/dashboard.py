@@ -1,5 +1,6 @@
-"""aiohttp dashboard: GET / (page), GET /ws (events out, commands in), GET /state (snapshot).
-Whole-lap mode: GET/POST /settings, POST /personal_best/reset."""
+"""aiohttp dashboard: GET / (page), GET /ws (events out, commands in), GET /state (snapshot),
+GET /track (whole-lap mode: corners, talk zones, recent laps), GET /pair.svg (phone pairing QR),
+GET/POST /settings and POST /personal_best/reset (retry offers)."""
 from __future__ import annotations
 
 import asyncio
@@ -31,6 +32,11 @@ def make_web_app(app: CoachApp) -> web.Application:
             raise web.HTTPNotFound(text="pairing is off: start the coach with --inputs")
         return web.Response(text=hub.pairing.qr_svg(), content_type="image/svg+xml",
                             headers={"Cache-Control": "no-store"})
+    async def track(_: web.Request) -> web.StreamResponse:
+        info = app.track_info()
+        if info is None:
+            return web.json_response({"error": "not in whole-lap mode (--track)"}, status=404)
+        return web.json_response({**info, "laps": list(app.track_laps)})
 
     async def ws_handler(request: web.Request) -> web.StreamResponse:
         ws = web.WebSocketResponse(heartbeat=20)
@@ -87,6 +93,7 @@ def make_web_app(app: CoachApp) -> web.Application:
     web_app.router.add_post("/personal_best/reset", reset_pb)
     web_app.router.add_get("/state", state)
     web_app.router.add_get("/pair.svg", pair_svg)
+    web_app.router.add_get("/track", track)
     web_app.router.add_get("/ws", ws_handler)
     return web_app
 

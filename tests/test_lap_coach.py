@@ -19,7 +19,7 @@ def make(tmp_path, errors, start_m):
     sim = LapSim(TRACK, errors=errors, start_m=start_m)
     app = CoachApp(BASE, refs.get("c1").as_attempt(), sim, [], reset_mode="sim",
                    data_dir=tmp_path / "data", trace_dir=tmp_path / "traces", sound=False, countdown=0,
-                   persist_checkpoint=False, track=TRACK, references=refs)
+                   persist_checkpoint=False, track_model=TRACK, references=refs)
     return app, sim
 
 

@@ -17,6 +17,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable, Protocol
 
+from .models import in_zone
+
 ADVICE, REMINDER, VERDICT = "advice", "reminder", "verdict"
 MAX_AGE_S = {ADVICE: 10.0, VERDICT: 10.0, REMINDER: 3.0}  # a late reminder is wrong, not just late
 PRIORITY = {REMINDER: 0, VERDICT: 1, ADVICE: 1}
@@ -193,8 +195,14 @@ class Announcer:
     def __init__(self, speaker: Speaker, quiet_zone: tuple[float, float] | None = None,
                  min_gap_s: float = 5.0, clock: Callable[[], float] = time.monotonic,
                  runner: Callable[[Callable[[], None]], None] = _thread_runner,
-                 on_event: Callable[[dict], None] | None = None, muted: bool = False):
+                 on_event: Callable[[dict], None] | None = None, muted: bool = False,
+                 quiet_zones: list[tuple[float, float]] | None = None,
+                 talk_zones: list[tuple[float, float]] | None = None):
         self.speaker, self.quiet_zone, self.min_gap_s = speaker, quiet_zone, min_gap_s
+        # whole-lap mode: quiet in every corner; speech only inside talk_zones (the straights).
+        # A zone [a, b] with a > b wraps over the lap line.
+        self.quiet_zones = ([quiet_zone] if quiet_zone else []) + list(quiet_zones or [])
+        self.talk_zones = list(talk_zones or [])
         self.clock, self.runner, self.on_event = clock, runner, on_event
         self.muted = muted
         self.queue: list[Message] = []
@@ -207,10 +215,18 @@ class Announcer:
     # -- state --
     @property
     def in_quiet_zone(self) -> bool:
-        if self.quiet_zone is None or self.pos_m is None:
+        if self.pos_m is None:
             return False
-        lo, hi = self.quiet_zone
-        return lo <= self.pos_m <= hi
+        return any(in_zone(self.pos_m, z) for z in self.quiet_zones)
+
+    @property
+    def can_talk(self) -> bool:
+        """Outside every quiet zone and, when talk zones are set, inside one. No telemetry: talk."""
+        if self.pos_m is None:
+            return True
+        if self.in_quiet_zone:
+            return False
+        return not self.talk_zones or any(in_zone(self.pos_m, z) for z in self.talk_zones)
 
     def on_position(self, pos_m: float) -> None:
         self.pos_m = pos_m
@@ -260,7 +276,7 @@ class Announcer:
             stale = [m for m in self.queue if now - m.created > m.max_age_s]
             self.queue = [m for m in self.queue if now - m.created <= m.max_age_s]
             nxt = None
-            if (self.queue and not self.speaking and not self.muted and not self.in_quiet_zone
+            if (self.queue and not self.speaking and not self.muted and self.can_talk
                     and (self.last_end is None or now - self.last_end >= self.min_gap_s)):
                 nxt = self.queue.pop(0)
                 self.speaking = True
