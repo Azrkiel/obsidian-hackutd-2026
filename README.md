@@ -172,8 +172,6 @@ Security and secrets: [SECURITY.md](SECURITY.md); every setting the code reads: 
   <img src="docs/img/logo-long-on-light.png" alt="Pit Pal long logo: Rev in the tach roundel, the PIT PAL wordmark and Drive better together." width="480">
 </picture>
 
-<img src="docs/img/app-icon-180.png" alt="Pit Pal app icon: a white pixel P on red" width="56">
-
 **[github.com/Azrkiel/obsidian-hackutd-2026](https://github.com/Azrkiel/obsidian-hackutd-2026)** · HackUTD 2026
 
 </div>
