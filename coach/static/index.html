@@ -75,6 +75,11 @@ button:disabled{opacity:.35;cursor:not-allowed}
     <div class="panel" style="margin-top:16px"><h2>Activity</h2><ul id="activity"></ul></div>
   </div>
 </main>
+<section class="panel" style="margin:0 20px 16px"><h2>Race history</h2>
+  <p><a href="/history-viewer/" style="color:var(--blue)">Open history and live leaderboard</a></p>
+  <div id="history-local"><p id="history-summary">Loading saved history...</p><div style="overflow:auto"><table><thead><tr><th>Session</th><th>Pass</th><th>Role</th><th>Section s</th><th>Brake board m</th></tr></thead><tbody id="history-laps"></tbody></table></div></div>
+  <iframe id="history-live" title="Live race history" src="/history-viewer/?embedded=1" hidden style="width:100%;height:850px;border:0"></iframe>
+</section>
 <div class="btns">
   <button id="b-accept" class="primary" disabled>Accept (Space)</button>
   <button id="b-retry">Retry</button>
@@ -92,7 +97,7 @@ button:disabled{opacity:.35;cursor:not-allowed}
 "use strict";
 const $ = id => document.getElementById(id);
 const S = {state: "IDLE", corner: null, ref: null, refTrace: [], base: null, retry: null, offer: null,
-           decision: null, health: null, tries: 0, thinking: "", plan: null, tools: []};
+           decision: null, health: null, tries: 0, thinking: "", plan: null, tools: [], ghost: []};
 let ws, tToast;
 
 function send(o){ if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
@@ -208,7 +213,7 @@ function draw(){
   g.fillStyle="rgba(255,255,255,.05)"; g.fillRect(px(c.apex_window_m[0]),10,px(c.apex_window_m[1])-px(c.apex_window_m[0]),H-34);
   const line=(tr,col,w)=>{ if(!tr||!tr.length) return; g.strokeStyle=col; g.lineWidth=w; g.beginPath();
     tr.forEach((p,i)=>{ const x=px(p[0]), y=py(p[1]); i?g.lineTo(x,y):g.moveTo(x,y); }); g.stroke(); };
-  line(S.refTrace,"#8793a3",2); line(S.base&&S.base.trace,"#ffc233",2); line(S.retry&&S.retry.trace,"#3ddc84",3);
+  line(S.ghost,"#8068c4",4); line(S.refTrace,"#8793a3",2); line(S.base&&S.base.trace,"#ffc233",2); line(S.retry&&S.retry.trace,"#3ddc84",3);
   const t=targetOnset(); if(t){ g.strokeStyle="#4aa8ff"; g.lineWidth=2; g.setLineDash([6,4]); g.beginPath(); g.moveTo(px(t.pos),10); g.lineTo(px(t.pos),H-24); g.stroke(); g.setLineDash([]); }
 }
 function renderAll(){ renderTop(); renderCue(); renderMetrics(); renderPlan(); draw(); }
@@ -246,6 +251,17 @@ function connect(){
   ws.onmessage=m=>onEvent(JSON.parse(m.data));
   ws.onclose=()=>{ badge($("tel"),"dashboard disconnected","bad"); setTimeout(connect,1000); };
 }
+window.addEventListener("message",e=>{if(e.origin===location.origin&&e.source===$("history-live").contentWindow&&e.data.type==="history-ghost"&&Array.isArray(e.data.rows)){S.ghost=e.data.rows;draw();}});
+async function loadHistory(){
+  try{
+    const r=await fetch("/history"), h=await r.json();
+    $("history-summary").textContent=!h.enabled?"History is off. Start the coach with --history.":h.error?"History unavailable: "+h.error:h.sessions.length+" saved sessions / "+h.laps.length+" passes";
+    const rows=(h.laps||[]).slice(0,30), tb=$("history-laps");tb.replaceChildren();
+    for(const lap of rows){const s=h.sessions.find(s=>s.session_id===lap.session_id),tr=document.createElement("tr");for(const v of [s?new Date(s.started_at*1000).toLocaleString():"",lap.n,lap.role,lap.valid?fmt(lap.section_s,2):"Invalid: "+lap.invalid_reason,fmt(lap.brake_board_m,1)]){const td=document.createElement("td");td.textContent=v;tr.appendChild(td);}tb.appendChild(tr);}
+  }catch{$("history-summary").textContent="History unavailable. Retrying...";}
+}
+fetch("/history/config").then(r=>r.json()).then(c=>{if(c.url&&c.database){$("history-live").hidden=false;$("history-local").hidden=true;}}).catch(()=>{});
+loadHistory();setInterval(loadHistory,5000);
 function accept(){ if(S.state==="OFFERED"&&S.offer) send({type:"accept",decision_id:S.offer.decision_id}); }
 $("b-accept").onclick=accept;
 for(const k of ["retry","resume","retry_reset","save_checkpoint","set_reference","new_session","toggle_cue_next","toggle_mute","mark_board"])

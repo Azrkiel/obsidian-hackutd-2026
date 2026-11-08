@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 import threading
 import time
@@ -58,7 +59,8 @@ class CoachApp:
                  reconnect_s: float = 2.0, decide_kwargs: dict | None = None,
                  reset_kwargs: dict | None = None, mode: str = "drill", speaker: Any = None,
                  muted: bool = False, announcer_kwargs: dict | None = None, agent: bool = False,
-                 inputs: InputHub | None = None, auto_retry: bool = False, max_retries: int = 5):
+                 inputs: InputHub | None = None, auto_retry: bool = False, max_retries: int = 5,
+                 history: bool = False, driver_name: str | None = None, driver_id: str | None = None):
         if mode not in ("drill", "lap"):
             raise ValueError(f"mode must be drill or lap, not {mode!r}")
         self.mode = mode
@@ -112,6 +114,36 @@ class CoachApp:
                            trace=self.trace, live_cue=self.live_cue, decide_kwargs=dk,
                            lap_mode=mode == "lap",
                            agent=AgentSession(corner, reference, self.reference_trace) if agent else None)
+        self.history = None
+        self.history_sync = None
+        self._history_unsub = None
+        self._driver_name, self._driver_id = driver_name, driver_id
+        if history:
+            from .history import HistoryRecorder
+            self.history = HistoryRecorder(self.data_dir / "history.sqlite3")
+            if self.coach.agent:
+                self.coach.agent.driver_history = self.history.driver_history
+
+    def _history_metadata(self) -> dict:
+        return {"name": self._driver_name or getattr(self.source, "player_name", "") or "Driver",
+                "driver_id": self._driver_id,
+                "source": "dashboard" if self._driver_name else "ac" if getattr(self.source, "player_name", "") else "local",
+                "track": getattr(self.source, "track", "") or self.corner.name.split()[0],
+                "car": getattr(self.source, "car", "") or "unknown", "corner": self.corner.name,
+                "mode": self.mode, "agent": self.coach.agent is not None,
+                "model": None, "recording": self.recorder.path.name if self.recorder else None}
+
+    def _reset_session(self) -> None:
+        self.coach.reset_session()
+        self.broadcast({"type": "session"})
+
+    def history_config(self) -> dict:
+        """Public viewer coordinates only. Never send the coach's bearer token."""
+        meta = self._history_metadata()
+        return {"url": os.getenv("SPACETIME_URL", ""), "database": os.getenv("SPACETIME_DB", ""),
+                "public_url": os.getenv("HISTORY_PUBLIC_URL", ""),
+                "driver_id": self.history.driver_id if self.history else None,
+                **{k: meta[k] for k in ("track", "car", "corner")}}
 
     # -- broadcast --
     def subscribe(self, cb: Callable[[dict], None]) -> Callable[[], None]:
@@ -241,7 +273,7 @@ class CoachApp:
             self._spawn(self.handle_command({"type": "retry"}))
 
     def _on_resumed(self) -> None:
-        self.coach.reset_session()
+        self._reset_session()
         self.broadcast({"type": "resumed"})
 
     def _on_reset_confirmed(self) -> None:
@@ -256,7 +288,7 @@ class CoachApp:
         if self.coach.state == DONE:
             # a finished drill (or "no coaching needed") must not block the next lap:
             # the next run through the corner is a fresh baseline (demo: clean run, then late brake)
-            self.coach.reset_session()
+            self._reset_session()
             self.baseline_run = self.retry_run = None
         state = self.coach.state
         role = "retry" if state == RETRY else "baseline" if state == IDLE else "reference_candidate"
@@ -276,7 +308,10 @@ class CoachApp:
         elif role == "retry":
             self.retry_run = ev
         self.broadcast(ev)
-        await self.coach.on_scored(attempt, trace, {"inputs": inputs} if inputs else None)
+        context = {"inputs": inputs} if inputs else {}
+        if self.history:
+            context["driver_history"] = self.history.driver_history()
+        await self.coach.on_scored(attempt, trace, context)
 
     # -- telemetry --
     def _on_sample(self, s: Sample) -> None:
@@ -297,9 +332,17 @@ class CoachApp:
             self.announcer.pump()
 
     async def _telemetry_loop(self) -> None:
+        identity = None
         while True:
             try:
+                first = True
                 async for s in self.source.samples():
+                    if self.history and first:
+                        first = False
+                        metadata = self._history_metadata()
+                        if metadata != identity:
+                            identity = metadata
+                            self.broadcast({"type": "identity", "metadata": metadata})
                     self.telemetry_error = None
                     self._on_sample(s)
                 if getattr(self.source, "finite", False):
@@ -364,6 +407,8 @@ class CoachApp:
 
     async def _health_loop(self) -> None:
         while True:
+            if self.inputs and self.history:
+                self.inputs.race_history = {**self.history.stats(), "cloud": self.history_config()}
             if self.announcer:
                 self.announcer.pump()  # telemetry may be off
             h = self.health()
@@ -388,7 +433,7 @@ class CoachApp:
                 self._spawn(c.on_accept(c.offer.decision_id))
             elif c.state in (IDLE, DONE):
                 if c.state == DONE:
-                    c.reset_session()
+                    self._reset_session()
                     self.baseline_run = self.retry_run = None
                 self._spawn(self.reset.reset("free-run"))
             else:
@@ -398,10 +443,9 @@ class CoachApp:
         elif kind == "set_reference":
             self.set_reference()
         elif kind == "new_session":
-            c.reset_session()
+            self._reset_session()
             self.reset.clear_resume_point()
             self.baseline_run = self.retry_run = self.last_decision = None
-            self.broadcast({"type": "session"})
         elif kind == "toggle_cue_next":
             self.cue_next_off = c.toggle_cue_next_try()
             self.broadcast(self.health())
@@ -464,6 +508,14 @@ class CoachApp:
         self._loop, self._loop_thread = asyncio.get_running_loop(), threading.get_ident()
         if self.inputs is not None:
             await self.inputs.start()
+        if self.history:
+            await asyncio.to_thread(self.history.start, self._history_metadata())
+            self._history_unsub = self.subscribe(self.history.submit)
+            from .history_sync import HistorySync, SyncConfig
+            config = SyncConfig.from_env()
+            if config and not self.history.error:
+                self.history_sync = HistorySync(self.history, config)
+                self.history_sync.start()
         self._main = [asyncio.create_task(self._telemetry_loop()),
                       asyncio.create_task(self._health_loop())]
         self._spawn(ladder.warm_up(self.providers))
@@ -478,6 +530,13 @@ class CoachApp:
             await self.inputs.stop()
         if self.recorder:
             self.recorder.close()
+        if self._history_unsub:
+            self._history_unsub()
+            self._history_unsub = None
+        if self.history:
+            await asyncio.to_thread(self.history.close)
+        if self.history_sync:
+            await asyncio.to_thread(self.history_sync.stop)
 
     async def wait_for(self, pred: Callable[[], bool], timeout: float = 30.0) -> None:
         end = time.monotonic() + timeout

@@ -2,6 +2,8 @@
 
 One-corner practice coach for Assetto Corsa (HackUTD 2026).
 
+Optional persistent race history: start with `--history`. See [HISTORY.md](HISTORY.md) for local storage, SpacetimeDB sync, the live leaderboard, coach memory, and iPhone setup.
+
 ## Thinking engine
 
 Nemotron reads a scored attempt's metrics and picks one coaching action; the car is reset and the retry is scored.

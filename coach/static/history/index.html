@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NomadSim Race History</title>
+    <script type="module" crossorigin src="./assets/index-PcbqNHsr.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-Bta9UcSF.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <p class="eyebrow">NOMADSIM / RACE HISTORY</p>
+          <h1>Every pass counts.</h1>
+        </div>
+        <span id="connection" role="status">Connecting...</span>
+      </header>
+      <nav aria-label="History views">
+        <button id="history-tab" aria-pressed="true">Driver history</button
+        ><button id="leaderboard-tab" aria-pressed="false">
+          Live leaderboard
+        </button>
+      </nav>
+      <form id="cloud-settings">
+        <details>
+          <summary>Live connection</summary>
+          <div class="settings">
+            <label
+              >Server URL<input
+                id="server"
+                type="url"
+                placeholder="https://maincloud.spacetimedb.com" /></label
+            ><label
+              >Database<input
+                id="database"
+                placeholder="nomadsim-history" /></label
+            ><button>Connect</button>
+          </div>
+        </details>
+      </form>
+      <section class="filters">
+        <label>Course and car<select id="course"></select></label
+        ><label id="driver-label">Driver<select id="driver"></select></label
+        ><label id="session-label">Session<select id="session"></select></label>
+      </section>
+      <section id="history-view">
+        <div class="stats">
+          <article>
+            <h2>Best section</h2>
+            <strong id="best">--</strong
+            ><small>Fastest valid pass in this course and car</small>
+          </article>
+          <article>
+            <h2>Last section</h2>
+            <strong id="last">--</strong
+            ><small id="last-note">Waiting for a scored pass</small>
+          </article>
+          <article>
+            <h2>Sessions</h2>
+            <strong id="sessions-count">0</strong
+            ><small>Saved across coach restarts</small>
+          </article>
+        </div>
+        <section class="panel">
+          <h2>Brake-point trend</h2>
+          <p>Average valid brake board per session, oldest to newest (m).</p>
+          <svg
+            id="trend"
+            viewBox="0 0 800 150"
+            role="img"
+            aria-label="Average brake board by session"
+          ></svg>
+          <p id="trend-summary"></p>
+        </section>
+        <section class="panel">
+          <div class="section-heading">
+            <h2>Scored passes</h2>
+            <button id="ghost" disabled>Show best-lap ghost</button>
+          </div>
+          <p id="empty" role="status">
+            No laps yet. Drive a baseline through the corner.
+          </p>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Session / pass</th>
+                  <th>Role</th>
+                  <th>Section</th>
+                  <th>Brake board</th>
+                  <th>Release</th>
+                  <th>Coach</th>
+                </tr>
+              </thead>
+              <tbody id="laps"></tbody>
+            </table>
+          </div>
+          <p id="ghost-status" role="status"></p>
+        </section>
+      </section>
+      <section id="leaderboard-view" hidden>
+        <div class="leader-grid">
+          <section class="panel">
+            <h2>Fastest valid section per driver</h2>
+            <p>One course and car per board. New passes appear live.</p>
+            <p id="board-empty">Waiting for a valid pass.</p>
+            <table>
+              <thead>
+                <tr>
+                  <th>Rank</th>
+                  <th>Driver</th>
+                  <th>Section</th>
+                </tr>
+              </thead>
+              <tbody id="board"></tbody>
+            </table>
+          </section>
+          <aside class="panel">
+            <h2>Watch on your phone</h2>
+            <img
+              id="qr"
+              alt="QR code opening this live leaderboard"
+              width="224"
+              height="224"
+            /><a id="share" target="_blank" rel="noopener">Open leaderboard</a>
+            <p id="qr-note"></p>
+          </aside>
+        </div>
+      </section>
+      <footer>
+        Section times are scored corner passes, not full-lap times. Local
+        history remains available when live sync falls behind.
+      </footer>
+    </main>
+  </body>
+</html>

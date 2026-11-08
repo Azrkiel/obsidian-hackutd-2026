@@ -130,6 +130,7 @@ class ACSharedMemory:
         self.fallback_len = track_length_m
         self.poll_s = 1.0 / poll_hz
         self.car = self.track = ""
+        self.player_name = ""
 
     @staticmethod
     def _open():
@@ -152,6 +153,7 @@ class ACSharedMemory:
             if not st.track:
                 raise ACNotRunning("Assetto Corsa is not running (shared memory is empty)")
             self.car, self.track = st.carModel, st.track
+            self.player_name = " ".join(p for p in (st.playerName, st.playerSurname) if p).strip() or st.playerNick
             length = float(st.trackSPlineLength) or self.fallback_len
             if not length:
                 raise ACNotRunning("track length unknown: corner config needs track_length_m")

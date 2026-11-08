@@ -139,7 +139,7 @@ class Coach:
             self.trace.write(decision, packet, rungs)
         self.emit({"type": "decision", **decision.to_dict(), "rungs": rungs})
         if turn is not None:
-            self.emit({"type": "plan", "plan": self.plan_dict()})
+            self.emit({"type": "plan", "attempt_id": aid, "plan": self.plan_dict()})
         if decision.action == "offer_drill":
             same_goal = retry and self.drill and decision.plan_action is None
             self.drill = DrillState(decision.drill_id, dict(decision.target or {}),

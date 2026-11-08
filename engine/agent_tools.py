@@ -44,6 +44,8 @@ READ_TOOLS: list[dict] = [
     _fn("compare_runs", "Metric-by-metric differences between two laps (a minus b).",
         {"a": {"type": "string"}, "b": {"type": "string"}}, ["a", "b"]),
     _fn("get_session_history", "Laps so far, drills given, outcomes, and the plan.", {}, []),
+    _fn("get_driver_history", "Previous sessions for this driver on the same track, car and corner: "
+        "measured lap metrics, drills, verdicts and saved plans. Works offline. Empty means no past evidence.", {}, []),
     _fn("get_corner_info", "Brake boards, gates, apex window, tolerances and allowed drill ranges.", {}, []),
 ]
 ACTION_TOOLS: list[dict] = [
@@ -71,6 +73,7 @@ _ALL_ACTIONS = {**_BASE_ACTIONS, **{t["function"]["name"]: t for t in ACTION_TOO
 READ_NAMES = {t["function"]["name"] for t in READ_TOOLS} | {"get_attempt_evidence"}
 
 AGENT_PROMPT = """You are a racing coach running a practice session on one corner of a track in a simulator. The car is a Mazda 787B: very fast, heavy downforce, an analog brake. Each turn:
+- On the first plan turn, read get_driver_history. If there are past sessions, open your cue or summary with one relevant measured number and use the past drill outcomes to choose a starting point. Never invent history or infer improvement from an invalid lap. packet.driver_history is the offline snapshot; empty history means a new driver.
 - You may call read tools (get_driving_profile, get_splits, compare_runs, get_session_history, get_corner_info) for up to 3 rounds; their results come back to you.
 - Then call exactly one action tool. Never answer in plain text.
 Plan turn (packet.turn = "plan", after the baseline lap): look at the profile and the splits against the reference, then set_plan with 1 to 3 ordered goals, the biggest time loss first. Each goal is one drill with a target taken from packet.suggested, a cue, a reminder and in_a_row (1, or 2 for "twice in a row"). Only plan drills whose delta is over tolerance. If nothing is over tolerance, or the lap is invalid or not comparable, call end_drill.
@@ -101,6 +104,8 @@ def _short(name: str, res: dict) -> str:
         return ", ".join(f"{k} {d[k]:+}" for k in keys) or f"{len(d)} differences"
     if name == "get_session_history":
         return f"{len(res.get('laps', []))} laps, plan {'set' if res.get('plan') else 'none'}"
+    if name == "get_driver_history":
+        return f"{len(res.get('sessions', []))} previous sessions"
     if name == "get_corner_info":
         return res.get("name", "corner")
     if name == "get_attempt_evidence":
@@ -120,6 +125,7 @@ class AgentSession:
         self.history: list[dict] = []
         self.plan: Plan | None = None
         self.baseline_id: str | None = None
+        self.driver_history: Callable[[], dict] | None = None
         self._profiles: dict[str, dict] = {}
 
     def reset(self) -> None:
@@ -179,6 +185,8 @@ class AgentSession:
     # -- read tools --
     def run_tool(self, name: str, args: dict, current: str, packet: dict) -> dict:
         args = args if isinstance(args, dict) else {}
+        if name == "get_driver_history":
+            return self.driver_history() if self.driver_history else packet.get("driver_history", {"sessions": []})
         if name == "get_driving_profile":
             aid = self._resolve(str(args.get("attempt_id", current)), current)
             p = self.profile(aid) if aid else None

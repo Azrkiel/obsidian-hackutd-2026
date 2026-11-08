@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import heapq
+import json
 import re
 import shutil
 import socket
@@ -223,6 +224,9 @@ class _PhoneProto(asyncio.DatagramProtocol):
         if reply and self.transport:
             try:
                 self.transport.sendto(reply, addr)
+                if self.hub.race_history is not None:
+                    self.transport.sendto(json.dumps({"type": "race_history", "history": self.hub.race_history},
+                                                     separators=(",", ":")).encode(), addr)
             except OSError:
                 pass
 
@@ -239,6 +243,7 @@ class _ArduinoUdpProto(asyncio.DatagramProtocol):
 
 
 class InputHub:
+    race_history: dict | None = None
     def __init__(self, pad: Any = None, phone_port: int = 5005, arduino: str = "auto",
                  arduino_udp_port: int | None = None, invert_steer: bool = False,
                  emit: Callable[[dict], None] | None = None, clock: Callable[[], float] = time.monotonic,

@@ -14,6 +14,7 @@ import asyncio
 import json
 import sys
 from pathlib import Path
+from uuid import UUID
 
 from engine.config import load_attempt, load_corner
 from engine.nemotron import default_providers
@@ -38,6 +39,10 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--data-dir", default=str(ROOT / "data"))
     ap.add_argument("--traces", default=str(ROOT / "traces"))
     ap.add_argument("--record", action="store_true", help="write samples to data/recordings/")
+    ap.add_argument("--history", action="store_true", help="save race history to data/history.sqlite3 (opt-in)")
+    ap.add_argument("--driver-name", help="history driver name (default: AC player name, or Driver)")
+    ap.add_argument("--driver-id", type=lambda value: str(UUID(value)),
+                    help="stable UUID for a driver; use when two drivers share a name")
     ap.add_argument("--sound", action=argparse.BooleanOptionalAction, default=None)
     ap.add_argument("--countdown", type=int, default=3)
     ap.add_argument("--brake-board", type=float, default=86.0, help="sim: first-run brake board (m)")
@@ -124,7 +129,8 @@ def build_app(args: argparse.Namespace) -> CoachApp:
                     sound=args.sound, countdown=args.countdown,
                     persist_checkpoint=kind != "sim", mode=args.mode, speaker=speaker,
                     muted=args.mute, agent=args.agent, inputs=build_inputs(args),
-                    auto_retry=args.auto_retry, max_retries=args.max_retries)
+                    auto_retry=args.auto_retry, max_retries=args.max_retries,
+                    history=args.history, driver_name=args.driver_name, driver_id=args.driver_id)
 
 
 async def amain(args: argparse.Namespace) -> None:

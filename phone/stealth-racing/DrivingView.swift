@@ -26,6 +26,11 @@ struct DrivingView: View {
 
             VStack(spacing: 10) {
                 topBar
+                HStack(spacing: 18) {
+                    sectionTime("Last section", seconds: session.lastSectionSeconds)
+                    sectionTime("Best today", seconds: session.bestTodaySeconds)
+                    Text(session.historySource).font(.caption2).foregroundStyle(Theme.secondaryText)
+                }
                 steering
                     .frame(maxHeight: .infinity)
                 commandGrid
@@ -56,6 +61,15 @@ struct DrivingView: View {
     }
 
     // MARK: Top bar
+
+    private func sectionTime(_ title: LocalizedStringResource, seconds: Double?) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(title).font(.caption2).foregroundStyle(Theme.secondaryText)
+            Text(seconds.map { String(format: "%.2f s", $0) } ?? "--")
+                .font(.subheadline.weight(.semibold)).monospacedDigit()
+        }
+        .accessibilityElement(children: .combine)
+    }
 
     private var topBar: some View {
         VStack(alignment: .leading, spacing: 4) {
