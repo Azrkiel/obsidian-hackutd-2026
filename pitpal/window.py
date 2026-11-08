@@ -456,8 +456,10 @@ class Overlay:
 
     def _menu(self) -> None:
         u, pad = self.ui, round(10 * self.ui)
-        items = [("m_qr", "Show pairing code"), ("m_new", "New pairing code"), ("m_mute", "Mute / unmute voice"),
-                 ("m_card", "Details"), ("m_quit", "Quit Rev")]
+        phone = (self.model.health.get("inputs") or {}).get("pedal_mode") == "phone"
+        items = [("m_qr", "Show pairing code"), ("m_new", "New pairing code"),
+                 ("m_pedals", "Pedals: use Arduino" if phone else "Pedals: use phone"),
+                 ("m_mute", "Mute / unmute voice"), ("m_card", "Details"), ("m_quit", "Quit Rev")]
         lh = self.f_body.metrics("linespace") + round(10 * u)
         w = max(self.f_body.measure(t) for _, t in items) + 2 * pad
         h = lh * len(items) + 2 * pad
@@ -563,6 +565,7 @@ class Overlay:
         elif name.startswith("m_"):
             self.menu = False
             {"m_qr": lambda: self._qr_now(), "m_new": lambda: self._send({"type": "new_pairing"}),
+             "m_pedals": lambda: self._send({"type": "pedal_source", "source": "toggle"}),
              "m_mute": lambda: self._send({"type": "toggle_mute"}), "m_card": lambda: setattr(self, "expanded", True),
              "m_quit": self.quit}[name]()
 

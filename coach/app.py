@@ -37,7 +37,7 @@ from .telemetry import ACSharedMemory, Recorder, ReplaySource, Sample, SimSource
 COMMANDS = {"accept", "retry", "save_checkpoint", "set_reference", "new_session",
             "toggle_cue_next", "retry_reset", "toggle_mute", "mark_board", "resume",
             "new_pairing", "select_corner", "accept_offer", "settings", "reset_personal_best",
-            "rev_say"}
+            "rev_say", "pedal_source"}
 REV_SAY_MAX_AGE_S = 6.0     # Rev's reactions ("Easy on throttle."): spoken on the next straight, or not at all
 REV_SAY_REPEAT_S = 15.0     # the same reaction is not spoken again sooner than this
 LIVE_HZ = 10.0
@@ -717,6 +717,15 @@ class CoachApp:
             if c.state != AWAIT_RESET and self.reset.status != "failed":
                 return self._note("no reset to retry")
             self._spawn(self.reset.retry())
+        elif kind == "pedal_source":
+            if self.inputs is None:
+                return self._note("inputs are off (start with --inputs)")
+            mode = msg.get("source")
+            if mode == "toggle":
+                mode = "auto" if self.inputs.pedal_mode == "phone" else "phone"
+            if not self.inputs.set_pedal_mode(str(mode)):
+                return self._note("pedal source must be auto, phone or toggle")
+            self.broadcast(self.health())
         elif kind == "rev_say":
             self.rev_say(str(msg.get("text") or ""))
         elif kind == "toggle_mute":

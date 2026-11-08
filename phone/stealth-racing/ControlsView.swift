@@ -20,7 +20,7 @@ struct ControlsView: View {
                         VStack(alignment: .leading, spacing: 10) {
                             PPLabel("Pedals")
                             PixelToggle(title: "On-screen pedals", isOn: $session.onScreenPedals)
-                            Text("Touch pedals provide backup throttle and brake if the Arduino stops responding. Turn them off to switch to the Arduino cockpit layout.")
+                            Text("On: the phone drives throttle and brake, even with the Arduino plugged in. Off: the Arduino pedals drive again.")
                                 .font(PPFont.barlow(13))
                                 .foregroundStyle(Theme.inkMuted)
                                 .fixedSize(horizontal: false, vertical: true)
