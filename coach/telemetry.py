@@ -336,3 +336,168 @@ class SimSource:
                 await asyncio.sleep(max(0.0, wall0 + self.t - loop.time()))
             else:
                 await asyncio.sleep(0.002 if self.parked else 0)
+
+
+# --- whole-lap simulator --------------------------------------------------------------------------
+_DEFAULT_APEX_KMH = {"t1": 74.0, "roggia": 110.0, "lesmo1": 170.0, "lesmo2": 160.0,
+                     "ascari": 190.0, "parabolica": 160.0}
+
+
+class TrackSimSource:
+    """Deterministic synthetic driver for a whole lap with per-corner board/release knobs.
+
+    A 1 m table of (speed, gas, brake) is built from a forward pass over the lap (accelerate, brake
+    to each apex, coast to pickup, accelerate). On every lap wrap (pos 5793 -> 0, like AC) each corner
+    with a target moves `skill` of the way toward it, then the table is rebuilt.
+    """
+    finite = False
+
+    def __init__(self, track, seed: int = 1, realtime: bool = True, hz: float = 100.0,
+                 skill: float = 0.6, corners: dict[str, dict] | None = None,
+                 vmax_kmh: float = 318.0, accel: float = 8.1, start_pos_m: float = 0.0):
+        self.track, self.realtime, self.dt, self.skill = track, realtime, 1.0 / hz, skill
+        self.length = float(track.length_m)
+        self.vmax_kmh, self.accel = vmax_kmh, accel
+        self.knobs: dict[str, dict[str, float]] = {}
+        for c in track.corners:
+            k = {"board_m": 100.0, "apex_kmh": _DEFAULT_APEX_KMH.get(c.id, 120.0),
+                 "pickup_after_apex_m": 20.0, "release_s": 0.55}
+            k.update({a: float(b) for a, b in (dict(corners or {}).get(c.id) or {}).items()})
+            self.knobs[c.id] = k
+        self.target_board: dict[str, float] = {}
+        self.target_release: dict[str, float] = {}
+        self.start_pos_m = float(start_pos_m)
+        self.lap_count = 0
+        self.pos, self.t, self.packet = self.start_pos_m, 0.0, 0
+        self._stop = False
+        self._build()
+        self.v0_kmh = self._lookup(self.start_pos_m)[0]
+
+    # -- control --
+    def set_target_board(self, board_m: float, corner_id: str) -> None:
+        self.track.corner(corner_id)
+        self.target_board[corner_id] = float(board_m)
+
+    def set_target_release(self, release_s: float, corner_id: str) -> None:
+        self.track.corner(corner_id)
+        self.target_release[corner_id] = float(release_s)
+
+    def stop(self) -> None:
+        self._stop = True
+
+    def onset_m(self, corner_id: str) -> float:
+        return self.track.corner(corner_id).board_zero_m - self.knobs[corner_id]["board_m"]
+
+    # -- model --
+    def _build(self) -> None:
+        L = self.length
+        n = int(math.ceil(L)) + 2
+        cs = []
+        for c in self.track.corners:
+            k = self.knobs[c.id]
+            cs.append({"c": c, "onset": c.board_zero_m - k["board_m"], "a0": c.apex_window_m[0],
+                       "pickup": c.apex_window_m[1] + k["pickup_after_apex_m"],
+                       "va": k["apex_kmh"] / 3.6, "rel": k["release_s"]})
+        vmax = self.vmax_kmh / 3.6
+        v_start = vmax
+        for _ in range(3):  # lap start speed must equal lap end speed
+            spd, gas, brk = [0.0] * n, [0.0] * n, [0.0] * n
+            v = v_start
+            for ph in cs:
+                ph.pop("v0", None), ph.pop("braking", None)
+            for i in range(n):
+                p = float(i)
+                if i > 0:
+                    v = min(math.sqrt(v * v + 2 * self.accel * 1.0), vmax)
+                g, b = 1.0, 0.0
+                done = False
+                for ph in cs:
+                    if "braking" not in ph and p >= ph["onset"]:
+                        ph["v0"] = v
+                        ph["braking"] = v > ph["va"] + 5 / 3.6
+                    if not ph.get("braking") or p < ph["onset"]:
+                        continue
+                    va, v0 = ph["va"], ph["v0"]
+                    if p < ph["a0"]:
+                        span = max(ph["a0"] - ph["onset"], 1.0)
+                        a = (v0 * v0 - va * va) / (2 * span)
+                        v = math.sqrt(max(v0 * v0 - 2 * a * (p - ph["onset"]), va * va))
+                        b = min(1.0, max(0.3, a / 42.0))
+                        rel_m = max(ph["rel"], 0.0) * (va + 0.25 * (v0 - va))
+                        left = ph["a0"] - p
+                        if rel_m > 0 and left < rel_m:
+                            b *= max(left / rel_m, 0.0)
+                        g, done = 0.0, True
+                    elif p < ph["pickup"]:
+                        v = va + 0.02 * (p - ph["a0"]) / 3.6
+                        g, b, done = 0.0, 0.0, True
+                    if done:
+                        break
+                if not done:
+                    # throttle ramp right after the last pickup behind us (wrapping over the lap line)
+                    d = min(((p - ph["pickup"]) % L) for ph in cs) if cs else 1e9
+                    g = min(1.0, 0.4 + d / 20.0)
+                spd[i], gas[i], brk[i] = v * 3.6, g, b
+            end_v = spd[n - 1] / 3.6
+            if abs(end_v - v_start) < 1e-6:
+                break
+            v_start = end_v
+        self._spd, self._gas, self._brk = spd, gas, brk
+
+    def _lookup(self, pos: float) -> tuple[float, float, float]:
+        i = min(int(pos), len(self._spd) - 2)
+        f = pos - i
+        return (self._spd[i] + f * (self._spd[i + 1] - self._spd[i]), self._gas[i], self._brk[i])
+
+    def _steer(self, pos: float) -> float:
+        for c in self.track.corners:
+            ti, ex = c.gate("turn_in_m"), c.exit_gate_m
+            if ti <= pos < ex:
+                a1, a2 = c.gate("apex1_m"), c.gate("apex2_m")
+                if pos < a1:
+                    return 0.30 * math.sin(math.pi / 2 * (pos - ti) / max(a1 - ti, 1.0))
+                if pos < a2:
+                    return 0.30 - 0.55 * (pos - a1) / max(a2 - a1, 1.0)
+                return -0.25 * (1 - (pos - a2) / max(ex - a2, 1.0))
+        return 0.0
+
+    def _sample(self, status: str = "live") -> Sample:
+        speed, gas, brake = self._lookup(self.pos)
+        self.packet += 1
+        n = self.length
+        steer = self._steer(self.pos)
+        v = speed / 3.6
+        wb = self.track.corners[0].wheelbase_m if self.track.corners else 2.6
+        yaw = v * math.tan(steer * 0.25) / wb
+        g_lon = -brake * 2.4 + gas * 0.6
+        slip_f = 0.03 + (0.25 if brake > 0.97 and v < 40 else 0.0)
+        slip_r = 0.03 + (0.2 if gas > 0.9 and v < 35 else 0.0)
+        return Sample(self.t, self.packet, status, self.pos / n, self.pos, speed, gas, brake,
+                      steer, self.pos, 0.0, 0.0, g_lat=v * yaw / 9.81, g_lon=g_lon, yaw_rate=yaw,
+                      slip_f=slip_f, slip_r=slip_r)
+
+    def _wrap(self) -> None:
+        self.lap_count += 1
+        for cid, tgt in self.target_board.items():
+            k = self.knobs[cid]
+            k["board_m"] += self.skill * (tgt - k["board_m"])
+        for cid, tgt in self.target_release.items():
+            k = self.knobs[cid]
+            k["release_s"] += self.skill * (tgt - k["release_s"])
+        self._build()
+
+    async def samples(self) -> AsyncIterator[Sample]:
+        loop = asyncio.get_running_loop()
+        wall0 = loop.time() - self.t
+        while not self._stop:
+            s = self._sample()
+            yield s
+            self.pos += (s.speed_kmh / 3.6) * self.dt
+            if self.pos >= self.length:
+                self.pos -= self.length
+                self._wrap()
+            self.t += self.dt
+            if self.realtime:
+                await asyncio.sleep(max(0.0, wall0 + self.t - loop.time()))
+            else:
+                await asyncio.sleep(0)
