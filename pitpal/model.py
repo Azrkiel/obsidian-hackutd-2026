@@ -20,6 +20,7 @@ from .reactions import Moment, Reactor
 RACER, HELMET, SUIT, BASE = "racer", "helmet_suit", "suit", "base"
 READ_MIN_S, READ_PER_CHAR_S = 2.0, 0.04
 MAX_WORDS = 9              # a bubble is a glance, not a paragraph: the voice says the rest
+MAX_REST_WORDS = 12        # the second sentence: the action ("Brake at the 100 board and turn in late.")
 WARN_HOLD_S = 2.0          # a problem must last this long before Rev warns (cables wobble)
 PAIR_GRACE_S = 2.5         # an already-paired phone usually reconnects on its own: wait before the QR
 
@@ -28,15 +29,22 @@ def read_time(text: str) -> float:
     return max(READ_MIN_S, 1.2 + len(text) * READ_PER_CHAR_S)
 
 
+def _clip(s: str, n: int) -> str:
+    words = s.split()
+    return s if len(words) <= n else " ".join(words[:n]).rstrip(",;:.") + "…"
+
+
 def split_cue(text: str) -> tuple[str, str]:
-    """A cue for the bubble: its first sentence only, at most MAX_WORDS words, set in bold."""
+    """A cue for the bubble: the first sentence in bold (what happened), the next sentence regular
+    (what to do: for lap cues this is Nemotron's action, so it must not be cut). Each is kept short."""
     text = " ".join((text or "").split())
     i = text.find(". ")
-    first = text if i < 0 else text[: i + 1]
-    words = first.split()
-    if len(words) > MAX_WORDS:
-        first = " ".join(words[:MAX_WORDS]).rstrip(",;:.") + "…"
-    return first, ""
+    if i < 0:
+        return _clip(text, MAX_WORDS), ""
+    first, rest = text[: i + 1], text[i + 2:]
+    j = rest.find(". ")
+    rest = rest if j < 0 else rest[: j + 1]
+    return _clip(first, MAX_WORDS), _clip(rest, MAX_REST_WORDS)
 
 
 @dataclass
@@ -86,6 +94,7 @@ class RevModel:
         self._anim, self._anim_t0 = "idle", 0.0
         self._ai_mode: str | None = None
         self._kind: str | None = None
+        self.outbox: list[dict] = []     # commands for the coach (e.g. say a reaction out loud)
 
     # ---------------------------------------------------------------- input
     def feed(self, e: dict, now: float) -> None:
@@ -158,6 +167,8 @@ class RevModel:
         if m is not None and (self.moment is None or self.moment[1] < now
                               or (m.kind == "warn" and self.moment[0].kind != "warn")):
             self._show(m, now)
+            # Rev has no voice of his own: the coach says it (on the next straight, if still fresh)
+            self.outbox.append({"type": "rev_say", "text": m.bold, "key": m.key})
 
     def _on_voice(self, e: dict, now: float) -> None:
         st, text = e.get("status"), e.get("text", "")

@@ -316,6 +316,36 @@ def parse_plant(spec: str) -> dict[str, list[str | None]]:
 
 
 async def amain(args: argparse.Namespace) -> None:
+    # Rev starts first and loads while the coach starts (he reconnects until the dashboard is up)
+    rev = [start_overlay(args) if args.overlay else None]
+    try:
+        await _run(args, rev)
+    finally:
+        if rev[0] is not None and rev[0].poll() is None:
+            rev[0].terminate()
+
+
+async def _watch_rev(args: argparse.Namespace, rev: list) -> None:
+    """Quit Rev (a clean exit) ends the session; if Rev crashes, start him again (at most 3 times)."""
+    restarts = 0
+    while True:
+        await asyncio.sleep(1.0)
+        p = rev[0]
+        if p is None or p.poll() is None:
+            continue
+        if p.returncode == 0:
+            print("Rev was closed (Quit Rev): stopping Pit Pal.", flush=True)
+            return
+        if restarts >= 3:
+            print(f"Rev keeps stopping (exit {p.returncode}); the coach runs on without him.", flush=True)
+            rev[0] = None
+            continue
+        restarts += 1
+        print(f"Rev stopped unexpectedly (exit {p.returncode}): restarting him.", flush=True)
+        rev[0] = start_overlay(args)
+
+
+async def _run(args: argparse.Namespace, rev: list) -> None:
     app = build_app(args)
     configure_cloud(app, args.telemetry[0], enabled=args.cloud)
     dash = Dashboard(app, args.host, args.port)
@@ -339,15 +369,11 @@ async def amain(args: argparse.Namespace) -> None:
               flush=True)
         if i.pairing is not None and i.pairing_mode != "off":
             print_pairing(i, args.port)
-    overlay = None
     if args.overlay:
         app.enable_rev_lines()
-        overlay = start_overlay(args)
     try:
-        await asyncio.Event().wait()
+        await _watch_rev(args, rev)        # returns when Rev is quit; without --overlay, runs until Ctrl+C
     finally:
-        if overlay is not None and overlay.poll() is None:
-            overlay.terminate()
         await app.stop()
         await dash.stop()
 

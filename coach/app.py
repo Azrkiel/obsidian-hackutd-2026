@@ -34,7 +34,10 @@ from .telemetry import ACSharedMemory, Recorder, ReplaySource, Sample, SimSource
 
 COMMANDS = {"accept", "retry", "save_checkpoint", "set_reference", "new_session",
             "toggle_cue_next", "retry_reset", "toggle_mute", "mark_board", "resume",
-            "new_pairing", "select_corner", "accept_offer", "settings", "reset_personal_best"}
+            "new_pairing", "select_corner", "accept_offer", "settings", "reset_personal_best",
+            "rev_say"}
+REV_SAY_MAX_AGE_S = 6.0     # Rev's reactions ("Easy on throttle."): spoken on the next straight, or not at all
+REV_SAY_REPEAT_S = 15.0     # the same reaction is not spoken again sooner than this
 LIVE_HZ = 10.0
 TELEMETRY_HZ = 10           # live "telemetry" events for subscribers (the Pit Pal overlay)
 _HISTORY_ORIGIN = ContextVar("coach_history_origin", default=None)
@@ -657,6 +660,8 @@ class CoachApp:
             if c.state != AWAIT_RESET and self.reset.status != "failed":
                 return self._note("no reset to retry")
             self._spawn(self.reset.retry())
+        elif kind == "rev_say":
+            self.rev_say(str(msg.get("text") or ""))
         elif kind == "toggle_mute":
             if self.announcer is None:
                 return self._note("voice is off (--voice)")
@@ -664,6 +669,21 @@ class CoachApp:
             self.broadcast(self.health())
         elif kind == "mark_board":
             self.mark_board(msg.get("board_m"))
+
+    def rev_say(self, text: str) -> bool:
+        """Speak one of Rev's instant reactions (he has no voice of his own). Same rules as every cue:
+        never in a corner, so it waits for the next straight and is dropped if it is stale by then."""
+        text = " ".join(text.split())[:80]
+        if not text or self.announcer is None:
+            return False
+        now = time.monotonic()
+        said = getattr(self, "_rev_said", {})
+        if now - said.get(text, -1e9) < REV_SAY_REPEAT_S:
+            return False
+        said[text] = now
+        self._rev_said = said
+        self.announcer.say(text, ADVICE, max_age_s=REV_SAY_MAX_AGE_S, mode="rev")
+        return True
 
     def set_reference(self) -> bool:
         if self.track is not None:
