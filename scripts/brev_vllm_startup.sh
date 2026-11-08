@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
-# Brev startup script: serve Nemotron 3.5 Lightning (NVFP4) with vLLM on one H100.
-#   brev create nomadsim-h100 --type gpu-h100-sxm.1gpu-16vcpu-200gb --min-disk 200 \
+# Brev startup recipe: Lambda H100 PCIe, 80 GB VRAM (one GPU).
+# Name the instance nomadsim-h100 so the PC's tunnel commands stay the same.
+# CLI alternative to the Brev console (preview the offer with --dry-run first):
+#   brev create nomadsim-h100 --provider lambda --gpu-name H100 --min-vram 80 --min-disk 200 \
 #     --startup-script @scripts/brev_vllm_startup.sh
-# The container restarts by itself after `brev stop` / `brev start` (--restart unless-stopped)
-# and keeps the model download in /home/ubuntu/workspace/hf, which survives a stop.
+# Lambda's selected offer has NO STOP/START. Delete the instance to end the rental;
+# deletion removes the cached model and all other instance data. Do not use the idle-stop script.
+# --restart unless-stopped restarts the container after a host reboot, not a deleted instance.
+# Model downloads are cached in /home/ubuntu/workspace/hf for the life of the instance.
 # Port 8000 is bound to 127.0.0.1 only: reach it with `brev port-forward`, not the internet.
+# No NVIDIA_API_KEY or NEMOTRON_API_KEY is needed with this localhost-only recipe.
+# H100 PCIe uses the same model and vLLM flags as the previous H100 SXM setup.
 # Logs: docker logs -f vllm      Optional: put HF_TOKEN in /home/ubuntu/workspace/.hf_token
 set -euo pipefail
 
