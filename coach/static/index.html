@@ -84,7 +84,9 @@ code{font:600 13px/18px var(--font-sans);font-variant-ligatures:none;font-featur
 .steer-row{display:flex;align-items:baseline;gap:var(--space-3)}
 .steer-row b{font:700 20px/26px var(--font-sans)}
 .lapbar{margin-top:var(--space-6)}
-#l-map{display:block;width:100%;height:auto;max-height:280px}
+#l-map{display:block;width:100%;flex:1;min-height:240px;max-height:520px}
+.grid>.panel:first-child{display:flex;flex-direction:column}
+.grid>.panel:first-child .lapbar{flex:1;display:flex;flex-direction:column}
 #l-map text{font:600 26px var(--font-sans)}
 .strip{position:relative;height:24px;margin:var(--space-2) 3px;background:var(--raised);box-shadow:0 0 0 1px var(--hairline)}
 .strip .zone{position:absolute;top:0;bottom:0;background:var(--outline-strong)}
@@ -141,8 +143,9 @@ code{font:600 13px/18px var(--font-sans);font-variant-ligatures:none;font-featur
 .pp-btn[disabled]{cursor:not-allowed;transform:none;color:var(--ink-muted);background:var(--raised);box-shadow:0 -3px 0 0 var(--hairline),0 3px 0 0 var(--hairline),-3px 0 0 0 var(--hairline),3px 0 0 0 var(--hairline)}
 
 /* 03 corner */
-.corner-grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:var(--space-6)}
-@media(max-width:1100px){.corner-grid{grid-template-columns:1fr}}
+.corner{margin-top:var(--space-4);padding-top:var(--space-4);border-top:1px solid var(--hairline)}
+.corner-grid{display:grid;grid-template-columns:1fr;gap:var(--space-4)}
+canvas{height:200px!important}
 canvas{width:100%;height:240px;display:block;background:var(--bg);box-shadow:0 0 0 1px var(--hairline)}
 .legend{display:flex;flex-wrap:wrap;gap:var(--space-2) var(--space-4);margin-top:var(--space-3)}
 .legend span{display:inline-flex;align-items:center;gap:6px;font:500 14px/20px var(--font-sans);color:var(--ink-muted)}
@@ -260,27 +263,27 @@ summary:focus-visible{outline:3px solid var(--ink);outline-offset:4px}
       <button class="pp-btn pp-btn--quiet pp-btn--small hidden" id="b-retry_reset">Retry reset</button>
     </div>
     <div class="plan hidden" id="p-plan"><span class="pp-label">Session plan</span><ol id="plan"></ol></div>
-  </section>
-</div>
-
-<section class="panel pp-enter" aria-labelledby="metrics-title">
-  <div class="phead"><h2 class="ptitle" id="metrics-title">Brake pedal through the corner</h2><span class="small">How hard you pressed the brake (0 to 100%) at each metre of the corner</span></div>
-  <div class="corner-grid">
-    <div>
-      <canvas id="cv" width="900" height="240" role="img" aria-label="Brake pedal against distance into the lap"></canvas>
-      <div class="legend">
-        <span><i style="--k:var(--ink-muted)"></i>Reference lap (the goal)</span><span><i style="--k:var(--caution)"></i>Your first run</span>
-        <span><i style="--k:var(--go)"></i>Your retry</span><span><i class="dash" style="--k:var(--signal-blue)"></i>Where to start braking</span>
+    <div class="corner" aria-labelledby="metrics-title">
+    <h2 class="ptitle" id="metrics-title">Brake pedal through the corner</h2>
+    <p class="small" style="margin:2px 0 var(--space-3)">How hard you pressed the brake (0 to 100%) at each metre of the corner</p>
+    <div class="corner-grid">
+      <div>
+        <canvas id="cv" width="900" height="240" role="img" aria-label="Brake pedal against distance into the lap"></canvas>
+        <div class="legend">
+          <span><i style="--k:var(--ink-muted)"></i>Reference lap (the goal)</span><span><i style="--k:var(--caution)"></i>Your first run</span>
+          <span><i style="--k:var(--go)"></i>Your retry</span><span><i class="dash" style="--k:var(--signal-blue)"></i>Where to start braking</span>
+        </div>
+      </div>
+      <div>
+        <table id="metrics-key"><thead><tr><th></th><th>Reference</th><th>First run</th><th>Retry</th></tr></thead><tbody></tbody></table>
+        <details><summary>All metrics</summary>
+          <table id="metrics"><thead><tr><th></th><th>Reference</th><th>First run</th><th>Retry</th></tr></thead><tbody></tbody></table>
+        </details>
       </div>
     </div>
-    <div>
-      <table id="metrics-key"><thead><tr><th></th><th>Reference</th><th>First run</th><th>Retry</th></tr></thead><tbody></tbody></table>
-      <details><summary>All metrics</summary>
-        <table id="metrics"><thead><tr><th></th><th>Reference</th><th>First run</th><th>Retry</th></tr></thead><tbody></tbody></table>
-      </details>
     </div>
-  </div>
-</section>
+  </section>
+</div>
 
 <section class="panel hidden" id="p-laps" aria-labelledby="laps-title">
   <div class="phead"><h2 class="ptitle" id="laps-title">Laps</h2><span class="small">Seconds lost per corner vs reference</span></div>
