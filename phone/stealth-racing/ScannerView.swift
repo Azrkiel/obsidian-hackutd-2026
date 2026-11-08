@@ -16,44 +16,45 @@ struct ScannerView: View {
 
     var body: some View {
         PPScreen {
-            ZStack {
-                HStack(alignment: .bottom) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Button(action: back) { Label("Back", systemImage: "chevron.left") }
-                            .buttonStyle(.pixel(.quiet, compact: true))
-                        Spacer()
-                        PPLabel("How it works")
-                        Text(howItWorks)
-                            .font(PPFont.barlow(14))
-                            .foregroundStyle(Theme.ink)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .frame(width: 220, alignment: .leading)
-                    Spacer()
-                    VStack(alignment: .trailing) {
-                        if camera.hasTorch {
-                            PixelIconButton(title: torch ? "Torch off" : "Torch on",
-                                            systemImage: torch ? "bolt.fill" : "bolt",
-                                            tint: torch ? Theme.caution : Theme.ink) {
-                                torch.toggle()
-                                camera.setTorch(torch)
-                            }
-                        }
-                        Spacer()
-                        Button(action: manual) {
-                            Label("Enter address manually", systemImage: "keyboard")
-                                .font(PPFont.barlow(14, .semibold))
-                                .foregroundStyle(Theme.ink)
-                                .frame(minHeight: 44)
-                        }
-                    }
-                    .frame(width: 220, alignment: .trailing)
+            // Three columns side by side: the side text can never run under the viewfinder.
+            HStack(alignment: .center, spacing: 24) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Button(action: back) { Label("Back", systemImage: "chevron.left") }
+                        .buttonStyle(.pixel(.quiet, compact: true))
+                    Spacer(minLength: 12)
+                    PPLabel("How it works")
+                    Text(howItWorks)
+                        .font(PPFont.barlow(14))
+                        .foregroundStyle(Theme.ink)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(.horizontal, 28)
-                .padding(.vertical, 18)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
                 viewfinder
+                    .layoutPriority(1)
+
+                VStack(alignment: .trailing) {
+                    if camera.hasTorch {
+                        PixelIconButton(title: torch ? "Torch off" : "Torch on",
+                                        systemImage: torch ? "bolt.fill" : "bolt",
+                                        tint: torch ? Theme.caution : Theme.ink) {
+                            torch.toggle()
+                            camera.setTorch(torch)
+                        }
+                    }
+                    Spacer(minLength: 12)
+                    Button(action: manual) {
+                        Label("Enter address manually", systemImage: "keyboard")
+                            .font(PPFont.barlow(14, .semibold))
+                            .foregroundStyle(Theme.ink)
+                            .multilineTextAlignment(.trailing)
+                            .frame(minHeight: 44)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
             }
+            .padding(.horizontal, 28)
+            .padding(.vertical, 18)
         }
         .task { await camera.start() }
         .onDisappear { camera.stop() }
