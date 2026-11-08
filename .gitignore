@@ -18,3 +18,18 @@ node_modules/
 spacetime/dist/
 history-viewer/test-results/
 history-viewer/playwright-report/
+
+# local logs and editor/OS noise
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+!.env.example
+# secrets and local databases (never commit)
+*.pem
+*.key
+*.p12
+*.sqlite3
+
