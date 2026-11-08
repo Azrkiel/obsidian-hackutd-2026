@@ -24,8 +24,14 @@ from engine.nemotron import default_providers
 from engine.voice import make_speaker
 
 from .app import CoachApp
+from .checkpoints import CheckpointStore
 from .dashboard import Dashboard
 from .inputs import InputHub, make_pad
+from .pairing import Pairing
+from .telemetry import ACSharedMemory, Recorder, ReplaySource, SimSource
+from .lap_sim import LapSim
+from .reference import References
+from .track import Track
 from .telemetry import ACSharedMemory, Recorder, ReplaySource, SimSource, TrackSimSource
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -54,6 +60,18 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--countdown", type=int, default=3)
     ap.add_argument("--brake-board", type=float, default=86.0, help="sim: first-run brake board (m)")
     ap.add_argument("--transport", choices=["tools", "json"], default=None)
+    w = ap.add_argument_group("whole lap: every error gets a cue and a retry offer (docs/ROLLING_CHECKPOINTS.md)")
+    w.add_argument("--no-retries", action="store_true",
+                   help="with --track: the lap coach only (no retry offers or rewinds)")
+    w.add_argument("--whole-lap", action="store_true",
+                   help="score every corner of --track; with --telemetry sim, drive it with the lap simulator")
+    w.add_argument("--track-model", default=str(ROOT / "fixtures" / "tracks" / "monza.json"),
+                   help="track model for retry offers (corners, AI speed profile)")
+    w.add_argument("--reference-mode", choices=["pb", "ai"], default="pb",
+                   help="pb = personal best, AI line until a corner has one; ai = always the AI line")
+    w.add_argument("--lead-time", type=float, default=4.0, help="retry starts this many s before the brake point")
+    w.add_argument("--plant", default="",
+                   help="lap simulator mistakes, e.g. c1=late_brake,c4=spin+none (per attempt, + separated)")
     g = ap.add_argument_group("inputs (phone + Arduino -> virtual pad; off unless --inputs)")
     g.add_argument("--inputs", action="store_true",
                    help="receive phone + Arduino inputs here instead of running bridge/bridge.py")
@@ -68,6 +86,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="throttle curve sent to the game: out = in^gamma. 1 = linear, higher = gentler "
                         "start (1.8: half pedal = 29%% throttle)")
     g.add_argument("--brake-gamma", type=float, default=1.0, help="brake curve, same as --gas-gamma")
+    g.add_argument("--pairing", choices=["off", "optional", "required"], default="optional",
+                   help="QR pairing for the phone: required = only phones that scanned the code can "
+                        "drive; optional (default) = also accept the unpaired app until a phone pairs; "
+                        "off = plain UDP")
     ap.add_argument("--auto-retry", action=argparse.BooleanOptionalAction, default=True,
                     help="after Accept, keep rewinding until the drill ends, then resume (default on)")
     ap.add_argument("--max-retries", type=int, default=5,
@@ -96,6 +118,18 @@ def build_parser() -> argparse.ArgumentParser:
     return ap
 
 
+def print_pairing(hub: InputHub, dashboard_port: int) -> None:
+    """Show the pairing QR in the terminal (also on the dashboard and at /pair.svg)."""
+    p = hub.pairing
+    hosts = ", ".join(p.hosts()) or "none found: is this PC on Wi-Fi?"
+    try:
+        qr = p.qr_text()
+        qr.encode(sys.stdout.encoding or "utf-8")
+    except (UnicodeEncodeError, LookupError):
+        qr = "(this console can't draw the QR code: open the dashboard to scan it)"
+    print(f"\nScan with the Stealth Racing app to pair ({hub.pairing_mode}):\n{qr}\n"
+          f"receiver {p.name} [{p.receiver_id}] on {hosts}, UDP {hub.phone_port}; "
+          f"also at http://127.0.0.1:{dashboard_port}/pair.svg\n", flush=True)
 def parse_sim_corners(specs: list[str]) -> dict[str, dict]:
     if not specs:
         return {k: dict(v) for k, v in DEMO_SIM_CORNERS.items()}
@@ -149,7 +183,14 @@ def build_track_app(args: argparse.Namespace) -> CoachApp:
         # History stores one corner per session; per-corner whole-lap rows are W11 (not built yet)
         print("warning: --history is single-corner only for now; whole-lap laps are not saved", file=sys.stderr)
     kind = args.telemetry[0]
-    if kind == "sim":
+    retries = not args.no_retries
+    model = rrefs = store = None
+    if retries:   # retry offers alongside the lap coach (the combined demo)
+        model = Track.load(args.track_model)
+        rrefs = References(model, Path(args.data_dir) / "personal_best.json", mode=args.reference_mode)
+    if kind == "sim" and retries and args.plant:
+        source = LapSim(model, errors=parse_plant(args.plant), realtime=True, start_m=model.length_m - 600)
+    elif kind == "sim":
         unknown = [c for c in parse_sim_corners(args.sim_corner) if c not in track.ids]
         if unknown:
             raise SystemExit(f"--sim-corner: unknown corner {unknown}; known: {track.ids}")
@@ -162,9 +203,15 @@ def build_track_app(args: argparse.Namespace) -> CoachApp:
         source = ReplaySource(args.telemetry[1], realtime=True)
     else:
         raise SystemExit(f"unknown telemetry source {kind!r}")
-    reset = args.reset or "manual"
-    if reset == "sim":
-        raise SystemExit("--reset sim is for single-corner drills; whole lap never resets the car")
+    if retries:   # rewinds: the simulator teleports, the game loads states from the Lua app
+        reset = args.reset or ("sim" if kind == "sim" else "udp" if kind == "ac" else "manual")
+        if reset == "sim" and kind != "sim":
+            raise SystemExit("--reset sim needs --telemetry sim")
+        store = CheckpointStore() if reset == "udp" else None
+    else:
+        reset = args.reset or "manual"
+        if reset == "sim":
+            raise SystemExit("--reset sim is for single-corner drills; the lap coach never resets the car")
     voice = args.voice or "auto"
     speaker = None if voice == "off" else make_speaker(voice)
     first = track.corners[0].id
@@ -174,7 +221,9 @@ def build_track_app(args: argparse.Namespace) -> CoachApp:
                     sound=args.sound, countdown=args.countdown, persist_checkpoint=kind != "sim",
                     mode="lap", speaker=speaker, muted=args.mute, agent=args.agent,
                     inputs=build_inputs(args), auto_retry=False, max_retries=args.max_retries,
-                    track=track, track_references=refs, track_map=load_map(args, track.name))
+                    track=track, track_references=refs, track_model=model, references=rrefs,
+                    lead_time_s=args.lead_time, whole_lap=retries, store=store,
+                    track_map=load_map(args, track.name))
 
 
 def build_inputs(args: argparse.Namespace) -> InputHub | None:
@@ -184,9 +233,13 @@ def build_inputs(args: argparse.Namespace) -> InputHub | None:
         pad = make_pad(args.pad)
     except RuntimeError as e:
         raise SystemExit(f"error: {e}") from e
+    pairing = None
+    if args.pairing != "off":
+        pairing = Pairing(Path(args.data_dir) / "pairing.json", port=args.phone_port)
     return InputHub(pad, phone_port=args.phone_port, arduino=args.arduino,
                     arduino_udp_port=args.arduino_udp_port, invert_steer=args.invert_steer,
-                    gas_gamma=args.gas_gamma, brake_gamma=args.brake_gamma)
+                    gas_gamma=args.gas_gamma, brake_gamma=args.brake_gamma,
+                    pairing=pairing, pairing_mode=args.pairing)
 
 
 def build_app(args: argparse.Namespace) -> CoachApp:
@@ -210,7 +263,15 @@ def build_app(args: argparse.Namespace) -> CoachApp:
                  else ref_doc.get("trace", []))
     kind = args.telemetry[0]
     lap = args.mode == "lap"
-    if kind == "sim":
+    track = refs = store = None
+    if args.whole_lap:
+        track = Track.load(args.track_model)
+        refs = References(track, data / "personal_best.json", mode=args.reference_mode)
+    if args.whole_lap and kind == "sim":
+        source = LapSim(track, errors=parse_plant(args.plant), realtime=True,
+                        start_m=track.length_m - 600)
+        reset = args.reset or "sim"
+    elif kind == "sim":
         source = SimSource(corner, brake_board_m=args.brake_board, laps=lap, lap_gap_s=args.lap_gap,
                            release_s=args.release)
         reset = args.reset or ("manual" if lap else "sim")
@@ -226,6 +287,8 @@ def build_app(args: argparse.Namespace) -> CoachApp:
         raise SystemExit(f"unknown telemetry source {kind!r}")
     if reset == "sim" and kind != "sim":
         raise SystemExit("--reset sim needs --telemetry sim")
+    if args.whole_lap and reset == "udp":
+        store = CheckpointStore()
     voice = args.voice or ("auto" if lap else "off")
     speaker = None if voice == "off" else make_speaker(voice)
     return CoachApp(corner, load_attempt(ref_path), source,
@@ -237,7 +300,17 @@ def build_app(args: argparse.Namespace) -> CoachApp:
                     muted=args.mute, agent=args.agent, inputs=build_inputs(args),
                     auto_retry=args.auto_retry, max_retries=args.max_retries,
                     history=args.history, driver_name=args.driver_name, driver_id=args.driver_id,
-                    track_map=load_map(args, corner.name))
+                    track_map=load_map(args, corner.name),
+                    track_model=track, references=refs, lead_time_s=args.lead_time,
+                    whole_lap=args.whole_lap, store=store)
+
+
+def parse_plant(spec: str) -> dict[str, list[str | None]]:
+    out: dict[str, list[str | None]] = {}
+    for part in filter(None, (p.strip() for p in spec.split(","))):
+        cid, _, kinds = part.partition("=")
+        out[cid] = [None if k in ("", "none") else k for k in kinds.split("+")]
+    return out
 
 
 async def amain(args: argparse.Namespace) -> None:
@@ -260,6 +333,8 @@ async def amain(args: argparse.Namespace) -> None:
         print(f"inputs: phone UDP :{i.phone_port}, arduino {i.arduino}"
               f"{f' + UDP :{i.arduino_udp_port}' if i.arduino_udp_port else ''}, pad {type(i.pad).__name__}",
               flush=True)
+        if i.pairing is not None and i.pairing_mode != "off":
+            print_pairing(i, args.port)
     try:
         await asyncio.Event().wait()
     finally:

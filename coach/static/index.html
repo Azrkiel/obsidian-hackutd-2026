@@ -292,6 +292,16 @@ summary:focus-visible{outline:3px solid var(--ink);outline-offset:4px}
   <div style="overflow:auto"><table id="laps"><thead></thead><tbody></tbody></table></div>
 </section>
 
+<section class="panel hidden" id="p-pair" aria-labelledby="pair-title">
+  <details class="drawer" id="d-pair" open><summary><span class="pp-label" id="pair-title">Pair a phone</span><span class="small" id="pair-sum">Scan with the Stealth Racing app on the same Wi-Fi</span></summary>
+    <div style="display:flex;flex-wrap:wrap;gap:var(--space-6);align-items:center;margin-top:var(--space-4)">
+      <img id="pairqr" alt="Phone pairing QR code" style="width:200px;height:200px;background:#fff;padding:8px;image-rendering:pixelated">
+      <div><p class="small" id="pairinfo" style="margin:0 0 var(--space-3)"></p>
+        <button class="pp-btn pp-btn--quiet pp-btn--small" id="b-new_pairing">New pairing code</button></div>
+    </div>
+  </details>
+</section>
+
 <section class="panel">
   <details class="drawer" id="d-log"><summary><span class="pp-label">Nemotron log</span><span class="small" id="log-sum">tool calls, reasoning, voice and activity</span></summary>
     <div class="log-grid">
@@ -446,6 +456,10 @@ function renderTop(){
   $("b-retry_reset").classList.toggle("hidden",!(S.state==="AWAIT_RESET"||r.status==="failed"));
   $("b-resume").classList.toggle("hidden",!h.resume_available);
   $("b-toggle_cue_next").textContent=h.cue_next_off?"Cue off next try: on":"Cue off next try";
+  const pi=h.inputs, pr=pi&&pi.pairing; $("p-pair").classList.toggle("hidden",!pr);
+  if(pr){ $("pairinfo").textContent=pr.name+" ["+pr.id+"] · "+(pr.hosts.join(", ")||"no Wi-Fi address")+" · UDP "+pr.port+" · "+pr.paired+" paired · "+pr.mode+(pr.rejected?" · "+pr.rejected+" packets ignored":"");
+    $("pair-sum").textContent=pr.paired?pr.paired+" phone paired":"Scan with the Stealth Racing app on the same Wi-Fi";
+    const key=pr.id+"|"+pr.hosts.join(","); if(S.pairKey!==key){ S.pairKey=key; $("pairqr").src="/pair.svg?"+encodeURIComponent(key); if(!pr.paired) $("d-pair").open=true; } }
   $("b-toggle_mute").textContent=v&&v.muted?"Unmute (M)":"Mute (M)"; $("b-toggle_mute").disabled=!v;
   $("p-voice").classList.toggle("hidden",!v);
   for(const k of ["accept","retry","save_checkpoint"]) $("b-"+k).classList.toggle("hidden",lap);
@@ -633,7 +647,7 @@ fetch("/history/config").then(r=>r.json()).then(c=>{if(c.url&&c.database){$("his
 loadHistory(); setInterval(loadHistory,5000);
 function accept(){ if(S.state==="OFFERED"&&S.offer) send({type:"accept",decision_id:S.offer.decision_id}); }
 $("b-accept").onclick=accept;
-for(const k of ["retry","resume","retry_reset","save_checkpoint","set_reference","new_session","toggle_cue_next","toggle_mute","mark_board"])
+for(const k of ["retry","resume","retry_reset","save_checkpoint","set_reference","new_session","toggle_cue_next","toggle_mute","mark_board","new_pairing"])
   $("b-"+k).onclick=()=>send({type:k});
 document.addEventListener("keydown",ev=>{
   if(ev.target.closest&&ev.target.closest("summary,input,textarea")) return;

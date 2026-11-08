@@ -19,9 +19,11 @@ from typing import Callable, Protocol
 
 from .models import in_zone
 
-ADVICE, REMINDER, VERDICT = "advice", "reminder", "verdict"
-MAX_AGE_S = {ADVICE: 10.0, VERDICT: 10.0, REMINDER: 3.0}  # a late reminder is wrong, not just late
-PRIORITY = {REMINDER: 0, VERDICT: 1, ADVICE: 1}
+ADVICE, REMINDER, VERDICT, OFFER = "advice", "reminder", "verdict", "offer"
+# OFFER: a retry offer's cue (whole lap). Its countdown starts when it's spoken, so it goes before
+# the lap coach's advice and may wait longer for a talk zone (the offer itself lives ~60 s).
+MAX_AGE_S = {ADVICE: 10.0, VERDICT: 10.0, REMINDER: 3.0, OFFER: 20.0}  # a late reminder is wrong
+PRIORITY = {REMINDER: 0, OFFER: 0, VERDICT: 1, ADVICE: 1}
 
 
 class Speaker(Protocol):

@@ -161,6 +161,7 @@ uv run --with vgamepad --with pyserial python -m coach --telemetry ac --reset ud
 - Phone buttons map to pad buttons in `BINDINGS` (`coach/inputs.py`): paddles are RB/LB.
 - `--pad none` reads and mixes inputs without a virtual pad (default off Windows).
 - `--invert-steer` flips steering.
+- **Pairing:** with `--inputs` the coach prints a QR code (also on the dashboard, "Pair a phone"). The app scans it and connects with only "same Wi-Fi" as a requirement; after that every packet is signed, so only paired phones can drive. `--pairing optional|required|off` (default `optional`, which also accepts the current unpaired app). Protocol, test vectors and the app plan: `docs/PAIRING.md`.
 - The receiver is off unless `--inputs` is given. If UDP 5005 is already taken (by `bridge/bridge.py` or `listen.py`), the coach stops with an error naming them.
 - Phone coach buttons are events too. `evt,<id>,coach_next,tap` accepts the offered drill, or rewinds for a retry when nothing is offered. `evt,<id>,coach_resume,tap` ends the drill and loads the resume point. Both are ignored by `bridge/bridge.py`.
 
@@ -187,6 +188,39 @@ CSP reset app (draft): copy `csp/nomadsim_reset/` to `<assettocorsa>/apps/lua/no
 Not tested without AC: the shared-memory struct offsets against a live game (layout copied from the CSP `sim_info.py`, parsing is unit-tested on fake buffers), the CSP Lua API calls, `SendInput` hotkeys, `winsound` playback, and the corner positions (placeholders until real laps are logged).
 
 Single-corner mode uses `fixtures/corner_monza_t1_measured.json` by default: Monza T1 at its position measured from F1 data (start 520, apexes 875-955, exit 1060 m), with a simulator reference braking at the 100 m board (`scripts/make_t1_fixture.py`). `fixtures/corner_monza_t1.json` keeps the old placeholder gates for the unit tests. Check the boards in the game (press B) and press Set reference after a clean real lap.
+
+### Whole lap: every error gets a retry (`--whole-lap`)
+
+Plan and decisions: `docs/ROLLING_CHECKPOINTS.md`. Every corner of `--track` is scored; each error
+gets a cue and a 5 s retry offer (dashboard Retry, or phone Next). Accepting rewinds to a state held
+before that corner, runs the retry loop, then puts the car back where Retry was pressed.
+
+**The demo runs both coaches together**: the lap coach's per-lap voice cue (above) plus a retry
+offer for every error. Retries are judged by the error detector (fixed = the corner is clean),
+the offer's cue is spoken first on the next straight, and its countdown starts when it's spoken.
+The lap coach skips laps while a retry rewinds the car.
+
+```bash
+# no game: the lap coach's simulator (its demo knobs brake early at Roggia and Ascari)
+uv run python -m coach --track fixtures/track_monza.json
+# no game, planted mistakes per corner and attempt (+ separated): the retry simulator
+uv run python -m coach --track fixtures/track_monza.json --plant t1=late_brake,lesmo1=spin+none
+# game PC: rewinds through the CSP Lua app (install csp/nomadsim_reset v0.2 first)
+uv run --with vgamepad --with pyserial python -m coach --track fixtures/track_monza.json --telemetry ac --inputs
+# the lap coach alone, or the retry coach alone (think-mode drill loop per retry)
+uv run python -m coach --track fixtures/track_monza.json --no-retries
+uv run python -m coach --whole-lap --plant t1=late_brake
+```
+
+- Settings (saved in `data/settings.json`, applied live): `GET/POST /settings`, with fields
+  `reference` (`pb`|`ai`), `sensitivity_s`, `countdown_s`, `lead_time_s` and `voice`.
+  `POST /personal_best/reset` clears the personal bests.
+- Corners come from the lap coach's `fixtures/track_monza.json` (F1-measured, 787B boards).
+  `fixtures/tracks/monza.json` (the retry model: AI speed profile, Curva Grande for major errors)
+  is built from it with `python scripts/track_model.py`; rebuild it after changing the config.
+- Before the first in-game run (coach stopped):
+  `uv run python scripts/checkpoint_probe.py --seconds 40 --hold-at 10 --restore-at 35`.
+  It checks hold and restore in game and prints the frame cost of each save.
 
 ## Live voice coach and agent mode
 

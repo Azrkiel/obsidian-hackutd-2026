@@ -34,10 +34,12 @@ from .scorer import CornerScorer, TrackScorer
 from .telemetry import ACSharedMemory, Recorder, ReplaySource, Sample, SimSource, TrackSimSource
 
 COMMANDS = {"accept", "retry", "save_checkpoint", "set_reference", "new_session",
-            "toggle_cue_next", "retry_reset", "toggle_mute", "mark_board", "resume"}
+            "toggle_cue_next", "retry_reset", "toggle_mute", "mark_board", "resume",
+            "new_pairing", "select_corner", "accept_offer", "settings", "reset_personal_best"}
 LAP_TOTAL_DEADLINE_S = 8.0  # lap mode: slower than this and the rules sentence is spoken instead
 ACTIVITY_TYPES = {"run", "decision", "reset_request", "reset_confirmed", "reset_failed",
-                  "checkpoint", "reference", "session", "input", "resume_point", "resumed", "track_lap"}
+                  "checkpoint", "reference", "session", "input", "resume_point", "resumed", "corner",
+                  "track_lap"}
 
 
 def _make_player(sound: bool | None):
@@ -79,7 +81,9 @@ class CoachApp:
                  inputs: InputHub | None = None, auto_retry: bool = False, max_retries: int = 5,
                  history: bool = False, driver_name: str | None = None, driver_id: str | None = None,
                  track: Track | None = None, track_references: dict | None = None,
-                 track_map: dict | None = None):
+                 track_map: dict | None = None,
+                 track_model: Any = None, references: Any = None, lead_time_s: float = 4.0,
+                 whole_lap: bool = False, store: Any = None):
         if mode not in ("drill", "lap"):
             raise ValueError(f"mode must be drill or lap, not {mode!r}")
         if track is not None:
@@ -97,6 +101,11 @@ class CoachApp:
         self._lap_events: dict[str, dict] = {}
         self._lap_inputs: dict[str, dict] = {}
         self.corner, self.source, self.providers = corner, source, providers
+        # whole-lap mode (coach.track.Track): `corner` is the base config (tolerances, drill limits);
+        # select_corner() points every per-corner piece at one corner of the track
+        self.track_model, self.references, self.lead_time_s = track_model, references, lead_time_s
+        self.base_corner, self.corner_id = corner, None
+        self._agent = agent
         self.data_dir = Path(data_dir)
         self.recorder, self.reconnect_s = recorder, reconnect_s
         self.reference, self.reference_trace = reference, reference_trace or []
@@ -141,18 +150,19 @@ class CoachApp:
                                       reference_of=lambda cid: self.coach.ctx[cid].reference)
         else:
             self.scorer = CornerScorer(corner, self._on_run)
-        self.sim = source if isinstance(source, SimSource) else None
+        self.sim = source if isinstance(source, SimSource) or hasattr(source, "teleport_to") else None
         self.track_sim = source if isinstance(source, TrackSimSource) else None
         self.reset = ResetManager(
             reset_mode, self.broadcast, self._on_reset_confirmed, scorer=self.scorer, sim=self.sim,
             checkpoint_path=self.data_dir / "checkpoint.json" if persist_checkpoint else None,
             countdown=countdown, tick_s=tick_s, on_resumed=self._on_resumed, **(reset_kwargs or {}))
-        if self.sim is not None and reset_mode == "sim" and not self.reset.checkpoint:
+        if isinstance(self.sim, SimSource) and reset_mode == "sim" and not self.reset.checkpoint:
             self.reset.set_checkpoint(self.sim.start_pos_m, self.sim.v0_kmh)
             self.activity.clear()
         dk = dict(decide_kwargs or {})
         if mode == "lap":
             dk.setdefault("total_deadline_s", LAP_TOTAL_DEADLINE_S)
+        self.decide_kwargs_default = dict(dk)
         if track is not None:
             self.coach: Coach = TrackCoach(track, track_references, providers, self._on_coach_event,
                                            live_cues=self.live_cues, trace=self.trace, decide_kwargs=dk,
@@ -162,6 +172,22 @@ class CoachApp:
                                trace=self.trace, live_cue=self.live_cue, decide_kwargs=dk,
                                lap_mode=mode == "lap",
                                agent=AgentSession(corner, reference, self.reference_trace) if agent else None)
+        # whole-lap mode: every error on the lap gets a cue and a retry offer (coach.lap_coach)
+        self.store, self.lap_coach, self.settings = store, None, None
+        if whole_lap:
+            if track_model is None or references is None:
+                raise ValueError("retry offers need a track model and references")
+            from .lap_coach import LapCoach
+            if track is None:
+                # drill mode: an accepted offer runs the coach's retry loop and resumes at the end
+                self.auto_retry = True
+            self.reset.store = store
+            self.lap_coach = LapCoach(self, store=store, max_retries=max_retries)
+            from .settings import Settings, SettingsStore
+            # a saved settings file (the settings page) wins over the command-line defaults
+            self.settings = SettingsStore(self.data_dir / "settings.json",
+                                          Settings(reference=references.mode, lead_time_s=lead_time_s))
+            self._apply_settings(self.settings.value.to_dict())
         self.history = None
         self.history_sync = None
         self._history_unsub = None
@@ -220,6 +246,8 @@ class CoachApp:
         if event["type"] in ACTIVITY_TYPES:
             event["text"] = self._activity_text(event)
             self.activity.append({"ts": event["ts"], "type": event["type"], "text": event["text"]})
+        if event["type"] == "voice" and getattr(self, "lap_coach", None) is not None:
+            self.lap_coach.on_voice(event)
         for cb in list(self._subs):
             try:
                 cb(event)
@@ -246,6 +274,8 @@ class CoachApp:
             return f"checkpoint saved at {e['pos_m']:.0f} m, {e['speed_kmh']:.0f} km/h"
         if t == "reference":
             return f"reference set from {e['attempt']['attempt_id']}"
+        if t == "corner":
+            return f"coaching {e['name']}"
         if t == "input":
             return e["message"]
         if t == "resume_point":
@@ -272,7 +302,7 @@ class CoachApp:
                     self.track_sim.set_target_board(e["target"]["marker_m"], e["corner_id"])
                 elif e.get("drill_id") == "brake_release":
                     self.track_sim.set_target_release(e["target"]["release_s"], e["corner_id"])
-            if e["action"] == "offer_drill" and self.sim is not None:
+            if e["action"] == "offer_drill" and self.sim is not None and self.track is None:
                 if e.get("drill_id") == "brake_point":
                     self.sim.set_target_board(e["target"]["marker_m"])
                 elif e.get("drill_id") == "brake_release":
@@ -280,6 +310,8 @@ class CoachApp:
         self.broadcast(e)
         if e["type"] == "decision":
             self._speak_decision(e)
+        if self.lap_coach is not None:
+            self.lap_coach.on_coach_event(e)
         if not self.auto_retry or e["type"] != "status" or "message" in e:
             return
         c = self.coach
@@ -321,6 +353,8 @@ class CoachApp:
         c = self.coach
         if name == "resume":
             self._spawn(self.handle_command({"type": "resume"}))
+        elif self.lap_coach is not None and self.lap_coach.open_offer():
+            self._spawn(self.handle_command({"type": "accept_offer"}))
         elif self.mode == "lap":
             self._note("next does nothing in lap mode")
         elif c.state == OFFERED and c.offer:
@@ -331,6 +365,8 @@ class CoachApp:
     def _on_resumed(self) -> None:
         self._reset_session()
         self.broadcast({"type": "resumed"})
+        if self.lap_coach is not None:
+            self.lap_coach.retry_finished()
 
     def _on_reset_confirmed(self) -> None:
         if self.coach.state == AWAIT_RESET:
@@ -364,6 +400,8 @@ class CoachApp:
         elif role == "retry":
             self.retry_run = ev
         self.broadcast(ev)
+        if self.lap_coach is not None and state != RETRY:
+            return   # whole-lap: first attempts reach the coach as error events (LapCoach), not here
         context = {"inputs": inputs} if inputs else {}
         if self.history:
             context["driver_history"] = self.history.driver_history()
@@ -391,6 +429,9 @@ class CoachApp:
         self.broadcast(ev)
 
     def _on_lap_corners(self, lap: int, runs: dict) -> None:
+        if self.lap_coach is not None and self.lap_coach.retrying is not None:
+            self._lap_events, self._lap_inputs = {}, {}
+            return   # a retry is rewinding the car: this lap is not one to coach
         events, self._lap_events = self._lap_events, {}
         inputs, self._lap_inputs = self._lap_inputs, {}
         self.last_lap_runs = {"lap": lap, "runs": runs}
@@ -448,6 +489,8 @@ class CoachApp:
             elif self._run_inputs.n:
                 self._run_inputs = RunInputs()  # the last run was aborted
         self.scorer.add(s)
+        if self.lap_coach is not None:
+            self.lap_coach.on_sample(s)
         if self.announcer:
             self.announcer.pump()
 
@@ -534,6 +577,9 @@ class CoachApp:
                       and e["status"] in ("spoken", "dropped", "error")][-20:],
             "plan": c.plan_dict() if hasattr(c, "plan_dict") else None,
             "tools": [e for e in self.events if e["type"] == "tool_call"][-40:],
+            "offers": self.lap_coach.offers.snapshot() if self.lap_coach else None,
+            "references": self.references.summary() if self.references else None,
+            "settings": self.settings.value.to_dict() if self.settings else None,
             "track": self.track_info(), "track_laps": list(self.track_laps),
             "focus": self._focus_event() if self.track is not None else None,
             "map": self.track_map,
@@ -573,7 +619,12 @@ class CoachApp:
         if not isinstance(msg, dict) or msg.get("type") not in COMMANDS:
             return self._note("unknown command")
         kind, c = msg["type"], self.coach
-        if kind == "accept":
+        if kind == "accept_offer" or (kind == "accept" and self.lap_coach is not None
+                                      and (self.lap_coach.open_offer() or msg.get("offer_id"))):
+            if self.lap_coach is None:
+                return self._note("accept_offer needs whole-lap mode")
+            self._spawn(self.lap_coach.accept(msg.get("offer_id")))
+        elif kind == "accept":
             did = msg.get("decision_id") or (c.offer.decision_id if c.offer else None)
             if c.state != OFFERED or c.offer is None or c.offer.decision_id != did:
                 return self._note("accept does not match the current offer")
@@ -592,12 +643,26 @@ class CoachApp:
             self._spawn(self.reset.save_checkpoint())
         elif kind == "set_reference":
             self.set_reference()
+        elif kind == "select_corner":
+            self.select_corner(str(msg.get("corner_id", "")))
+        elif kind == "settings":
+            try:
+                await self.update_settings(msg.get("changes") or {})
+            except ValueError as e:
+                self._note(f"settings: {e}")
+        elif kind == "reset_personal_best":
+            self.reset_personal_best()
         elif kind == "new_session":
             self._reset_session()
             self.reset.clear_resume_point()
             self.baseline_run = self.retry_run = self.last_decision = None
         elif kind == "toggle_cue_next":
             self.cue_next_off = c.toggle_cue_next_try()
+            self.broadcast(self.health())
+        elif kind == "new_pairing":
+            if self.inputs is None or self.inputs.pairing is None:
+                return self._note("pairing is off (start with --inputs)")
+            self.inputs.new_pairing_code()
             self.broadcast(self.health())
         elif kind == "resume":
             if self.reset.resume_point is None:
@@ -634,6 +699,75 @@ class CoachApp:
         (self.data_dir / "reference.json").write_text(json.dumps(ad), encoding="utf-8")
         (self.data_dir / "reference_trace.json").write_text(json.dumps(run["trace"]), encoding="utf-8")
         self.broadcast({"type": "reference", "attempt": run["attempt"], "trace": run["trace"]})
+        return True
+
+    def select_corner(self, corner_id: str, reference: Attempt | None = None) -> bool:
+        """Coach one corner of the track: scorer, live cue, quiet zone, agent and the coach itself.
+        Between drills only. In sim reset mode the checkpoint moves to the corner's anchor."""
+        if self.track_model is None:
+            self._note("select_corner needs a track model")
+            return False
+        c = self.track_model.get(corner_id)
+        if c is None:
+            self._note(f"unknown corner {corner_id!r}")
+            return False
+        cfg = self.track_model.corner_config(c, self.base_corner)
+        if reference is None:
+            reference = self.references.get(corner_id).as_attempt() if self.references else self.reference
+        if not self.coach.set_corner(cfg, reference):
+            return False
+        self.corner, self.corner_id = cfg, corner_id
+        self.reference, self.reference_trace = reference, []
+        if self.scorer.in_run:
+            self.scorer.abort()
+        self.scorer = CornerScorer(cfg, self._on_run)
+        self.reset.scorer = self.scorer
+        self.live_cue.corner = cfg
+        self.live_cue.disarm()
+        if self.announcer:
+            self.announcer.quiet_zone = (cfg.start_gate_m, cfg.exit_gate_m)
+        if self._agent:
+            self.coach.agent = AgentSession(cfg, reference, [])
+        self.baseline_run = self.retry_run = self.last_run = self.last_valid_run = None
+        self._run_inputs = RunInputs()
+        if self.reset.mode == "sim":
+            anchor = self.track_model.anchor_m(c, self.lead_time_s)
+            self.reset.set_checkpoint(anchor, self.track_model.ai_kmh(anchor))
+        self.broadcast({"type": "corner", "corner_id": corner_id, "name": c.name, "kind": c.kind})
+        return True
+
+    # -- whole-lap settings (coach.settings) --
+    def _apply_settings(self, v: dict) -> None:
+        lc = self.lap_coach
+        if "reference" in v:
+            self.references.mode = v["reference"]
+        if "sensitivity_s" in v:
+            lc.detector.th.time_lost_s = v["sensitivity_s"]
+        if "countdown_s" in v:
+            lc.offers.countdown_s = v["countdown_s"]          # from the next offer on
+        if "lead_time_s" in v:
+            self.lead_time_s = lc.picker.lead_s = v["lead_time_s"]
+        if "voice" in v and self.announcer is not None:
+            self.announcer.set_muted(not v["voice"])
+
+    async def update_settings(self, changes: dict) -> dict:
+        """Validate, save and apply a partial update (raises SettingsError). Returns what changed."""
+        if self.settings is None:
+            raise ValueError("settings need whole-lap mode")
+        changed = self.settings.update(changes)
+        if changed:
+            self._apply_settings(changed)
+            if "lead_time_s" in changed and self.store is not None and self.store._transport is not None:
+                await self.store.configure(anchors=self.track_model.anchor_splines(self.lead_time_s))
+            self.broadcast({"type": "settings", "changed": sorted(changed), **self.settings.value.to_dict()})
+        return changed
+
+    def reset_personal_best(self) -> bool:
+        if self.references is None:
+            self._note("no personal bests outside whole-lap mode")
+            return False
+        self.references.reset()
+        self.broadcast({"type": "references", **self.references.summary()})
         return True
 
     def _set_track_reference(self) -> bool:
@@ -691,10 +825,19 @@ class CoachApp:
                       asyncio.create_task(self._health_loop()),
                       asyncio.create_task(self._live_loop())]
         self._spawn(ladder.warm_up(self.providers))
+        if self.store is not None:
+            await self.store.start()
+            await self.store.configure(anchors=self.track_model.anchor_splines(self.lead_time_s))
+        if self.lap_coach is not None:
+            self.lap_coach.start()
 
     async def stop(self) -> None:
         if self.sim is not None:
             self.sim.stop()
+        if self.lap_coach is not None:
+            await self.lap_coach.stop()
+        if self.store is not None:
+            await self.store.stop()
         for t in self._main + list(self._tasks):
             t.cancel()
         await asyncio.gather(*self._main, *self._tasks, return_exceptions=True)

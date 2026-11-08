@@ -5,6 +5,7 @@ Inputs
                        "evt,<id>,<command>,<tap|down|up>"     buttons, each id sent 3x
                          (coach_next / coach_resume are coach commands, not pad buttons)
                        reply "ack,<seq>" when seq % 30 == 0 so the app shows "Receiver confirmed"
+                       paired phones (QR, coach/pairing.py) sign every packet and get signed acks
   arduino  serial      "gas,brake" ints 0..1000 per line (hardware/pedals/pedals.ino); "#..." ignored
            UDP (opt.)  the same "gas,brake" text, one reading per datagram
 Mixing
@@ -29,6 +30,8 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from typing import Any, Callable
+
+from .pairing import Pairing, Session, looks_signed, sign, verify
 
 STALE_S = 0.2
 TICK_S = 0.005
@@ -247,13 +250,22 @@ class InputHub:
     def __init__(self, pad: Any = None, phone_port: int = 5005, arduino: str = "auto",
                  arduino_udp_port: int | None = None, invert_steer: bool = False,
                  emit: Callable[[dict], None] | None = None, clock: Callable[[], float] = time.monotonic,
-                 advertise: bool = True, gas_gamma: float = 1.0, brake_gamma: float = 1.0):
+                 advertise: bool = True, gas_gamma: float = 1.0, brake_gamma: float = 1.0,
+                 pairing: Pairing | None = None, pairing_mode: str = "optional"):
         self.pad = pad or NullPad()
         # pedal response curves sent to the game: out = in ** gamma (0 and 1 unchanged; >1 = gentler start)
         self.gas_gamma, self.brake_gamma = gas_gamma, brake_gamma
         self.phone_port, self.arduino, self.arduino_udp_port = phone_port, arduino, arduino_udp_port
         self.invert, self.emit, self.clock, self.advertise = invert_steer, emit or (lambda e: None), clock, advertise
         self.on_command: Callable[[str], None] | None = None  # set by the coach
+        # QR pairing: "off" = plain packets only; "optional" = plain packets accepted only until the
+        # first phone pairs, then signed only (another device on the Wi-Fi can't join in unsigned);
+        # "required" = signed only
+        self.pairing = pairing
+        self.pairing_mode = pairing_mode if pairing is not None else "off"
+        self.sessions: dict[Any, Session] = {}
+        self._phones: dict[Any, float] = {}     # address -> last control packet (for pushes)
+        self.rejected = 0
         self._lock = threading.Lock()  # the serial reader runs in a thread
         self.steer = self.p_gas = self.p_brake = 0.0
         self.a_gas = self.a_brake = 0.0
@@ -275,6 +287,19 @@ class InputHub:
 
     # -- feeds (sync, safe to call from tests) --
     def feed_phone(self, data: bytes, addr: Any) -> bytes | None:
+        session = None
+        if self.pairing_mode != "off":
+            if data.startswith(b"h1,"):
+                return self._hello(data, addr)
+            session = self.sessions.get(addr)
+            if session is not None:
+                data = verify(session.key, data)
+                if data is None:                      # unsigned, or signed with the wrong key
+                    return self._reject(addr, "bad signature")
+            elif looks_signed(data):
+                return b"rehello"                     # we restarted or rotated: ask for a new hello
+            elif self.pairing_mode == "required" or self.sessions:
+                return self._reject(addr, "unpaired")
         p = parse_phone(data)
         if p is None:
             return None
@@ -284,14 +309,23 @@ class InputHub:
             self.emit({"type": "input", "message": f"phone connected from {host}"})
         if p[0] == "v1":
             _, seq, steer, thr, brk = p
-            last = self._seq.get(addr, -1)
-            if seq <= last and last - seq < 1000:   # late/duplicate packet; big jump back = app restart
-                return None
-            self._seq[addr] = seq
+            if session is not None:
+                if seq <= session.last_seq:           # signed sessions never go back: no replays
+                    return None
+                session.last_seq = seq
+            else:
+                last = self._seq.get(addr, -1)
+                if seq <= last and last - seq < 1000:  # late/duplicate packet; big jump back = app restart
+                    return None
+                self._seq[addr] = seq
             with self._lock:
                 self.steer = -steer if self.invert else steer
                 self.p_gas, self.p_brake, self.t_phone = thr, brk, self.clock()
-            return b"ack,%d" % seq if seq % 30 == 0 else None
+            self._phones[addr] = self.clock()
+            if seq % 30:
+                return None
+            ack = b"ack,%d" % seq
+            return sign(session.key, ack) if session is not None else ack
         _, eid, command, phase = p
         recent = self._events.setdefault(addr, deque(maxlen=64))
         if eid in recent:
@@ -299,6 +333,41 @@ class InputHub:
         recent.append(eid)
         self.handle_event(command, phase)
         return None
+
+    def _hello(self, data: bytes, addr: Any) -> bytes | None:
+        answer = self.pairing.welcome(data)
+        if answer is None:
+            return self._reject(addr, "bad pairing hello (old QR code?)")
+        welcome, session = answer
+        new = addr not in self.sessions
+        self.sessions[addr] = session
+        self._seq.pop(addr, None)
+        self._events.pop(addr, None)
+        if new:
+            host = str(addr[0]).removeprefix("::ffff:")
+            self.emit({"type": "input", "message": f"phone paired from {host}"})
+        return welcome
+
+    def _reject(self, addr: Any, why: str) -> None:
+        self.rejected += 1
+        if self.rejected == 1 or self.rejected % 500 == 0:  # don't flood the activity log
+            host = str(addr[0]).removeprefix("::ffff:") if addr else "?"
+            self.emit({"type": "input", "message": f"ignored packets from {host}: {why} ({self.rejected})"})
+        return None
+
+    def new_pairing_code(self) -> None:
+        """Rotate the key: every paired phone must scan the new code."""
+        if self.pairing is not None:
+            self.pairing.rotate()
+            self.sessions.clear()
+            self.emit({"type": "input", "message": "new pairing code: phones must scan again"})
+
+    def pairing_status(self) -> dict | None:
+        if self.pairing is None or self.pairing_mode == "off":
+            return None
+        return {"mode": self.pairing_mode, "id": self.pairing.receiver_id, "name": self.pairing.name,
+                "hosts": self.pairing.hosts(), "port": self.phone_port, "paired": len(self.sessions),
+                "rejected": self.rejected}
 
     def feed_arduino(self, line: str) -> bool:
         r = parse_arduino(line)
@@ -382,7 +451,7 @@ class InputHub:
                 "arduino": "live" if o["arduino_live"] else ("off" if self.arduino == "off"
                                                                and not self.arduino_udp_port else "silent"),
                 "serial_port": self.serial_port, "serial_error": self.serial_error,
-                "pad": type(self.pad).__name__}
+                "pad": type(self.pad).__name__, "pairing": self.pairing_status()}
 
     def neutralize(self) -> None:
         self.pad.set_axes(0.0, 0.0, 0.0)
@@ -392,6 +461,35 @@ class InputHub:
         self._release_due.clear()
         self._releases.clear()
         self.pad.update()
+
+    # -- receiver -> phone pushes (whole-lap retry offers: ofr / ofx) --
+    def phone_packets(self, text: str, live_s: float = 2.0) -> list[tuple[bytes, Any]]:
+        """The datagram for each phone driving right now: signed with its session when paired
+        (plain only where plain packets are still accepted)."""
+        now, out = self.clock(), []
+        data = text.encode()
+        for addr, seen in list(self._phones.items()):
+            if now - seen > live_s:
+                del self._phones[addr]
+                continue
+            session = self.sessions.get(addr)
+            if session is not None:
+                out.append((sign(session.key, data), addr))
+            elif self.pairing_mode == "off" or (self.pairing_mode == "optional" and not self.sessions):
+                out.append((data, addr))
+        return out
+
+    def send_phone(self, text: str) -> int:
+        if not self._transports:
+            return 0
+        n = 0
+        for data, addr in self.phone_packets(text):
+            try:
+                self._transports[0].sendto(data, addr)
+                n += 1
+            except OSError:
+                pass
+        return n
 
     # -- lifecycle --
     async def start(self) -> None:
