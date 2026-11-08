@@ -367,6 +367,14 @@ class NemotronProvider:
                            latency_ms=(time.monotonic() - t0) * 1000, first_reasoning_ms=first,
                            model=self.model, extra={"tool_calls": list(agent.log)})
 
+    async def say(self, system: str, user: str, max_tokens: int = 48) -> str:
+        """One short plain-text reply in fast mode (no tools, no thinking): Rev's reaction lines.
+        Raises ProviderError like `call`."""
+        content, _, _, _ = await self._once(
+            [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            "fast", "json", None, max_tokens, None)
+        return content or ""
+
     async def warm(self) -> float:
         """One max_tokens=1 call to open the connection. Returns latency in ms."""
         t0 = time.monotonic()

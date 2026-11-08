@@ -10,6 +10,8 @@ from pathlib import Path
 from aiohttp import WSMsgType, web
 
 from .app import CoachApp
+from .cloud_history import HistoryService
+from .history_routes import add_history_routes
 
 STATIC = Path(__file__).parent / "static"
 
@@ -59,6 +61,15 @@ def make_web_app(app: CoachApp) -> web.Application:
             raise web.HTTPNotFound(text="pairing is off: start the coach with --inputs")
         return web.Response(text=hub.pairing.qr_svg(), content_type="image/svg+xml",
                             headers={"Cache-Control": "no-store"})
+    async def pair_json(_: web.Request) -> web.StreamResponse:
+        """The pairing link as text (the Pit Pal overlay draws its own pixel QR from it). It holds
+        the key, so it is as private as /pair.svg: keep the dashboard on 127.0.0.1."""
+        hub = app.inputs
+        if hub is None or hub.pairing is None or hub.pairing_mode == "off":
+            raise web.HTTPNotFound(text="pairing is off: start the coach with --inputs")
+        return web.json_response({"uri": hub.pairing.uri(), "mode": hub.pairing_mode,
+                                  "paired": len(hub.sessions)}, headers={"Cache-Control": "no-store"})
+
     async def track(_: web.Request) -> web.StreamResponse:
         info = app.track_info()
         if info is None:
@@ -127,9 +138,21 @@ def make_web_app(app: CoachApp) -> web.Application:
     web_app.router.add_get("/history-viewer/", viewer)
     web_app.router.add_static("/history-viewer/assets/", STATIC / "history" / "assets")
     web_app.router.add_get("/pair.svg", pair_svg)
+    web_app.router.add_get("/pair.json", pair_json)
     web_app.router.add_get("/track", track)
     web_app.router.add_static("/pitpal/", STATIC / "pitpal")  # Pit Pal fonts and art
     web_app.router.add_get("/ws", ws_handler)
+    # Shared cloud history (SpacetimeDB, per-device enrollment) lives under /cloud-history*;
+    # /history* above is the local SQLite race history (--history).
+    cloud = getattr(app, "cloud_history", None) or HistoryService(data_dir=app.data_dir)
+    app.cloud_history = cloud
+    add_history_routes(web_app, cloud)
+    if getattr(app, "cloud_runtime", None) is None:
+        async def history_lifecycle(_):
+            await cloud.start()
+            yield
+            await cloud.close()
+        web_app.cleanup_ctx.append(history_lifecycle)
     return web_app
 
 

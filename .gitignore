@@ -6,6 +6,10 @@ traces/
 traces/*.jsonl
 *.jsonl
 .env
+.env.*
+!.env.example
+node_modules/
+.tools/
 CLAUDE.md
 .claude/
 .brev-hold

@@ -25,6 +25,36 @@ The coach has to run on the PC that runs Assetto Corsa (it reads AC's shared mem
 
 `--lan` makes the dashboard reachable by anyone on that network, controls included: use it on a network you trust.
 
+## Optional shared session history (multi-PC)
+
+This is separate from `--history` above: it syncs to a SpacetimeDB module in `spacetime-cloud/` with per-PC enrollment, and its pages live at `/cloud-history-view`.
+
+The coach can upload completed sessions, laps, scored attempts and coaching decisions to a
+SpacetimeDB database in your account. The game PC keeps its local dashboard, Rev overlay and Brev
+connection; cloud failures leave coaching running and pending uploads on disk.
+
+Install the optional credential-store dependency, then follow [the SpacetimeDB setup runbook](docs/SPACETIMEDB.md)
+to publish the database and register each PC:
+
+```powershell
+uv sync --system-certs --extra cloud
+uv run --system-certs --extra cloud python scripts/spacetime_device.py setup --label game-pc
+```
+
+Setup stores a runtime token in Windows Credential Manager and prints public enrollment values.
+An administrator must register that device before uploads or reads are allowed. An unconfigured
+installation continues to run locally.
+
+After enrolling a second PC as a viewer, run its history-only dashboard:
+
+```powershell
+uv run --system-certs --extra cloud python -m coach.cloud_viewer
+```
+
+Open `http://127.0.0.1:8020`. The viewer needs no game, controller bridge or Brev GPU connection.
+The module source, tests, publication steps, per-device permissions and recovery procedures are
+documented in [docs/SPACETIMEDB.md](docs/SPACETIMEDB.md).
+
 ## Thinking engine
 
 Nemotron reads a scored attempt's metrics and picks one coaching action; the car is reset and the retry is scored.
@@ -61,7 +91,7 @@ uv run python -m engine.demo fixtures/attempts/late_brake.json
 uv run python -m engine.demo fixtures/attempts/late_brake.json --retry fixtures/attempts/retry_close.json
 ```
 
-Live spike (needs `NVIDIA_API_KEY`; run once keys exist):
+Live spike (configure a Brev endpoint or a hosted provider key first):
 
 ```
 uv run python scripts/spike_nemotron.py --n 5
@@ -83,11 +113,54 @@ Env vars:
 
 ### Self-hosting on Brev
 
-One H100 80GB, NVFP4 checkpoint, vLLM >= 0.27.1 (`vllm/vllm-openai:v0.28.0`):
+Current recipe: **Lambda H100 PCIe, 80 GB VRAM, one GPU**, with the NVFP4 checkpoint
+and `vllm/vllm-openai:v0.28.0`. The H100 PCIe uses the same inference flags as H100 SXM.
+The selected Lambda offer has **no stop/start**. Save anything needed before deleting it;
+deletion removes the instance and its cached model. Do not run the idle-stop watchdog on this offer.
+
+In the Brev console, name the instance `nomadsim-h100`, select the Lambda H100 PCIe 80 GB offer,
+and paste the contents of `scripts/brev_vllm_startup.sh` into the startup script field. The script
+requires Docker and NVIDIA container support in the selected environment. It binds the API to
+the server's localhost and does not require an NVIDIA Build or inference API key.
+
+CLI alternative, from the repo root in WSL (the second command creates a paid instance):
+
+```bash
+brev create nomadsim-h100 --provider lambda --gpu-name H100 --min-vram 80 --min-disk 200 --startup-script @scripts/brev_vllm_startup.sh --dry-run
+brev create nomadsim-h100 --provider lambda --gpu-name H100 --min-vram 80 --min-disk 200 --startup-script @scripts/brev_vllm_startup.sh
+```
+
+Once the instance is ready, repeat the log check until `Application startup complete`, then open
+the tunnel and keep WSL open:
+
+```bash
+brev refresh
+brev exec nomadsim-h100 "docker logs --tail 30 vllm"
+brev port-forward nomadsim-h100 --port 8000:8000
+```
+
+In Windows PowerShell, from the repo root:
+
+```powershell
+curl.exe http://localhost:8000/v1/models
+$env:NEMOTRON_BASE_URL = "http://localhost:8000/v1"
+$env:NEMOTRON_BREV_MODEL = "nemotron"
+$env:NEMOTRON_MAX_TOKENS_THINK = "3000"
+$env:ENGINE_THINK_DEADLINE_S = "15"
+$env:ENGINE_TOTAL_DEADLINE_S = "22"
+uv run python scripts/spike_nemotron.py --provider brev --n 1
+uv run python -m coach --track fixtures/track_monza.json --telemetry sim --no-retries --overlay --voice windows
+```
+
+The models endpoint must list `nemotron`; the spike should produce valid decisions. Stop the simulator
+with Ctrl+C before launching the game coach. Without hosted keys, a Brev outage falls back to rules.
+Lap mode still caps decisions at 8 s, live corner cues at 2 s, and Rev reactions at 1.6 s per provider.
+
+For reference, a direct vLLM invocation (an explicit server API key is optional):
 
 ```
 vllm serve nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4 \
-  --served-model-name nemotron --port 8000 --api-key $ENGINE_KEY \
+  --served-model-name nemotron --host 127.0.0.1 --port 8000 \
   --quantization modelopt_fp4 --kv-cache-dtype fp8 \
   --max-model-len 32768 --max-num-seqs 8 --enable-prefix-caching \
   --mamba-backend flashinfer --mamba-cache-mode align \
@@ -95,14 +168,18 @@ vllm serve nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4 \
   --reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder
 ```
 
-Then on the PC: `NEMOTRON_BASE_URL=http://<brev-host>:8000/v1 NEMOTRON_API_KEY=$ENGINE_KEY uv run python scripts/spike_nemotron.py --provider brev`.
+Only set `NEMOTRON_API_KEY` if the server was explicitly started with `--api-key`.
 vLLM has no hosted-style `reasoning_budget`; thinking length is bounded by the prompt, `max_tokens` and the ladder deadline.
 
-Pick a **stoppable** H100 offer (Nebius; `brev search gpu --gpu-name H100 --stoppable`). Lambda and Scaleway offers are "No stop/start" and can only be deleted. On the instance, set `HF_HOME=/home/ubuntu/workspace/hf` so the model download survives a stop.
+When finished with the selected Lambda offer, save required files and delete `nomadsim-h100` in
+the Brev console to end the rental. For a future setup requiring stop/start, choose an offer explicitly
+marked stoppable; the idle-stop section below applies only to those offers.
 
 #### Idle auto-stop
 
-`scripts/brev_idle_stop.py` runs on your machine, reads vLLM's `/metrics` every minute, and runs `brev stop <instance>` after 30 idle minutes. It never deletes. While the box is stopped the engine falls back to build.nvidia.com.
+**Stoppable offers only; do not use on the selected Lambda offer.**
+
+`scripts/brev_idle_stop.py` runs on your machine, reads vLLM's `/metrics` every minute, and runs `brev stop <instance>` after 30 idle minutes. It never deletes. While the box is stopped the engine falls back to the next configured provider, or to rules when no provider succeeds.
 
 ```
 NEMOTRON_BASE_URL=http://<brev-host>:8000/v1 uv run python scripts/brev_idle_stop.py --instance <name>
@@ -192,8 +269,9 @@ Single-corner mode uses `fixtures/corner_monza_t1_measured.json` by default: Mon
 ### Whole lap: every error gets a retry (`--whole-lap`)
 
 Plan and decisions: `docs/ROLLING_CHECKPOINTS.md`. Every corner of `--track` is scored; each error
-gets a cue and a 5 s retry offer (dashboard Retry, or phone Next). Accepting rewinds to a state held
-before that corner, runs the retry loop, then puts the car back where Retry was pressed.
+gets a cue and a 5 s retry offer (dashboard Retry, or phone Next). In the combined demo, accepting
+rewinds once to the held checkpoint before the corner. The coach scores one attempt after telemetry
+confirms the rewind, then the driver keeps going. Resume returns to the saved position when available.
 
 **The demo runs both coaches together**: the lap coach's per-lap voice cue (above) plus a retry
 offer for every error. Retries are judged by the error detector (fixed = the corner is clean),
@@ -221,6 +299,11 @@ uv run python -m coach --whole-lap --plant t1=late_brake
 - Before the first in-game run (coach stopped):
   `uv run python scripts/checkpoint_probe.py --seconds 40 --hold-at 10 --restore-at 35`.
   It checks hold and restore in game and prints the frame cost of each save.
+
+## Pit Pal overlay (Rev)
+
+Rev, the Pit Pal mascot, sits over Assetto Corsa: pairing QR, live reactions, the coach's cues as short
+bubbles. Add `--overlay` to the coach, or double-click `PitPal.bat`. Details: `docs/PITPAL_OVERLAY.md`.
 
 ## Live voice coach and agent mode
 

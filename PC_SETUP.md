@@ -84,7 +84,9 @@ Merge notes:
 
 ## Nemotron (NVIDIA track: record this)
 - Model: `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4`, served as `nemotron` by vLLM `v0.28.0`
-  (`scripts/brev_vllm_startup.sh`) on a Brev H100 (`nomadsim-h100`, `gpu-h100-sxm.1gpu-16vcpu-200gb`).
+  (`scripts/brev_vllm_startup.sh`) on a Lambda H100 PCIe, 80 GB VRAM (`nomadsim-h100`).
+- The selected Lambda offer has **no stop/start**. The startup script uses the same model and
+  inference flags as the old H100 SXM setup. No NVIDIA Build key is needed: use the localhost tunnel.
 - Provider order in the engine: brev -> nvidia (hosted, `NVIDIA_API_KEY`) -> openrouter -> deterministic rules.
 - **Required settings on Brev/vLLM** (vLLM has no reasoning budget; with the default 900 tokens the model
   ran out mid-reasoning and never produced a tool call):
@@ -131,14 +133,14 @@ Merge notes:
    Arduino drops, the phone's on-screen pedals take over, instead of going to 0; a run with a dropout is
    marked invalid and not coached; the phone's paddles/buttons work. Without `--inputs` the coach behaves
    as before.
-5. **Brev lifecycle** (WSL). Status as of Sun 00:45 CT: `nomadsim-h100` was **deleted** (no billing).
-   - Recreate (~10-15 min, re-downloads the 18 GB model):
-     `cd /mnt/d/D-Downloads/obsidian-hackutd-2026 && brev create nomadsim-h100 --type gpu-h100-sxm.1gpu-16vcpu-200gb --min-disk 200 --startup-script @scripts/brev_vllm_startup.sh`
+5. **Brev lifecycle** (WSL). The old H100 instance was deleted; the replacement is a Lambda H100 PCIe.
+   - Create from the repo root (starts a paid rental; first preview by adding `--dry-run`):
+     `brev create nomadsim-h100 --provider lambda --gpu-name H100 --min-vram 80 --min-disk 200 --startup-script @scripts/brev_vllm_startup.sh`
      then repeat `brev exec nomadsim-h100 "docker logs --tail 5 vllm"` until `Application startup complete`.
-   - Short breaks: `brev stop nomadsim-h100` / `brev start nomadsim-h100` (keeps the model, restarts in
-     minutes, but storage still bills while stopped).
-   - **End of hackathon: `brev delete nomadsim-h100`.**
-   - Before judging: create `.brev-hold` in the repo so `scripts/brev_idle_stop.py` cannot stop the box.
+   - **No stop/start on this offer.** Leaving the instance running during breaks continues billing.
+     Do not run `scripts/brev_idle_stop.py` for this instance.
+   - To end the rental, save required files first, then delete the instance in the Brev console.
+     Deletion removes all instance data; recreating it downloads the model again.
 
 ## What was changed on `pc-bridge` and why
 1. `bridge/bridge.py` (new): phone UDP + Arduino serial -> one virtual Xbox 360 pad (vgamepad/ViGEmBus).
@@ -179,9 +181,9 @@ Merge notes:
    Swift side does not change the existing packet: a separate UDP packet to the bridge on 5005,
    `c1,<seq>,next`; the bridge forwards it to the coach, which does "accept" when a drill is offered and
    "reset for retry" otherwise.
-2. **Mascot overlay**: transparent always-on-top Python (tkinter) window over AC (AC in borderless
-   windowed), polling `http://127.0.0.1:8020/state`, showing Nemotron's cue as a speech bubble, the countdown
-   and a "thinking" state. Placeholder image until the Poyo art exists (`mascot.png`).
+2. ~~**Mascot overlay**~~ **Done** (branch `rev-overlay`): Rev, the Pit Pal overlay, over AC (borderless or
+   windowed), fed by the coach's `/ws` stream. Start with `--overlay` or `PitPal.bat`; see
+   `docs/PITPAL_OVERLAY.md`.
 3. **One-command start** `start.ps1`: start the tunnel hidden and keep WSL alive, check `/v1/models`, set the
    Nemotron env vars, start coach (+ overlay, + `-Bridge`), open the dashboard.
 4. **Faster decisions**: measure fast-first vs think-first on the fixtures now that the validator rejects

@@ -25,6 +25,7 @@ cue and a 5-second opt-in to rewind and retry that corner, from the phone (Next)
 | Personal best | **Saved on disk**, with a **reset** button. |
 | Settings | **Dashboard `/settings` page now**, Pit Pal panel later (same API). Settings: reference, error sensitivity, countdown length, retry lead time, voice on/off. |
 | PC-side display | **Dashboard + voice now.** Pit Pal is a separate plan that plugs into the same events. |
+| PC-side overlay | **Built** (`rev-overlay`): Rev reads the same `/ws` events (offers, countdown, retry outcomes) over the game. See `docs/PITPAL_OVERLAY.md`. |
 | iPhone offer | The existing **Next button lights up with a countdown ring and the corner name, plus a haptic tap**. **Tap Next** to opt in. Text: **corner + countdown** only (e.g. "Retry T1 · 4"). |
 | iPhone status | **Offer only**: no retry-loop progress on the phone. |
 | Phone link | **Merge QR pairing first.** It stays on UDP; signing costs ~3 µs and 17 bytes per packet (measured), so no added input lag. Offer messages are signed. |

@@ -9,6 +9,9 @@ dependencies = [
     "truststore>=0.10.5",
 ]
 
+[project.optional-dependencies]
+cloud = ["keyring>=25.6.0"]
+
 [dependency-groups]
 dev = [
     "pytest>=9.2.0",

@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import subprocess
 import sys
 from pathlib import Path
 from uuid import UUID
@@ -26,6 +27,7 @@ from engine.voice import make_speaker
 from .app import CoachApp
 from .checkpoints import CheckpointStore
 from .dashboard import Dashboard
+from .cloud_runtime import configure_cloud
 from .inputs import InputHub, make_pad
 from .pairing import Pairing
 from .telemetry import ACSharedMemory, Recorder, ReplaySource, SimSource
@@ -52,6 +54,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--data-dir", default=str(ROOT / "data"))
     ap.add_argument("--traces", default=str(ROOT / "traces"))
     ap.add_argument("--record", action="store_true", help="write samples to data/recordings/")
+    ap.add_argument("--cloud", action=argparse.BooleanOptionalAction, default=True,
+                    help="use a configured cloud history profile (default on; --no-cloud keeps this run local)")
     ap.add_argument("--history", action="store_true", help="save race history to data/history.sqlite3 (opt-in)")
     ap.add_argument("--driver-name", help="history driver name (default: AC player name, or Driver)")
     ap.add_argument("--driver-id", type=lambda value: str(UUID(value)),
@@ -90,6 +94,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="QR pairing for the phone: required = only phones that scanned the code can "
                         "drive; optional (default) = also accept the unpaired app until a phone pairs; "
                         "off = plain UDP")
+    ap.add_argument("--overlay", action="store_true",
+                    help="also start the Pit Pal overlay (Rev) over the game: pairing QR, live reactions, voice lines")
     ap.add_argument("--auto-retry", action=argparse.BooleanOptionalAction, default=True,
                     help="after Accept, keep rewinding until the drill ends, then resume (default on)")
     ap.add_argument("--max-retries", type=int, default=5,
@@ -130,6 +136,16 @@ def print_pairing(hub: InputHub, dashboard_port: int) -> None:
     print(f"\nScan with the Stealth Racing app to pair ({hub.pairing_mode}):\n{qr}\n"
           f"receiver {p.name} [{p.receiver_id}] on {hosts}, UDP {hub.phone_port}; "
           f"also at http://127.0.0.1:{dashboard_port}/pair.svg\n", flush=True)
+def start_overlay(args: argparse.Namespace) -> "subprocess.Popen | None":
+    """Launch the Pit Pal overlay as its own process, so a UI problem can never stall the coach."""
+    host = "127.0.0.1" if args.host in ("", "0.0.0.0") else args.host
+    try:
+        return subprocess.Popen([sys.executable, "-m", "pitpal", "--url", f"http://{host}:{args.port}"], cwd=ROOT)
+    except OSError as e:
+        print(f"overlay did not start ({e}); the coach runs without it", flush=True)
+        return None
+
+
 def parse_sim_corners(specs: list[str]) -> dict[str, dict]:
     if not specs:
         return {k: dict(v) for k, v in DEMO_SIM_CORNERS.items()}
@@ -300,9 +316,8 @@ def build_app(args: argparse.Namespace) -> CoachApp:
                     muted=args.mute, agent=args.agent, inputs=build_inputs(args),
                     auto_retry=args.auto_retry, max_retries=args.max_retries,
                     history=args.history, driver_name=args.driver_name, driver_id=args.driver_id,
-                    track_map=load_map(args, corner.name),
                     track_model=track, references=refs, lead_time_s=args.lead_time,
-                    whole_lap=args.whole_lap, store=store)
+                    whole_lap=args.whole_lap, store=store, track_map=load_map(args, corner.name))
 
 
 def parse_plant(spec: str) -> dict[str, list[str | None]]:
@@ -315,11 +330,13 @@ def parse_plant(spec: str) -> dict[str, list[str | None]]:
 
 async def amain(args: argparse.Namespace) -> None:
     app = build_app(args)
+    configure_cloud(app, args.telemetry[0], enabled=args.cloud)
     dash = Dashboard(app, args.host, args.port)
     await dash.start()
     try:
         await app.start()
     except RuntimeError as e:  # e.g. UDP 5005 already taken by bridge.py
+        await app.stop()
         await dash.stop()
         raise SystemExit(f"error: {e}") from e
     voice = "off" if app.announcer is None else app.announcer.speaker.name
@@ -335,9 +352,15 @@ async def amain(args: argparse.Namespace) -> None:
               flush=True)
         if i.pairing is not None and i.pairing_mode != "off":
             print_pairing(i, args.port)
+    overlay = None
+    if args.overlay:
+        app.enable_rev_lines()
+        overlay = start_overlay(args)
     try:
         await asyncio.Event().wait()
     finally:
+        if overlay is not None and overlay.poll() is None:
+            overlay.terminate()
         await app.stop()
         await dash.stop()
 

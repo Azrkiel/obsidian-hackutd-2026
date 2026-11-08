@@ -14,6 +14,7 @@ import sys
 import threading
 import time
 from collections import deque
+from contextvars import ContextVar
 from engine.drills import DRILLS, TITLES
 from dataclasses import asdict
 from pathlib import Path
@@ -36,6 +37,9 @@ from .telemetry import ACSharedMemory, Recorder, ReplaySource, Sample, SimSource
 COMMANDS = {"accept", "retry", "save_checkpoint", "set_reference", "new_session",
             "toggle_cue_next", "retry_reset", "toggle_mute", "mark_board", "resume",
             "new_pairing", "select_corner", "accept_offer", "settings", "reset_personal_best"}
+LIVE_HZ = 10.0
+TELEMETRY_HZ = 10           # live "telemetry" events for subscribers (the Pit Pal overlay)
+_HISTORY_ORIGIN = ContextVar("coach_history_origin", default=None)
 LAP_TOTAL_DEADLINE_S = 8.0  # lap mode: slower than this and the rules sentence is spoken instead
 ACTIVITY_TYPES = {"run", "decision", "reset_request", "reset_confirmed", "reset_failed",
                   "checkpoint", "reference", "session", "input", "resume_point", "resumed", "corner",
@@ -52,9 +56,6 @@ def _make_player(sound: bool | None):
         except Exception:  # noqa: BLE001 - no winsound: stay silent
             pass
     return NullPlayer()
-
-
-LIVE_HZ = 10.0
 
 
 def live_event(s: Sample, *, max_rpm: int | None, corners: list[CornerConfig], lap: int | None = None,
@@ -81,9 +82,8 @@ class CoachApp:
                  inputs: InputHub | None = None, auto_retry: bool = False, max_retries: int = 5,
                  history: bool = False, driver_name: str | None = None, driver_id: str | None = None,
                  track: Track | None = None, track_references: dict | None = None,
-                 track_map: dict | None = None,
                  track_model: Any = None, references: Any = None, lead_time_s: float = 4.0,
-                 whole_lap: bool = False, store: Any = None):
+                 whole_lap: bool = False, store: Any = None, track_map: dict | None = None):
         if mode not in ("drill", "lap"):
             raise ValueError(f"mode must be drill or lap, not {mode!r}")
         if track is not None:
@@ -96,6 +96,7 @@ class CoachApp:
             reference, reference_trace = track_references[corner.id]
         self.mode, self.track = mode, track
         self.track_map = track_map  # dashboard map: {"points": [[lap_m, x, y], ...], ...}
+        self.cloud_history = self.cloud_runtime = None
         self.track_laps: deque[dict] = deque(maxlen=20)
         self.last_lap_runs: dict | None = None
         self._lap_events: dict[str, dict] = {}
@@ -116,6 +117,7 @@ class CoachApp:
         self._main: list[asyncio.Task] = []
         self.latest: Sample | None = None
         self._latest_at = 0.0
+        self._tele_at = 0.0                      # last "telemetry" event (the overlay's live feed)
         self.telemetry_error: str | None = None
         self.last_run: dict | None = None        # last run event (any role)
         self.last_valid_run: dict | None = None
@@ -202,7 +204,9 @@ class CoachApp:
         return {"name": self._driver_name or getattr(self.source, "player_name", "") or "Driver",
                 "driver_id": self._driver_id,
                 "source": "dashboard" if self._driver_name else "ac" if getattr(self.source, "player_name", "") else "local",
-                "track": getattr(self.source, "track", "") or self.corner.name.split()[0],
+                # the track sim's .track is a Track object, not a name
+                "track": (lambda t: t if isinstance(t, str) else getattr(t, "name", ""))(getattr(self.source, "track", ""))
+                         or self.corner.name.split()[0],
                 "car": getattr(self.source, "car", "") or "unknown", "corner": self.corner.name,
                 "mode": self.mode, "agent": self.coach.agent is not None,
                 "model": None, "recording": self.recorder.path.name if self.recorder else None}
@@ -224,6 +228,14 @@ class CoachApp:
         self._subs.append(cb)
         return lambda: self._subs.remove(cb) if cb in self._subs else None
 
+    def enable_rev_lines(self):
+        """Let Rev (the Pit Pal overlay) comment on good and bad laps: written by Nemotron when a
+        provider is up, by rules otherwise, spoken like any other cue. Off unless asked for."""
+        from .rev_lines import RevLines
+        self.rev = RevLines(self)
+        self.subscribe(self.rev.on_event)
+        return self.rev
+
     def _threadsafe_broadcast(self, event: dict) -> None:
         """The voice worker thread reports through here; subscribers live on the event loop."""
         if self._loop is not None and threading.get_ident() != self._loop_thread:
@@ -236,7 +248,11 @@ class CoachApp:
 
     def broadcast(self, event: dict) -> None:
         event = {"ts": time.time(), **event}
-        if event["type"] not in ("health", "live"):
+        if event["type"] in ("run", "decision", "track_lap"):
+            sid = _HISTORY_ORIGIN.get() or self._history_session_id()
+            if sid:
+                event.setdefault("_history_session_id", sid)
+        if event["type"] not in ("health", "telemetry", "live"):   # all repeat all the time: not history
             self.events.append(event)
             del self.events[:-2000]
         if event["type"] == "voice" and event["status"] in ("spoken", "dropped", "error"):
@@ -288,10 +304,25 @@ class CoachApp:
         return "new session"
 
     def _spawn(self, coro) -> asyncio.Task:
-        task = asyncio.get_running_loop().create_task(coro)
+        origin = _HISTORY_ORIGIN.set(_HISTORY_ORIGIN.get() or self._history_session_id())
+        try:
+            task = asyncio.get_running_loop().create_task(coro)
+        finally:
+            _HISTORY_ORIGIN.reset(origin)
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         return task
+
+    def _history_session_id(self):
+        sync = getattr(self.cloud_runtime, "sync", None)
+        return sync.session_id if sync is not None else None
+
+    def capture_history(self, event: dict) -> None:
+        """A scored path without a dashboard event can still contribute one history record."""
+        sync = getattr(self.cloud_runtime, "sync", None)
+        if sync is not None:
+            sync.capture({"ts": time.time(), **event,
+                          "_history_session_id": _HISTORY_ORIGIN.get() or sync.session_id})
 
     # -- coach wiring --
     def _on_coach_event(self, e: dict) -> None:
@@ -475,7 +506,15 @@ class CoachApp:
 
     # -- telemetry --
     def _on_sample(self, s: Sample) -> None:
+        if self.cloud_runtime is not None:
+            self.cloud_runtime.update_metadata()
         self.latest, self._latest_at = s, time.monotonic()
+        if self._subs and self._latest_at - self._tele_at >= 1.0 / TELEMETRY_HZ:
+            self._tele_at = self._latest_at
+            self.broadcast({"type": "telemetry", "status": s.status, "speed_kmh": round(s.speed_kmh, 1),
+                            "gas": round(s.gas, 2), "brake": round(s.brake, 2), "steer": round(s.steer, 2),
+                            "pos_m": round(s.pos_m, 1), "g_lat": round(s.g_lat, 2), "slip_f": round(s.slip_f, 2),
+                            "slip_r": round(s.slip_r, 2), "tyres_out": s.tyres_out})
         if self.recorder:
             self.recorder.write(s)
         self.reset.on_sample(s)
@@ -555,6 +594,7 @@ class CoachApp:
             "auto_retry": self.auto_retry,
             "resume_available": self.reset.resume_point is not None,
             "mode": self.mode,
+            "cloud": self.cloud_runtime.status() if self.cloud_runtime is not None else {"state": "disabled"},
             "agent": self.coach.agent is not None,
             "track": self.track.name if self.track is not None else None,
             "voice": None if self.announcer is None else {
@@ -811,6 +851,8 @@ class CoachApp:
     # -- lifecycle --
     async def start(self) -> None:
         self._loop, self._loop_thread = asyncio.get_running_loop(), threading.get_ident()
+        if self.cloud_runtime is not None:
+            await self.cloud_runtime.start()
         if self.inputs is not None:
             await self.inputs.start()
         if self.history:
@@ -852,6 +894,8 @@ class CoachApp:
             await asyncio.to_thread(self.history.close)
         if self.history_sync:
             await asyncio.to_thread(self.history_sync.stop)
+        if self.cloud_runtime is not None:
+            await self.cloud_runtime.stop()
 
     async def wait_for(self, pred: Callable[[], bool], timeout: float = 30.0) -> None:
         end = time.monotonic() + timeout
