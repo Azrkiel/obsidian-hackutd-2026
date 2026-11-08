@@ -695,6 +695,8 @@ class CoachApp:
             return False
         self.references.reset()
         self.broadcast({"type": "references", **self.references.summary()})
+        return True
+
     def _set_track_reference(self) -> bool:
         """Whole lap: every valid corner of the last lap becomes that corner's reference."""
         last = self.last_lap_runs
