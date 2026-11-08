@@ -126,8 +126,9 @@ class VGamepadPad:
         try:
             import vgamepad as vg
         except ImportError as e:
-            raise RuntimeError("vgamepad is not installed (Windows: install ViGEmBus, then "
-                               "`uv pip install vgamepad pyserial`); or run with --pad none") from e
+            raise RuntimeError("vgamepad is not available. Start the coach with "
+                               "`uv run --with vgamepad --with pyserial python -m coach ... --inputs` "
+                               "(ViGEmBus must be installed), or add --pad none") from e
         self._xb = vg.XUSB_BUTTON
         self._pad = vg.VX360Gamepad()
 
@@ -354,11 +355,11 @@ class InputHub:
     async def start(self) -> None:
         loop = asyncio.get_running_loop()
         transport, _ = await loop.create_datagram_endpoint(lambda: _PhoneProto(self),
-                                                           sock=_dual_stack_socket(self.phone_port))
+                                                           sock=_bind(self.phone_port, "phone"))
         self._transports.append(transport)
         if self.arduino_udp_port:
             t, _ = await loop.create_datagram_endpoint(lambda: _ArduinoUdpProto(self),
-                                                       sock=_dual_stack_socket(self.arduino_udp_port))
+                                                       sock=_bind(self.arduino_udp_port, "Arduino"))
             self._transports.append(t)
         if self.arduino != "off":
             threading.Thread(target=self._serial_loop, name="arduino-serial", daemon=True).start()
@@ -417,6 +418,14 @@ def _find_arduino(lp: Any) -> str | None:
         if p.vid == 0x2341 or "arduino" in d or "ch340" in d or "usb serial" in d:
             return p.device
     return None
+
+
+def _bind(port: int, what: str) -> socket.socket:
+    try:
+        return _dual_stack_socket(port)
+    except OSError as e:
+        raise RuntimeError(f"cannot listen for the {what} on UDP {port} ({e}). Is bridge/bridge.py, "
+                           f"hardware/bridge.py or listen.py running? Stop it, or run without --inputs.") from e
 
 
 def _dual_stack_socket(port: int) -> socket.socket:

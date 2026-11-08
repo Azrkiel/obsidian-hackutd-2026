@@ -92,7 +92,7 @@ NEMOTRON_BASE_URL=http://<brev-host>:8000/v1 uv run python scripts/brev_idle_sto
 
 ## Coach program
 
-One asyncio process on the Windows PC: input receiver (phone + Arduino -> virtual Xbox 360 pad), telemetry reader, corner scorer, engine `Coach`, reset manager, live audio cue and the dashboard web server. Don't run `bridge/bridge.py` or `hardware/bridge.py` at the same time: each creates its own virtual pad.
+One asyncio process on the Windows PC: telemetry reader, corner scorer, engine `Coach`, reset manager, live audio cue and the dashboard web server. With `--inputs` it is also the input receiver (phone + Arduino -> virtual Xbox 360 pad) and replaces `bridge/bridge.py`. Without `--inputs`, run `bridge/bridge.py` next to it as before. Never run both: they fight over UDP 5005, the COM port and the virtual pad.
 
 ```
 coach/telemetry.py   Sample + ACSharedMemory (original AC), SimSource, ReplaySource, Recorder
@@ -118,10 +118,10 @@ uv run python -m coach --telemetry ac --reset hotkey       # presses F7 (load) /
 uv run python -m coach --telemetry ac --reset manual       # you press your own load key
 ```
 
-On the race PC install the pad and serial extras once and run through them (plain `uv sync` removes packages that aren't in `pyproject.toml`):
+With the coach as the input receiver (instead of `bridge/bridge.py`). The pad and serial packages stay out of the uv `.venv` (see `PC_SETUP.md`), so `--with` adds them for this run only:
 
 ```
-uv run --extra pc python -m coach --telemetry ac --reset udp
+uv run --with vgamepad --with pyserial python -m coach --telemetry ac --reset udp --inputs
 ```
 
 ### Inputs

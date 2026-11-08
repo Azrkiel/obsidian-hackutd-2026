@@ -1,8 +1,11 @@
 """uv run python -m coach [--mode lap|drill] [--telemetry ac|sim|replay FILE] [--reset udp|hotkey|manual|sim]
 [--voice auto|windows|nvidia|silent|off] [--port 8020]
 
-The coach is also the input receiver: phone (UDP 5005) + Arduino pedals -> one virtual Xbox 360 pad.
-Do not run bridge/bridge.py or hardware/bridge.py alongside it (two virtual pads confuse AC).
+With --inputs the coach is also the input receiver: phone (UDP 5005) + Arduino pedals -> one
+virtual Xbox 360 pad. Then do not run bridge/bridge.py or hardware/bridge.py alongside it (port 5005,
+the COM port and a second virtual pad would clash). The pad/serial packages stay out of the uv .venv
+(see PC_SETUP.md), so add them for that run only:
+    uv run --with vgamepad --with pyserial python -m coach --telemetry ac --reset udp --inputs
 """
 from __future__ import annotations
 
@@ -39,8 +42,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--countdown", type=int, default=3)
     ap.add_argument("--brake-board", type=float, default=86.0, help="sim: first-run brake board (m)")
     ap.add_argument("--transport", choices=["tools", "json"], default=None)
-    g = ap.add_argument_group("inputs (phone + Arduino -> virtual pad)")
-    g.add_argument("--no-inputs", action="store_true", help="don't receive inputs (another bridge runs)")
+    g = ap.add_argument_group("inputs (phone + Arduino -> virtual pad; off unless --inputs)")
+    g.add_argument("--inputs", action="store_true",
+                   help="receive phone + Arduino inputs here instead of running bridge/bridge.py")
     g.add_argument("--pad", choices=["auto", "vgamepad", "none"], default="auto",
                    help="auto = vgamepad on Windows, none elsewhere (inputs are still read and logged)")
     g.add_argument("--phone-port", type=int, default=5005)
@@ -65,7 +69,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def build_inputs(args: argparse.Namespace) -> InputHub | None:
-    if args.no_inputs:
+    if not args.inputs:
         return None
     try:
         pad = make_pad(args.pad)
@@ -120,7 +124,11 @@ async def amain(args: argparse.Namespace) -> None:
     app = build_app(args)
     dash = Dashboard(app, args.host, args.port)
     await dash.start()
-    await app.start()
+    try:
+        await app.start()
+    except RuntimeError as e:  # e.g. UDP 5005 already taken by bridge.py
+        await dash.stop()
+        raise SystemExit(f"error: {e}") from e
     voice = "off" if app.announcer is None else app.announcer.speaker.name
     print(f"NomadSim coach: mode={app.mode} agent={'on' if app.coach.agent else 'off'} telemetry={args.telemetry[0]} reset={app.reset.mode} "
           f"voice={voice} dashboard http://{args.host}:{args.port}", flush=True)

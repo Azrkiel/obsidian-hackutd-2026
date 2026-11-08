@@ -72,7 +72,7 @@ Merge notes:
 ## Ports
 | Port | Who | What |
 |---|---|---|
-| UDP 5005 | phone -> bridge | `v1,seq,steer,throttle,brake` (steer -1..1, others 0..1) |
+| UDP 5005 | phone -> bridge (or `coach --inputs`) | `v1,seq,steer,throttle,brake` (steer -1..1, others 0..1); `evt,id,command,phase` buttons (coach only) |
 | UDP 127.0.0.1:9101 | coach -> CSP app | `SAVE` -> `SAVED x y z kmh`; `RESET <id>` -> `ACK <id>` / `ERR <reason>` |
 | TCP 8020 | coach | dashboard `http://127.0.0.1:8020` (`/`, `/state`, `/ws`) |
 | TCP 8000 | Brev tunnel | Nemotron (vLLM, OpenAI-compatible) at `http://localhost:8000/v1`, model name `nemotron` |
@@ -116,6 +116,12 @@ Merge notes:
 4. **Bridge** (only when driving with phone/pedals):
    `D:\bridge-venv\Scripts\python.exe bridge\bridge.py --debug` (auto-detects Arduino) or `--no-arduino --debug`.
    Pedals silent > 200 ms or unplugged -> gas/brake 0 and prints `INVALID` (not yet reported to the coach).
+   **Or** (`feat/unified-receiver`) let the coach be the receiver and do not start `bridge.py`:
+   `uv run --with vgamepad --with pyserial python -m coach --telemetry ac --reset udp --inputs`.
+   `--with` keeps the bridge packages out of the uv `.venv`. Differences from `bridge.py`: when the
+   Arduino drops, the phone's on-screen pedals take over, instead of going to 0; a run with a dropout is
+   marked invalid and not coached; the phone's paddles/buttons work. Without `--inputs` the coach behaves
+   as before.
 5. **Brev lifecycle** (WSL). Status as of Sun 00:45 CT: `nomadsim-h100` was **deleted** (no billing).
    - Recreate (~10-15 min, re-downloads the 18 GB model):
      `cd /mnt/d/D-Downloads/obsidian-hackutd-2026 && brev create nomadsim-h100 --type gpu-h100-sxm.1gpu-16vcpu-200gb --min-disk 200 --startup-script @scripts/brev_vllm_startup.sh`
