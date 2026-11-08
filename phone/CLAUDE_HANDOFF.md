@@ -1,6 +1,6 @@
 # Stealth Racing handoff
 
-Open Claude Code in `/Users/kevendiaz/projects/hack-utd-2026/stealth-racing` and read this file before continuing. The iOS app and Python receiver already exist. Keep changes small and focused on the hackathon MVP.
+Open Claude Code in the `phone/` folder of the repository and read this file before continuing. The iOS app and Python receiver already exist. Keep changes small and focused on the hackathon MVP.
 
 ## Goal and source material
 

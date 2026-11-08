@@ -7,7 +7,7 @@
 ## 1. Install
 
 1. Install the **ViGEmBus** driver, which `vgamepad` needs to create the virtual controller. `pip install vgamepad` may offer to install it. If it doesn't, install it from the ViGEmBus releases page. `[VERIFY IN GAME]`: confirm a new "Xbox 360 Controller for Windows" appears in *Set up USB game controllers* (`joy.cpl`) once the bridge is running.
-2. From the repository root:
+2. From the `phone/` folder of the repository:
 
    ```bat
    py -m pip install -r bridge\requirements.txt
