@@ -10,6 +10,8 @@ from .models import ToolCall
 END_REASONS = ["no_coaching_needed", "drill_complete", "no_progress", "not_comparable", "invalid_run"]
 DRILLS = ["brake_point", "throttle_pickup"]
 MAX_CUE_WORDS = 20
+DRILL_DELTA = {"brake_point": "brake_onset_m", "throttle_pickup": "throttle_pickup_m"}
+TARGET_KEYS = {"marker_m", "peak_brake"}
 
 
 def _fn(name: str, desc: str, props: dict, required: list[str]) -> dict:
@@ -87,8 +89,23 @@ def validate(call: ToolCall | None, packet: dict) -> tuple[bool, str | None]:
     if call.name == "end_drill":
         if a.get("reason") not in END_REASONS:
             return False, f"reason must be one of {END_REASONS}"
+        if a["reason"] == "no_coaching_needed":
+            over = _baseline_over_tolerance(packet)
+            if over:
+                return False, f"not inside tolerance: {over}; offer a drill"
         return True, None
     return _validate_offer(a, packet)
+
+
+def _baseline_over_tolerance(packet: dict) -> str | None:
+    """Same check as rules.rule_decide: on a valid, comparable baseline, name the first delta over tolerance."""
+    if packet["phase"] == "retry" or not packet["valid"] or not packet["comparable"]:
+        return None
+    d, tol = packet["delta"], packet["tolerance"]
+    for k in ("brake_onset_m", "throttle_pickup_m"):
+        if k in d and k in tol and abs(d[k]) > tol[k]:
+            return f"delta {k} {d[k]} vs tolerance {tol[k]}"
+    return None
 
 
 def _validate_offer(a: dict, packet: dict) -> tuple[bool, str | None]:
@@ -110,10 +127,19 @@ def _validate_offer(a: dict, packet: dict) -> tuple[bool, str | None]:
         if verdict not in ("repeat", "adjust"):
             return False, "verdict must be repeat or adjust"
         if not retry:
-            return False, "verdict not allowed on a baseline"
+            # Nemotron often adds a verdict to an otherwise good baseline offer: drop it, keep the offer.
+            a.pop("verdict", None)
+    if not retry and packet["valid"] and packet["comparable"]:
+        # same mapping as rules.rule_decide: only coach what is actually outside tolerance
+        key = DRILL_DELTA.get(drill_id)
+        d, tol = packet["delta"], packet["tolerance"]
+        if key in d and key in tol and abs(d[key]) <= tol[key]:
+            return False, f"delta {key} {d[key]} is inside tolerance {tol[key]}; no {drill_id} drill"
     target = a.get("target")
     if not isinstance(target, dict) or "marker_m" not in target:
         return False, "target must be an object with marker_m"
+    for k in [k for k in target if k in TARGET_KEYS and k not in allowed[drill_id]]:
+        target.pop(k)  # e.g. peak_brake on a throttle_pickup drill: drop it, keep the offer
     for k, v in target.items():
         rng = allowed[drill_id].get(k)
         if rng is None:
