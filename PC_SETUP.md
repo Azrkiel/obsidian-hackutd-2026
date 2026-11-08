@@ -31,6 +31,26 @@ Merge notes:
 - `feat/hardware-pedals` adds `hardware/`. `bridge/bridge.py` (pc-bridge) already reads Will's `gas,brake` format,
   so keep both folders, but **run only one bridge at a time**. Two bridges create two virtual Xbox pads.
 
+## For the iOS teammate (pushing and merging the tilt-wheel app)
+1. Push the Xcode project on its **own branch** off `feat/thinking-engine`, e.g. `feat/ios-app`, in its own
+   top-level folder (e.g. `ios/`). Do not edit `bridge/`, `coach/`, `engine/` or `csp/` in that branch, so it
+   merges without conflicts. Add an `ios/.gitignore` for `xcuserdata/`, `DerivedData/`, `*.xcuserstate`, `build/`.
+2. Open a PR `feat/ios-app` -> `feat/thinking-engine` **after** `pc-bridge` has been merged there.
+3. What the app must send (already implemented in `bridge/bridge.py`, do not change without telling Dhanush):
+   - UDP to `<game PC IP>:5005`, ~60-100 Hz, ASCII: `v1,<seq>,<steer>,<throttle>,<brake>`
+     - `seq`: integer, increments every packet (the bridge drops old/out-of-order packets)
+     - `steer` -1.0 (full left) .. 1.0 (full right); `throttle`, `brake` 0.0 .. 1.0
+     - example: `v1,1042,-0.250,0.800,0.000`
+   - If no packet arrives for 200 ms, the bridge centres steering and zeroes the pedals.
+   - With Arduino pedals connected, gas/brake come from the pedals and the phone only steers.
+4. Planned next (not built yet; agree before implementing): a **reset / next-action button** sent as a
+   separate packet on the same port, `c1,<seq>,next`. The bridge will forward it to the coach, which does
+   "accept" when a drill is offered and "reset for retry" otherwise. Send it once per tap (not repeated).
+5. Networking at the venue: venue Wi-Fi blocks device-to-device traffic. Use the iPhone **Personal Hotspot**,
+   connect the PC to it, get the PC's IP with `ipconfig` (IPv4 of the hotspot adapter), enter it in the app.
+   Test on the PC with `D:\bridge-venv\Scripts\python.exe bridge\bridge.py --no-arduino --debug` and
+   look for `phone True` and moving `steer` values.
+
 ## The machine
 | What | Where |
 |---|---|
@@ -96,9 +116,14 @@ Merge notes:
 4. **Bridge** (only when driving with phone/pedals):
    `D:\bridge-venv\Scripts\python.exe bridge\bridge.py --debug` (auto-detects Arduino) or `--no-arduino --debug`.
    Pedals silent > 200 ms or unplugged -> gas/brake 0 and prints `INVALID` (not yet reported to the coach).
-5. **Brev lifecycle** (WSL): `brev ls`, `brev start nomadsim-h100`, `brev stop nomadsim-h100`,
-   **`brev delete nomadsim-h100` at the end** (a stopped box still bills storage).
-   Before judging: create `.brev-hold` in the repo so `scripts/brev_idle_stop.py` cannot stop the box.
+5. **Brev lifecycle** (WSL). Status as of Sun 00:45 CT: `nomadsim-h100` was **deleted** (no billing).
+   - Recreate (~10-15 min, re-downloads the 18 GB model):
+     `cd /mnt/d/D-Downloads/obsidian-hackutd-2026 && brev create nomadsim-h100 --type gpu-h100-sxm.1gpu-16vcpu-200gb --min-disk 200 --startup-script @scripts/brev_vllm_startup.sh`
+     then repeat `brev exec nomadsim-h100 "docker logs --tail 5 vllm"` until `Application startup complete`.
+   - Short breaks: `brev stop nomadsim-h100` / `brev start nomadsim-h100` (keeps the model, restarts in
+     minutes, but storage still bills while stopped).
+   - **End of hackathon: `brev delete nomadsim-h100`.**
+   - Before judging: create `.brev-hold` in the repo so `scripts/brev_idle_stop.py` cannot stop the box.
 
 ## What was changed on `pc-bridge` and why
 1. `bridge/bridge.py` (new): phone UDP + Arduino serial -> one virtual Xbox 360 pad (vgamepad/ViGEmBus).
