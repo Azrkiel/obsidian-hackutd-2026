@@ -1,5 +1,10 @@
 # Stealth Racing handoff
 
+> **2026-11-08: the app is now Pit Pal** (`feat/ios-pit-pal`). It has the Pit Pal design system, QR pairing with
+> signed packets, retry offers on Next, and the design's error states. The screens and files are listed in
+> `docs/IOS_PIT_PAL_PLAN.md` (section 5); the protocol is in `docs/PAIRING.md`. The tables below describe the
+> previous version.
+
 Open Claude Code in the `phone/` folder of the repository and read this file before continuing. The iOS app and Python receiver already exist. Keep changes small and focused on the hackathon MVP.
 
 ## Goal and source material
