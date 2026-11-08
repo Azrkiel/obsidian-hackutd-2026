@@ -90,3 +90,44 @@ async def test_settings_need_whole_lap(corner, ref, tmp_path):
         assert (await client.post("/personal_best/reset")).status == 404
     finally:
         await client.close()
+
+
+async def test_pitpal_static_route(corner, ref, tmp_path):
+    app, client = await make(corner, ref, tmp_path)
+    try:
+        r = await client.get("/pitpal/icon-32.png")
+        assert r.status == 200 and r.headers["Content-Type"] == "image/png"
+        assert (await client.get("/pitpal/fonts/barlow-400-normal.woff2")).status == 200
+        assert (await client.get("/pitpal/nope.png")).status == 404
+    finally:
+        await client.close()
+
+
+async def test_live_event_shape_and_ws(corner, ref, tmp_path):
+    from coach.app import live_event
+    from coach.telemetry import Sample
+    s = Sample(t=1.0, packet_id=1, status="live", pos_norm=0.1, pos_m=corner.start_gate_m + 1,
+               speed_kmh=123.456, gas=0.5, brake=0.0, steer=0.1, x=0, y=0, z=0, gear=3, rpm=7000)
+    ev = live_event(s, max_rpm=9000, corners=[corner])
+    assert ev["type"] == "live" and ev["speed_kmh"] == 123.5 and ev["gear"] == 3
+    assert ev["rpm"] == 7000 and ev["max_rpm"] == 9000 and ev["corner"] == corner.name
+    quiet = live_event(Sample(t=1.0, packet_id=1, status="live", pos_norm=0, pos_m=0, speed_kmh=0,
+                              gas=0, brake=0, steer=0, x=0, y=0, z=0), max_rpm=0, corners=[corner])
+    assert quiet["rpm"] is None and quiet["max_rpm"] is None and quiet["gear"] is None
+
+    app, client = await make(corner, ref, tmp_path)
+    await app.start()
+    try:
+        ws = await client.ws_connect("/ws")
+        live = None
+        for _ in range(200):
+            msg = json.loads((await ws.receive(timeout=10)).data)
+            if msg["type"] == "live":
+                live = msg
+                break
+        assert live is not None and live["source"] == "sim" and "pos_m" in live
+        assert not any(e["type"] == "live" for e in app.events)   # display only, never in history
+        await ws.close()
+    finally:
+        await app.stop()
+        await client.close()

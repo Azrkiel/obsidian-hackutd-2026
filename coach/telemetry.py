@@ -39,6 +39,8 @@ class Sample:
     load_f: float = 0.0     # wheelLoad fronts, N
     load_r: float = 0.0     # wheelLoad rears, N
     tyres_out: int = 0      # numberOfTyresOut: wheels off the track surface (0..4)
+    gear: int | None = None  # -1 reverse, 0 neutral, 1.. forward; None in old recordings
+    rpm: int | None = None   # engine rpm (AC physics rpms); None in the simulator and old recordings
 
 
 # --- Assetto Corsa (original, NOT ACC) shared memory --------------------------------------------
@@ -121,7 +123,7 @@ def parse_sample(phys: SPageFilePhysics, gfx: SPageFileGraphic, track_len_m: flo
                   yaw_rate=float(phys.localAngularVel[1]),
                   slip_f=max(float(ws[0]), float(ws[1])), slip_r=max(float(ws[2]), float(ws[3])),
                   load_f=float(wl[0]) + float(wl[1]), load_r=float(wl[2]) + float(wl[3]),
-                  tyres_out=int(phys.numberOfTyresOut))
+                  tyres_out=int(phys.numberOfTyresOut), gear=int(phys.gear) - 1, rpm=int(phys.rpms))
 
 
 class ACSharedMemory:
@@ -135,6 +137,7 @@ class ACSharedMemory:
         self.fallback_len, self.fixed_length = track_length_m, fixed_length
         self.poll_s = 1.0 / poll_hz
         self.car = self.track = ""
+        self.max_rpm = 0  # static maxRpm, for the dashboard shift lights
 
     @staticmethod
     def _open():
@@ -157,6 +160,7 @@ class ACSharedMemory:
             if not st.track:
                 raise ACNotRunning("Assetto Corsa is not running (shared memory is empty)")
             self.car, self.track = st.carModel, st.track
+            self.max_rpm = int(st.maxRpm)
             length = (self.fallback_len if self.fixed_length and self.fallback_len
                       else float(st.trackSPlineLength) or self.fallback_len)
             if not length:
@@ -317,7 +321,7 @@ class SimSource:
         slip_r = 0.03 + (0.2 if gas > 0.9 and v < 35 else 0.0)
         return Sample(self.t, self.packet, status, self.pos / n, self.pos, speed, gas, brake,
                       steer, self.pos, 0.0, 0.0, g_lat=v * yaw / 9.81, g_lon=g_lon, yaw_rate=yaw,
-                      slip_f=slip_f, slip_r=slip_r)
+                      slip_f=slip_f, slip_r=slip_r, gear=max(1, min(6, int(speed / 55) + 1)))
 
     async def samples(self) -> AsyncIterator[Sample]:
         loop = asyncio.get_running_loop()
@@ -483,7 +487,7 @@ class TrackSimSource:
         slip_r = 0.03 + (0.2 if gas > 0.9 and v < 35 else 0.0)
         return Sample(self.t, self.packet, status, self.pos / n, self.pos, speed, gas, brake,
                       steer, self.pos, 0.0, 0.0, g_lat=v * yaw / 9.81, g_lon=g_lon, yaw_rate=yaw,
-                      slip_f=slip_f, slip_r=slip_r)
+                      slip_f=slip_f, slip_r=slip_r, gear=max(1, min(6, int(speed / 55) + 1)))
 
     def _wrap(self) -> None:
         self.lap_count += 1

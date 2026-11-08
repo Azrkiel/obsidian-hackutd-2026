@@ -71,6 +71,7 @@ def add_history_routes(app: web.Application, service: HistoryService, *, root=Fa
 def make_history_app(service: HistoryService) -> web.Application:
     app = web.Application(client_max_size=8192)
     add_history_routes(app, service, root=True)
+    app.router.add_static("/pitpal/", STATIC / "pitpal")  # Pit Pal fonts and art (the coach dashboard adds its own)
 
     async def lifecycle(_):
         await service.start()

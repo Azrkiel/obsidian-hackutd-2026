@@ -37,6 +37,7 @@
       button.append(element("span", `${p.car || "Unknown car"} · ${sourceName(p.source)}`, "meta"));
       button.append(element("span", date(p.started_at ?? row.captured_at), "meta"));
       button.append(element("span", row.device_label || p.device_label || "Registered PC", "meta"));
+      button.dataset.session = row.session_id;
       button.setAttribute("aria-current", String(state.session === row.session_id));
       button.addEventListener("click", () => selectSession(row.session_id));
       list.append(button);
@@ -57,7 +58,7 @@
     const records = $("records"); records.replaceChildren();
     for (const row of data.items || []) {
       const r = row.payload || row;
-      const card = element("article", undefined, "record");
+      const card = element("article", undefined, "record " + (state.kind === "decisions" ? "advice" : r.valid ? "ok" : "bad"));
       if (state.kind === "laps") {
         card.append(element("h3", `Lap ${r.lap ?? "—"}`));
         card.append(element("p", r.valid ? number(r.lap_time_s, " s") : `Invalid · ${r.invalid_reason || "Not timed"}`));
@@ -92,7 +93,8 @@
     } catch (_) { $("status").textContent = "The local history server is unavailable. Reopen the history viewer and retry."; }
     finally { state.busy = false; $("refresh").disabled = false; }
   }
-  async function selectSession(id) { if (state.busy) return; state.session = id; state.detailCursor = null; await showDetails(); await refresh(true); }
+  async function selectSession(id) { if (state.busy) return; state.session = id;
+    for (const b of document.querySelectorAll(".session")) b.setAttribute("aria-current", String(b.dataset.session === id)); state.detailCursor = null; await showDetails(); await refresh(true); }
   $("refresh").addEventListener("click", () => refresh(Boolean(state.session)));
   $("source").addEventListener("change", async () => { if (state.busy) return; state.cursor = null; state.session = null; await showSessions(); await refresh(); });
   $("sessions-next").addEventListener("click", async () => { if (state.busy) return; state.cursor = state.next; await showSessions(); await refresh(); });

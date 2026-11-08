@@ -47,6 +47,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--reset", choices=["udp", "hotkey", "manual", "sim"], default=None)
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8020)
+    ap.add_argument("--map", default="auto", metavar="FILE|auto|off",
+                    help="dashboard track map (default: fixtures/track_<track>_map.json if it exists)")
     ap.add_argument("--corner", default=str(ROOT / "fixtures" / "corner_monza_t1.json"))
     ap.add_argument("--reference", default=None)
     ap.add_argument("--data-dir", default=str(ROOT / "data"))
@@ -214,7 +216,21 @@ def build_track_app(args: argparse.Namespace) -> CoachApp:
                     mode="lap", speaker=speaker, muted=args.mute, agent=args.agent,
                     inputs=build_inputs(args), auto_retry=False, max_retries=args.max_retries,
                     track=track, track_references=refs, track_model=model, references=rrefs,
-                    lead_time_s=args.lead_time, whole_lap=retries, store=store)
+                    lead_time_s=args.lead_time, whole_lap=retries, store=store,
+                    track_map=load_map(args, track.name))
+
+
+def load_map(args: argparse.Namespace, track_name: str) -> dict | None:
+    """--map: a JSON polyline for the dashboard. auto = fixtures/track_<first word of the track>_map.json."""
+    if args.map == "off":
+        return None
+    path = (ROOT / "fixtures" / f"track_{track_name.split()[0].lower()}_map.json" if args.map == "auto"
+            else Path(args.map))
+    if not path.is_file():
+        if args.map != "auto":
+            raise SystemExit(f"--map: no such file {path}")
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def build_inputs(args: argparse.Namespace) -> InputHub | None:
@@ -288,7 +304,7 @@ def build_app(args: argparse.Namespace) -> CoachApp:
                     muted=args.mute, agent=args.agent, inputs=build_inputs(args),
                     auto_retry=args.auto_retry, max_retries=args.max_retries,
                     track_model=track, references=refs, lead_time_s=args.lead_time,
-                    whole_lap=args.whole_lap, store=store)
+                    whole_lap=args.whole_lap, store=store, track_map=load_map(args, corner.name))
 
 
 def parse_plant(spec: str) -> dict[str, list[str | None]]:

@@ -106,6 +106,7 @@ def make_web_app(app: CoachApp) -> web.Application:
     web_app.router.add_get("/pair.svg", pair_svg)
     web_app.router.add_get("/pair.json", pair_json)
     web_app.router.add_get("/track", track)
+    web_app.router.add_static("/pitpal/", STATIC / "pitpal")  # Pit Pal fonts and art
     web_app.router.add_get("/ws", ws_handler)
     history = getattr(app, "cloud_history", None) or HistoryService(data_dir=app.data_dir)
     app.cloud_history = history
