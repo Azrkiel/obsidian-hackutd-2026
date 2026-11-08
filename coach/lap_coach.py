@@ -1,6 +1,6 @@
 """LapCoach: every error on the lap gets a cue and a retry offer (ROLLING_CHECKPOINTS.md, E3-E5).
 
-    CornerPass (TrackScorer) -> EventDetector -> CheckpointPicker (+ HOLD) -> OfferManager
+    CornerPass (PassScorer) -> EventDetector -> CheckpointPicker (+ HOLD) -> OfferManager
         -> cue: the coach decides on that corner's attempt with the live budget (fast, 2 s);
            no drill to offer (flat corner, no usable attempt) -> a short rules cue from the event
         -> countdown from the moment the cue is out -> tap (dashboard, phone Next) or it expires
@@ -20,7 +20,7 @@ from engine.state import AWAIT_RESET, DONE, IDLE, OFFERED, RETRY
 
 from .events import CheckpointPicker, CornerEvent, EventDetector, RetryStart
 from .offers import Offer, OfferManager
-from .track_scorer import CornerPass, TrackScorer
+from .corner_pass import CornerPass, PassScorer
 
 if TYPE_CHECKING:
     from .app import CoachApp
@@ -51,7 +51,7 @@ class LapCoach:
             offers.on_change = app.broadcast
         self.store, self.max_retries, self.tick_s = store, max_retries, tick_s
         self.live_budget = dict(live_budget or LIVE_BUDGET)
-        self.scorer = TrackScorer(self.track, app.base_corner, self.on_pass)
+        self.scorer = PassScorer(self.track, app.base_corner, self.on_pass)
         self.retrying: Offer | None = None     # the accepted offer whose retry loop is running
         self._tries = 0
         self._cue_for: dict[str, str] = {}      # coach attempt_id -> offer id waiting for its cue

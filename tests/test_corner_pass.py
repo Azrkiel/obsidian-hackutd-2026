@@ -1,4 +1,4 @@
-"""TrackScorer on full synthetic laps (LapSim), clean and with planted mistakes."""
+"""PassScorer on full synthetic laps (LapSim), clean and with planted mistakes."""
 import asyncio
 import dataclasses
 from pathlib import Path
@@ -8,7 +8,7 @@ import pytest
 from coach.lap_sim import LapSim
 from coach.telemetry import SPageFileGraphic, SPageFilePhysics, parse_sample
 from coach.track import Track
-from coach.track_scorer import TrackScorer, body_slip_deg
+from coach.corner_pass import PassScorer, body_slip_deg
 from engine.config import load_corner
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,7 +20,7 @@ MISTAKES = {"c1": ["late_brake"], "c3": ["early_brake"], "c4": ["spin"], "c5": [
 
 def drive(errors=None, laps=1.05, start=TRACK.length_m - 400, tweak=None):
     passes = []
-    sc = TrackScorer(TRACK, BASE, passes.append)
+    sc = PassScorer(TRACK, BASE, passes.append)
     sim = LapSim(TRACK, errors=errors, laps=laps, start_m=start)
 
     async def go():
@@ -74,7 +74,7 @@ def test_rewind_drops_the_pass_and_the_retry_is_scored():
     passes = []
     tr = TRACK
     les = tr.get("c4")
-    sc = TrackScorer(tr, BASE, passes.append)
+    sc = PassScorer(tr, BASE, passes.append)
     sim = LapSim(tr, errors={"c4": ["spin", None]}, start_m=les.entry_m - 300)
 
     async def go():

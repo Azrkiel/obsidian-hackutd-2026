@@ -1,4 +1,4 @@
-"""TrackScorer: telemetry for the whole lap -> one CornerPass per corner driven (ROLLING_CHECKPOINTS.md, D).
+"""PassScorer: telemetry for the whole lap -> one CornerPass per corner driven (ROLLING_CHECKPOINTS.md, D).
 
 Two kinds of trouble are kept apart:
   * the DATA is unusable (gap, pause, teleport): the pass is `valid=False` with a reason, and a
@@ -87,7 +87,7 @@ def body_slip_deg(samples: list[Sample]) -> float:
     return best[1]
 
 
-class TrackScorer:
+class PassScorer:
     def __init__(self, track: Track, base: CornerConfig, on_pass: Callable[[CornerPass], None],
                  max_pass_s: float = MAX_PASS_S):
         self.track, self.on_pass, self.max_pass_s = track, on_pass, max_pass_s

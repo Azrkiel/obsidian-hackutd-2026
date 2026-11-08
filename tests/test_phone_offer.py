@@ -72,7 +72,7 @@ class FakeApp:
 
 def test_lap_coach_pushes_at_4_per_second_then_closes(monkeypatch):
     import coach.lap_coach as lcm
-    monkeypatch.setattr(lcm, "TrackScorer", lambda *a, **k: None)
+    monkeypatch.setattr(lcm, "PassScorer", lambda *a, **k: None)
     clock = Clock()
     h = hub(clock=clock)
     h.feed_phone(b"v1,1,0,0,0", PHONE)

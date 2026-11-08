@@ -20,7 +20,7 @@ from typing import Any
 from .checkpoints import Checkpoint, CheckpointStore
 from .reference import RefCorner
 from .track import Track, TrackCorner
-from .track_scorer import CornerPass
+from .corner_pass import CornerPass
 
 MAJOR, MINOR = "major", "minor"
 

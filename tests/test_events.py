@@ -10,7 +10,7 @@ from coach.lap_sim import LapSim
 from coach.offers import ACCEPTED, EXPIRED, OPEN, SUPERSEDED, WAITING, OfferManager
 from coach.reference import References
 from coach.track import Track
-from coach.track_scorer import TrackScorer
+from coach.corner_pass import PassScorer
 from engine.config import load_corner
 
 TRACK = Track.load()
@@ -20,7 +20,7 @@ BASE = load_corner("fixtures/corner_monza_t1.json")
 
 def lap(errors):
     passes = []
-    sc = TrackScorer(TRACK, BASE, passes.append)
+    sc = PassScorer(TRACK, BASE, passes.append)
     sim = LapSim(TRACK, errors=errors, laps=1.05, start_m=TRACK.length_m - 400)
 
     async def go():

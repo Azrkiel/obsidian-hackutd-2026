@@ -17,7 +17,7 @@ from pathlib import Path
 from engine.models import Attempt
 
 from .track import Track, TrackCorner
-from .track_scorer import CornerPass
+from .corner_pass import CornerPass
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_PB = ROOT / "data" / "personal_best.json"

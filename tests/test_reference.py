@@ -6,7 +6,7 @@ import pytest
 
 from coach.reference import References
 from coach.track import Track
-from coach.track_scorer import CornerPass
+from coach.corner_pass import CornerPass
 
 TRACK = Track.load()
 
