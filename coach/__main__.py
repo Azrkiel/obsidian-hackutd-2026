@@ -39,6 +39,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--voice", choices=["auto", "windows", "nvidia", "silent", "off"], default=None,
                     help="spoken coaching (default: auto in lap mode, off in drill mode)")
     ap.add_argument("--mute", action="store_true", help="start with the voice muted (M toggles)")
+    ap.add_argument("--release", type=float, default=0.55,
+                    help="sim: first-run brake release time in s (0.15 = snaps off: triggers brake_release)")
     ap.add_argument("--lap-gap", type=float, default=12.0,
                     help="sim lap mode: seconds between corner passes")
     return ap
@@ -58,7 +60,8 @@ def build_app(args: argparse.Namespace) -> CoachApp:
     kind = args.telemetry[0]
     lap = args.mode == "lap"
     if kind == "sim":
-        source = SimSource(corner, brake_board_m=args.brake_board, laps=lap, lap_gap_s=args.lap_gap)
+        source = SimSource(corner, brake_board_m=args.brake_board, laps=lap, lap_gap_s=args.lap_gap,
+                           release_s=args.release)
         reset = args.reset or ("manual" if lap else "sim")
     elif kind == "ac":
         source = ACSharedMemory(corner.track_length_m)

@@ -30,6 +30,14 @@ class Sample:
     x: float
     y: float
     z: float
+    # step 1 extras (defaults keep old recordings and constructors working)
+    g_lat: float = 0.0      # accG[0], lateral g
+    g_lon: float = 0.0      # accG[2], longitudinal g (sign: verify in game, step 8)
+    yaw_rate: float = 0.0   # localAngularVel[1], rad/s (sign: verify in game)
+    slip_f: float = 0.0     # max wheelSlip of the two fronts
+    slip_r: float = 0.0     # max wheelSlip of the two rears
+    load_f: float = 0.0     # wheelLoad fronts, N
+    load_r: float = 0.0     # wheelLoad rears, N
 
 
 # --- Assetto Corsa (original, NOT ACC) shared memory --------------------------------------------
@@ -44,8 +52,22 @@ _STATUS = {AC_OFF: "off", AC_REPLAY: "replay", AC_LIVE: "live", AC_PAUSE: "pause
 
 class SPageFilePhysics(ctypes.Structure):
     _pack_ = 4
+    # Field order from the same sim_info.py, through localAngularVel (truncated after it).
+    # Untested against the live game: check yaw-rate sign and g-forces in step 8.
     _fields_ = [("packetId", c_int32), ("gas", c_float), ("brake", c_float), ("fuel", c_float),
-                ("gear", c_int32), ("rpms", c_int32), ("steerAngle", c_float), ("speedKmh", c_float)]
+                ("gear", c_int32), ("rpms", c_int32), ("steerAngle", c_float), ("speedKmh", c_float),
+                ("velocity", c_float * 3), ("accG", c_float * 3), ("wheelSlip", c_float * 4),
+                ("wheelLoad", c_float * 4), ("wheelsPressure", c_float * 4),
+                ("wheelAngularSpeed", c_float * 4), ("tyreWear", c_float * 4),
+                ("tyreDirtyLevel", c_float * 4), ("tyreCoreTemperature", c_float * 4),
+                ("camberRAD", c_float * 4), ("suspensionTravel", c_float * 4),
+                ("drs", c_float), ("tc", c_float), ("heading", c_float), ("pitch", c_float),
+                ("roll", c_float), ("cgHeight", c_float), ("carDamage", c_float * 5),
+                ("numberOfTyresOut", c_int32), ("pitLimiterOn", c_int32), ("abs", c_float),
+                ("kersCharge", c_float), ("kersInput", c_float), ("autoShifterOn", c_int32),
+                ("rideHeight", c_float * 2), ("turboBoost", c_float), ("ballast", c_float),
+                ("airDensity", c_float), ("airTemp", c_float), ("roadTemp", c_float),
+                ("localAngularVel", c_float * 3)]
 
 
 class SPageFileGraphic(ctypes.Structure):
@@ -89,10 +111,15 @@ def parse_sample(phys: SPageFilePhysics, gfx: SPageFileGraphic, track_len_m: flo
     """Pure conversion of the two live pages into a Sample (unit-tested with fake buffers)."""
     pn = float(gfx.normalizedCarPosition)
     c = gfx.carCoordinates
+    ws, wl = phys.wheelSlip, phys.wheelLoad  # FL, FR, RL, RR
     return Sample(t=time.monotonic() if t is None else t, packet_id=int(phys.packetId),
                   status=_STATUS.get(int(gfx.status), "off"), pos_norm=pn, pos_m=pn * track_len_m,
                   speed_kmh=float(phys.speedKmh), gas=float(phys.gas), brake=float(phys.brake),
-                  steer=float(phys.steerAngle), x=float(c[0]), y=float(c[1]), z=float(c[2]))
+                  steer=float(phys.steerAngle), x=float(c[0]), y=float(c[1]), z=float(c[2]),
+                  g_lat=float(phys.accG[0]), g_lon=float(phys.accG[2]),
+                  yaw_rate=float(phys.localAngularVel[1]),
+                  slip_f=max(float(ws[0]), float(ws[1])), slip_r=max(float(ws[2]), float(ws[3])),
+                  load_f=float(wl[0]) + float(wl[1]), load_r=float(wl[2]) + float(wl[3]))
 
 
 class ACSharedMemory:
@@ -192,7 +219,7 @@ class SimSource:
                  apex_kmh: float = 74.0, pickup_after_apex_m: float = 22.0,
                  start_pos_m: float | None = None, with_pause: bool = False,
                  laps: bool = False, lap_gap_s: float = 12.0, lap_start_m: float = 0.0,
-                 release_s: float = 0.6):
+                 release_s: float = 0.55):
         self.corner, self.realtime, self.dt, self.skill = corner, realtime, 1.0 / hz, skill
         rng = random.Random(seed)
         self.v0_kmh = 318.0 + rng.uniform(-0.5, 0.5)
@@ -257,6 +284,18 @@ class SimSource:
         v = math.sqrt(vp * vp + 2 * self.accel * d)
         return v * 3.6, min(1.0, 0.4 + d / 20.0), 0.0
 
+    def _steer(self, pos: float) -> float:
+        """Right then left through the chicane (normalised steering input)."""
+        c = self.corner
+        ti, a1, a2, ex = c.gate("turn_in_m"), c.gate("apex1_m"), c.gate("apex2_m"), c.exit_gate_m
+        if ti <= pos < a1:
+            return 0.30 * math.sin(math.pi / 2 * (pos - ti) / max(a1 - ti, 1.0))
+        if a1 <= pos < a2:
+            return 0.30 - 0.55 * (pos - a1) / max(a2 - a1, 1.0)
+        if a2 <= pos < ex:
+            return -0.25 * (1 - (pos - a2) / max(ex - a2, 1.0))
+        return 0.0
+
     def _sample(self, status: str = "live") -> Sample:
         if self.parked:
             speed, gas, brake = 0.0, 0.0, 0.3
@@ -264,8 +303,15 @@ class SimSource:
             speed, gas, brake = self._profile(self.pos)
         self.packet += 1
         n = self.corner.track_length_m
+        steer = 0.0 if self.parked else self._steer(self.pos)
+        v = speed / 3.6
+        yaw = v * math.tan(steer * 0.25) / self.corner.wheelbase_m  # kinematic, neutral car
+        g_lon = -brake * 2.4 + gas * 0.6 if not self.parked else 0.0
+        slip_f = 0.03 + (0.25 if brake > 0.97 and v < 40 else 0.0)  # front lock at low speed
+        slip_r = 0.03 + (0.2 if gas > 0.9 and v < 35 else 0.0)
         return Sample(self.t, self.packet, status, self.pos / n, self.pos, speed, gas, brake,
-                      0.0, self.pos, 0.0, 0.0)
+                      steer, self.pos, 0.0, 0.0, g_lat=v * yaw / 9.81, g_lon=g_lon, yaw_rate=yaw,
+                      slip_f=slip_f, slip_r=slip_r)
 
     async def samples(self) -> AsyncIterator[Sample]:
         loop = asyncio.get_running_loop()

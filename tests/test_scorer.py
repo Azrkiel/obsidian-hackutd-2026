@@ -52,8 +52,10 @@ def test_metrics(corner):
     assert a.exit_kmh == pytest.approx(120.0, abs=0.01)
     assert a.section_s == pytest.approx(300 / 50, abs=1e-6)
     assert trace[0][0] == pytest.approx(240, abs=0.1) and trace[-1][0] == pytest.approx(540, abs=0.1)
-    assert all(b[0] - a_[0] >= 1.99 for a_, b in zip(trace, trace[1:]))
-    assert len(trace[0]) == 4
+    body = trace[:-1]  # the last row is the exit gate itself (splits time it)
+    assert all(b[0] - a_[0] >= 1.99 for a_, b in zip(body, body[1:]))
+    assert len(trace[0]) == 9  # pos, brake, gas, speed, t, steer, yaw, slip_f, slip_r
+    assert trace[-1][4] == pytest.approx(a.section_s, abs=1e-3)
 
 
 @pytest.mark.parametrize("offset", [0.0, 0.3, 1.7])

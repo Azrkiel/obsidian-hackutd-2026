@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
+from engine.analysis import driving_profile
 from engine.models import Attempt, CornerConfig
 
 from .telemetry import Sample
@@ -19,12 +20,19 @@ class _Pt:
     speed: float
     gas: float
     brake: float
+    steer: float = 0.0
+    yaw: float = 0.0
+    slip_f: float = 0.0
+    slip_r: float = 0.0
 
 
 def _lerp(a: _Pt, b: _Pt, r: float) -> _Pt:
     f = (r - a.r) / (b.r - a.r) if b.r != a.r else 0.0
-    return _Pt(a.t + f * (b.t - a.t), r, a.speed + f * (b.speed - a.speed),
-               a.gas + f * (b.gas - a.gas), a.brake + f * (b.brake - a.brake))
+
+    def m(x: float, y: float) -> float:
+        return x + f * (y - x)
+    return _Pt(m(a.t, b.t), r, m(a.speed, b.speed), m(a.gas, b.gas), m(a.brake, b.brake),
+               m(a.steer, b.steer), m(a.yaw, b.yaw), m(a.slip_f, b.slip_f), m(a.slip_r, b.slip_r))
 
 
 def _sustained(pts: list[_Pt], i0: int, key: Callable[[_Pt], float], thr: float) -> float | None:
@@ -76,7 +84,8 @@ class CornerScorer:
             self._invalid = why
 
     def add(self, s: Sample) -> None:
-        pt = _Pt(s.t, self._rel(s.pos_m), s.speed_kmh, s.gas, s.brake)
+        pt = _Pt(s.t, self._rel(s.pos_m), s.speed_kmh, s.gas, s.brake, s.steer,
+                 getattr(s, "yaw_rate", 0.0), getattr(s, "slip_f", 0.0), getattr(s, "slip_r", 0.0))
         prev, self._prev = self._prev, pt
         if prev is None:
             return
@@ -134,16 +143,24 @@ class CornerScorer:
                 reason = "no throttle pickup"
         peak = max((p.brake for p in pts if p.r <= a1), default=0.0)
         self._n += 1
+        # trace rows: [pos, brake, gas, speed, t, steer, yaw, slip_f, slip_r] (see engine.analysis)
+        trace, last = [], None
+        t0 = pts[0].t
+        for p in pts:
+            if last is None or p.r - last >= TRACE_STEP_M or p is pts[-1]:
+                trace.append([round(s + p.r, 1), round(p.brake, 3), round(p.gas, 3), round(p.speed, 1),
+                              round(p.t - t0, 3), round(p.steer, 3), round(p.yaw, 3),
+                              round(p.slip_f, 3), round(p.slip_r, 3)])
+                last = p.r
+        prof = driving_profile(trace, self.corner) if reason is None else {}
         attempt = Attempt(
             attempt_id=f"a-{self._n:04d}", valid=reason is None, invalid_reason=reason,
             entry_kmh=pts[0].speed, apex_kmh=pts[apex_i].speed if apex_i is not None else 0.0,
             exit_kmh=ex.speed if ex else pts[-1].speed,
             brake_onset_m=s + onset if onset is not None else 0.0, peak_brake=peak,
             throttle_pickup_m=s + pickup if pickup is not None else 0.0,
-            section_s=(ex.t if ex else pts[-1].t) - pts[0].t)
-        trace, last = [], None
-        for p in pts:
-            if last is None or p.r - last >= TRACE_STEP_M:
-                trace.append([round(s + p.r, 1), round(p.brake, 2), round(p.gas, 2), round(p.speed, 1)])
-                last = p.r
+            section_s=(ex.t if ex else pts[-1].t) - pts[0].t,
+            release_s=prof.get("release_s"), trail_brake_share=prof.get("trail_brake_share"),
+            lockup_s=prof.get("lockup_s"), wheelspin_s=prof.get("wheelspin_s"),
+            min_kmh=prof.get("min_kmh"), min_pos_m=prof.get("min_pos_m"))
         self.on_run(attempt, trace)

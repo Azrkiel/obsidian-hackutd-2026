@@ -284,3 +284,23 @@ def test_sapi_speaker_null_output():
         s.speak("Better, 4 metres earlier.")
     finally:
         s.close()
+
+
+async def test_lap_mode_brake_release_drill(corner, ref, tmp_path):
+    spk = SilentSpeaker()
+    src = SimSource(corner, realtime=False, laps=True, lap_gap_s=8.0, brake_board_m=100, release_s=0.15)
+    app = CoachApp(corner, ref, src, [], reset_mode="manual", data_dir=tmp_path / "d",
+                   trace_dir=tmp_path / "t", sound=False, countdown=0, persist_checkpoint=False,
+                   mode="lap", speaker=spk, announcer_kwargs={"runner": sync, "clock": lambda: src.t})
+    await app.start()
+    try:
+        await app.wait_for(lambda: len([e for e in app.events if e["type"] == "decision"]) >= 3, 30)
+    finally:
+        await app.stop()
+    ds = [e for e in app.events if e["type"] == "decision"]
+    assert ds[0]["drill_id"] == "brake_release" and ds[0]["target"] == {"release_s": 0.5}
+    assert ds[0]["reminder"] == "Ease off slowly."
+    assert spk.said[0] == "Ease off the brake slower as you turn in."
+    runs = [e["attempt"]["release_s"] for e in app.events if e["type"] == "run"]
+    assert runs[1] > runs[0]  # the sim driver follows the drill
+    assert any(d["action"] == "end_drill" and d["end_reason"] == "drill_complete" for d in ds)
