@@ -42,6 +42,11 @@ class Coach:
         """Skip arming the live cue on the next retry only."""
         self._skip_cue_once = True
 
+    def toggle_cue_next_try(self) -> bool:
+        """Flip the skip-cue-once flag; returns the new value."""
+        self._skip_cue_once = not self._skip_cue_once
+        return self._skip_cue_once
+
     def reset_session(self) -> None:
         self.baseline = self.previous = self.drill = self.offer = None
         self._skip_cue_once = False

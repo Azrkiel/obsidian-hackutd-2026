@@ -110,3 +110,14 @@ async def test_skip_cue_once(corner, ref):
     coach.disable_cue_next_try()
     coach.on_reset_confirmed()
     assert coach.state == "RETRY" and not coach.live_cue.armed
+
+
+async def test_toggle_cue_next_try(corner, ref):
+    coach, events, _, _ = make(corner, ref)
+    assert coach.toggle_cue_next_try() is True
+    assert coach.toggle_cue_next_try() is False
+    coach.toggle_cue_next_try()
+    await coach.on_scored(attempt("late_brake"))
+    await coach.on_accept(coach.offer.decision_id)
+    coach.on_reset_confirmed()
+    assert not coach.live_cue.armed  # skipped once
