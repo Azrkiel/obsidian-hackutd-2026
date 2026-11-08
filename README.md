@@ -2,6 +2,34 @@
 
 One-corner practice coach for Assetto Corsa (HackUTD 2026).
 
+## Optional shared session history
+
+The coach can upload completed sessions, laps, scored attempts and coaching decisions to a
+SpacetimeDB database in your account. The game PC keeps its local dashboard, Rev overlay and Brev
+connection; cloud failures leave coaching running and pending uploads on disk.
+
+Install the optional credential-store dependency, then follow [the SpacetimeDB setup runbook](docs/SPACETIMEDB.md)
+to publish the database and register each PC:
+
+```powershell
+uv sync --system-certs --extra cloud
+uv run --system-certs --extra cloud python scripts/spacetime_device.py setup --label game-pc
+```
+
+Setup stores a runtime token in Windows Credential Manager and prints public enrollment values.
+An administrator must register that device before uploads or reads are allowed. An unconfigured
+installation continues to run locally.
+
+After enrolling a second PC as a viewer, run its history-only dashboard:
+
+```powershell
+uv run --system-certs --extra cloud python -m coach.history
+```
+
+Open `http://127.0.0.1:8020`. The viewer needs no game, controller bridge or Brev GPU connection.
+The module source, tests, publication steps, per-device permissions and recovery procedures are
+documented in [docs/SPACETIMEDB.md](docs/SPACETIMEDB.md).
+
 ## Thinking engine
 
 Nemotron reads a scored attempt's metrics and picks one coaching action; the car is reset and the retry is scored.
