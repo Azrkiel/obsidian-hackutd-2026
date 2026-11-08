@@ -16,6 +16,10 @@ cue and a 5-second opt-in to rewind and retry that corner, from the phone (Next)
 | Scope | **Every corner at Monza.** Every error triggers an event and an offer. |
 | Corners | **7 units**, each chicane one corner: Rettifilo, Curva Grande, Roggia, Lesmo 1, Lesmo 2, Ascari, Parabolica. |
 | Curva Grande | Flat out, so **major errors only** (wheels off, spin, big speed loss). Its anchor counts back from turn-in. |
+| Error cue | Reuses the coach's **`offer_drill`** decision (drill, target, cue) instead of a new `offer_retry` tool; the accepted offer runs today's retry loop. |
+| Stable save (retry start, fallback 3) | **Approximated:** off every corner and within 25% of the AI speed there (the Lua save report has only position and speed). Revisit in B. |
+| Errors during a retry loop | **Ignored** until the loop ends and the car is back where Retry was pressed. |
+| Personal best | **Normal laps only**: passes during a retry loop never set a best. |
 | Track data | Built against a **synthetic Monza line** (`scripts/synth_track.py`) until the game PC's `fast_lane.ai` is copied in; then regenerate `fixtures/tracks/monza.json` and hand-check the corners. |
 | Reference | **AI racing line or personal best**, chosen **globally** (no per-corner override). |
 | Personal best | **Saved on disk**, with a **reset** button. |

@@ -225,3 +225,24 @@ def test_parse_ck():
     assert parse_ck("CK 12 t 0.5 100 1 - 0.4 3 10", 0).anchor is None
     for bad in ("CK 1 x 0.5 100 1 - 0 0 1", "CK 1 t", "SAVED 1 2 3 4", "CK one t 0.5 1 1 - 0 0 1"):
         assert parse_ck(bad, 0) is None
+
+
+async def test_reset_manager_restores_the_held_state(rig):
+    from coach.reset import ResetManager
+    from coach.telemetry import Sample
+    store, lua, _, _ = rig
+    lua.save(spline=0.3)
+    await settle()
+    assert await store.hold("e9", store.latest())
+    events = []
+    rm = ResetManager("udp", events.append, lambda: None, countdown=0, udp_addr=store.lua_addr,
+                      udp_ack_s=0.5, confirm_timeout_s=1.0)
+    rm.store, rm.held_event = store, "e9"
+    rm.checkpoint = {"pos_m": 1700.0, "speed_kmh": 200.0}
+    task = asyncio.create_task(rm.reset("d-1"))
+    await asyncio.sleep(0.1)
+    rm.on_sample(Sample(0, 1, "live", 0.3, 1702.0, 201.0, 1, 0, 0, 0, 0, 0))   # telemetry confirms
+    assert await task is True
+    assert "RESTORE d-1 e9" in lua.received and not any(m.startswith("RESET") for m in lua.received)
+    assert lua.loaded == ["state1"]
+    await store.stop()

@@ -32,7 +32,7 @@ from .telemetry import Recorder, Sample, SimSource
 
 COMMANDS = {"accept", "retry", "save_checkpoint", "set_reference", "new_session",
             "toggle_cue_next", "retry_reset", "toggle_mute", "mark_board", "resume",
-            "new_pairing", "select_corner"}
+            "new_pairing", "select_corner", "accept_offer"}
 LAP_TOTAL_DEADLINE_S = 8.0  # lap mode: slower than this and the rules sentence is spoken instead
 ACTIVITY_TYPES = {"run", "decision", "reset_request", "reset_confirmed", "reset_failed",
                   "checkpoint", "reference", "session", "input", "resume_point", "resumed", "corner"}
@@ -60,7 +60,8 @@ class CoachApp:
                  reset_kwargs: dict | None = None, mode: str = "drill", speaker: Any = None,
                  muted: bool = False, announcer_kwargs: dict | None = None, agent: bool = False,
                  inputs: InputHub | None = None, auto_retry: bool = False, max_retries: int = 5,
-                 track: Any = None, references: Any = None, lead_time_s: float = 4.0):
+                 track: Any = None, references: Any = None, lead_time_s: float = 4.0,
+                 whole_lap: bool = False, store: Any = None):
         if mode not in ("drill", "lap"):
             raise ValueError(f"mode must be drill or lap, not {mode!r}")
         self.mode = mode
@@ -115,10 +116,20 @@ class CoachApp:
         dk = dict(decide_kwargs or {})
         if mode == "lap":
             dk.setdefault("total_deadline_s", LAP_TOTAL_DEADLINE_S)
+        self.decide_kwargs_default = dict(dk)
         self.coach = Coach(corner, reference, providers, self._on_coach_event, self._request_reset,
                            trace=self.trace, live_cue=self.live_cue, decide_kwargs=dk,
                            lap_mode=mode == "lap",
                            agent=AgentSession(corner, reference, self.reference_trace) if agent else None)
+        # whole-lap mode: every error on the lap gets a cue and a retry offer (coach.lap_coach)
+        self.store, self.lap_coach = store, None
+        if whole_lap:
+            if track is None or references is None:
+                raise ValueError("whole-lap mode needs a track and references")
+            from .lap_coach import LapCoach
+            self.auto_retry = True   # an accepted offer runs the retry loop and resumes at the end
+            self.reset.store = store
+            self.lap_coach = LapCoach(self, store=store, max_retries=max_retries)
 
     # -- broadcast --
     def subscribe(self, cb: Callable[[dict], None]) -> Callable[[], None]:
@@ -201,6 +212,8 @@ class CoachApp:
         self.broadcast(e)
         if e["type"] == "decision":
             self._speak_decision(e)
+        if self.lap_coach is not None:
+            self.lap_coach.on_coach_event(e)
         if not self.auto_retry or e["type"] != "status" or "message" in e:
             return
         c = self.coach
@@ -242,6 +255,8 @@ class CoachApp:
         c = self.coach
         if name == "resume":
             self._spawn(self.handle_command({"type": "resume"}))
+        elif self.lap_coach is not None and self.lap_coach.open_offer():
+            self._spawn(self.handle_command({"type": "accept_offer"}))
         elif self.mode == "lap":
             self._note("next does nothing in lap mode")
         elif c.state == OFFERED and c.offer:
@@ -252,6 +267,8 @@ class CoachApp:
     def _on_resumed(self) -> None:
         self.coach.reset_session()
         self.broadcast({"type": "resumed"})
+        if self.lap_coach is not None:
+            self.lap_coach.retry_finished()
 
     def _on_reset_confirmed(self) -> None:
         if self.coach.state == AWAIT_RESET:
@@ -285,6 +302,8 @@ class CoachApp:
         elif role == "retry":
             self.retry_run = ev
         self.broadcast(ev)
+        if self.lap_coach is not None and state != RETRY:
+            return   # whole-lap: first attempts reach the coach as error events (LapCoach), not here
         await self.coach.on_scored(attempt, trace, {"inputs": inputs} if inputs else None)
 
     # -- telemetry --
@@ -302,6 +321,8 @@ class CoachApp:
             elif self._run_inputs.n:
                 self._run_inputs = RunInputs()  # the last run was aborted
         self.scorer.add(s)
+        if self.lap_coach is not None:
+            self.lap_coach.on_sample(s)
         if self.announcer:
             self.announcer.pump()
 
@@ -369,6 +390,8 @@ class CoachApp:
                       and e["status"] in ("spoken", "dropped", "error")][-20:],
             "plan": c.plan_dict() if hasattr(c, "plan_dict") else None,
             "tools": [e for e in self.events if e["type"] == "tool_call"][-40:],
+            "offers": self.lap_coach.offers.snapshot() if self.lap_coach else None,
+            "references": self.references.summary() if self.references else None,
         }
 
     async def _health_loop(self) -> None:
@@ -387,7 +410,12 @@ class CoachApp:
         if not isinstance(msg, dict) or msg.get("type") not in COMMANDS:
             return self._note("unknown command")
         kind, c = msg["type"], self.coach
-        if kind == "accept":
+        if kind == "accept_offer" or (kind == "accept" and self.lap_coach is not None
+                                      and (self.lap_coach.open_offer() or msg.get("offer_id"))):
+            if self.lap_coach is None:
+                return self._note("accept_offer needs whole-lap mode")
+            self._spawn(self.lap_coach.accept(msg.get("offer_id")))
+        elif kind == "accept":
             did = msg.get("decision_id") or (c.offer.decision_id if c.offer else None)
             if c.state != OFFERED or c.offer is None or c.offer.decision_id != did:
                 return self._note("accept does not match the current offer")
@@ -518,10 +546,19 @@ class CoachApp:
         self._main = [asyncio.create_task(self._telemetry_loop()),
                       asyncio.create_task(self._health_loop())]
         self._spawn(ladder.warm_up(self.providers))
+        if self.store is not None:
+            await self.store.start()
+            await self.store.configure(anchors=self.track.anchor_splines(self.lead_time_s))
+        if self.lap_coach is not None:
+            self.lap_coach.start()
 
     async def stop(self) -> None:
         if self.sim is not None:
             self.sim.stop()
+        if self.lap_coach is not None:
+            await self.lap_coach.stop()
+        if self.store is not None:
+            await self.store.stop()
         for t in self._main + list(self._tasks):
             t.cancel()
         await asyncio.gather(*self._main, *self._tasks, return_exceptions=True)
