@@ -370,7 +370,7 @@ async def _run(args: argparse.Namespace, rev: list) -> None:
         await dash.stop()
         raise SystemExit(f"error: {e}") from e
     voice = "off" if app.announcer is None else app.announcer.speaker.name
-    print(f"NomadSim coach: mode={app.mode} agent={'on' if app.coach.agent else 'off'} telemetry={args.telemetry[0]} reset={app.reset.mode} "
+    print(f"Pit Pal coach: mode={app.mode} agent={'on' if app.coach.agent else 'off'} telemetry={args.telemetry[0]} reset={app.reset.mode} "
           f"voice={voice} dashboard http://{args.host}:{args.port}", flush=True)
     if app.track is not None:
         print(f"whole lap: {app.track.name}, corners {', '.join(app.track.ids)}; decides after {app.track.last_id}",

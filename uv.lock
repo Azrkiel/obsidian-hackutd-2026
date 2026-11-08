@@ -885,7 +885,7 @@ wheels = [
 ]
 
 [[package]]
-name = "nomadsim-engine"
+name = "pit-pal"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

@@ -42,12 +42,12 @@ publisher CLI credentials; only the owner workstation performs publication and r
 For a new checkout, run in Windows PowerShell:
 
 ```powershell
-git clone --branch rev-overlay https://github.com/Azrkiel/obsidian-hackutd-2026.git "$env:USERPROFILE\pitpal-brev"
-cd "$env:USERPROFILE\pitpal-brev"
+git clone https://github.com/Azrkiel/obsidian-hackutd-2026.git "$env:USERPROFILE\pitpal"
+cd "$env:USERPROFILE\pitpal"
 uv sync --system-certs --extra cloud
 ```
 
-For an existing **clean** checkout on `rev-overlay`, run from its repo folder:
+For an existing **clean** checkout on `main`, run from its repo folder:
 
 ```powershell
 git status --short

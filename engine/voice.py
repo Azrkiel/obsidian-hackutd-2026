@@ -183,7 +183,7 @@ class Message:
 
 
 def _thread_runner(fn: Callable[[], None]) -> None:
-    threading.Thread(target=fn, daemon=True, name="nomadsim-voice").start()
+    threading.Thread(target=fn, daemon=True, name="pitpal-voice").start()
 
 
 class Announcer:

@@ -26,7 +26,7 @@ The key lives in `data/pairing.json` (git-ignored), so a phone stays paired acro
 
 ### Network requirements (the one-time PC setup that pairing cannot remove)
 
-- **Windows Firewall** must allow inbound UDP 5005 (the existing "NomadSim UDP" rule). Make sure
+- **Windows Firewall** must allow inbound UDP 5005 (an inbound rule for UDP 5005). Make sure
   it covers the network profile in use: venue and hotspot networks are usually "Public".
 - **Client isolation**: some venue Wi-Fi blocks devices from reaching each other. Pairing can't fix
   that; use the iPhone's Personal Hotspot (the PC joins it, the QR then lists the hotspot address).
@@ -105,7 +105,7 @@ Keep the UI change small: one new entry point on the pairing screen, plus deep l
    - Add `NSCameraUsageDescription` to `Info.plist` (the project already uses an `Info.plist` for the
      Bonjour key, so the project file doesn't need to change).
 2. **`PairingCode`** (new file): parse the URI with `URLComponents`, base64url-decode `k` (16 bytes),
-   validate `v=1`, hosts, port. Reject anything else with "Not a NomadSim code".
+   validate `v=1`, hosts, port. Reject anything else with "Not a Pit Pal code".
 3. **`PairingStore`**: save `{id, name, hosts, port, key}` in the Keychain (generic password,
    service `nomadsim.pairing`, account = id). Paired receivers appear first in the receiver list
    (existing "Last used" styling); swipe to forget.

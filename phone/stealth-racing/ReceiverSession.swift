@@ -3,7 +3,7 @@ import Network
 import Observation
 import UIKit
 
-/// The phone's link to the NomadSim receiver (`python -m coach --inputs`):
+/// The phone's link to the Pit Pal receiver (`python -m coach --inputs`):
 /// Bonjour discovery, QR pairing, ~100 Hz `v1` steering packets, `evt` buttons, receipt
 /// confirmation (`ack`) and the coach's retry offers (`ofr` / `ofx`).
 @MainActor

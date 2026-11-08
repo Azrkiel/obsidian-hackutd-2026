@@ -142,7 +142,7 @@ spacetime*/   optional shared race history (SpacetimeDB); history-viewer/ is its
 docs/         reference, pairing, overlay, history; docs/img holds every image in this README
 ```
 
-Internal names such as `nomadsim_reset` and `nomadsim-engine` are historical and kept on purpose. The full engine,
+The rewind app's folder name, `nomadsim_reset`, is a historical name kept on purpose (it is copied by name into the game). The full engine,
 coach and cloud reference is [docs/REFERENCE.md](docs/REFERENCE.md).
 
 ---

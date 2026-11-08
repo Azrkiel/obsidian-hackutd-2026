@@ -52,7 +52,7 @@ class WinsoundPlayer:
     def __init__(self) -> None:
         import winsound  # lazy: not available off Windows
         self._ws = winsound
-        self._dir = Path(tempfile.mkdtemp(prefix="nomadsim-cues-"))
+        self._dir = Path(tempfile.mkdtemp(prefix="pitpal-cues-"))
         gap = [0] * 1000
         sounds = {
             "pre": _tone(880, 80),

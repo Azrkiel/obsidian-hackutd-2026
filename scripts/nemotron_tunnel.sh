@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Keep the Brev tunnel to Nemotron open on the PC (localhost:8000 -> nomadsim-h100:8000).
-# Run from Windows:  wsl -d Ubuntu -- bash -l /mnt/d/D-Downloads/obsidian-hackutd-2026/scripts/nemotron_tunnel.sh
+# Run from Windows:  wsl -d Ubuntu -- bash -l /mnt/<drive>/<path to repo>/scripts/nemotron_tunnel.sh
 # Leave the window open. It checks the tunnel every 10 s and re-opens it if it dropped, and it keeps
 # WSL awake (Windows stops Ubuntu, and the tunnel with it, when nothing is running there).
 export PATH="$HOME/.local/bin:$PATH"

@@ -19,7 +19,7 @@ N = int(sys.argv[2]) if len(sys.argv) > 2 else 10
 def get(url):
     for i in range(4):
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "nomadsim-research"})
+            req = urllib.request.Request(url, headers={"User-Agent": "pitpal-research"})
             with urllib.request.urlopen(req, timeout=90) as r:
                 return json.loads(r.read())
         except Exception as e:  # noqa: BLE001

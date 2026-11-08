@@ -33,7 +33,7 @@ The coach can upload completed sessions, laps, scored attempts and coaching deci
 SpacetimeDB database in your account. The game PC keeps its local dashboard, Rev overlay and Brev
 connection; cloud failures leave coaching running and pending uploads on disk.
 
-Install the optional credential-store dependency, then follow [the SpacetimeDB setup runbook](docs/SPACETIMEDB.md)
+Install the optional credential-store dependency, then follow [the SpacetimeDB setup runbook](SPACETIMEDB.md)
 to publish the database and register each PC:
 
 ```powershell
@@ -53,7 +53,7 @@ uv run --system-certs --extra cloud python -m coach.cloud_viewer
 
 Open `http://127.0.0.1:8020`. The viewer needs no game, controller bridge or Brev GPU connection.
 The module source, tests, publication steps, per-device permissions and recovery procedures are
-documented in [docs/SPACETIMEDB.md](docs/SPACETIMEDB.md).
+documented in [SPACETIMEDB.md](SPACETIMEDB.md).
 
 ## Thinking engine
 
