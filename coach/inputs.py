@@ -440,10 +440,19 @@ class InputHub:
                 with serial.Serial(port, 115200, timeout=0.1) as ser:
                     self.serial_port, self.serial_error = port, None
                     while not self._stop.is_set():
-                        self.feed_arduino(ser.readline().decode(errors="ignore"))
+                        self.feed_arduino(newest_line(ser))
             except (serial.SerialException, OSError) as e:
                 self.serial_port, self.serial_error = None, str(e)
                 time.sleep(1)
+
+
+def newest_line(ser: Any, backlog: int = 40) -> str:
+    """Next serial line, skipping ahead when readings pile up (same as hardware/bridge.py), so a
+    slow moment never leaves the pedals lagging behind the driver's feet."""
+    line = ser.readline()
+    while ser.in_waiting > backlog:
+        line = ser.readline()
+    return line.decode(errors="ignore")
 
 
 def _find_arduino(lp: Any) -> str | None:

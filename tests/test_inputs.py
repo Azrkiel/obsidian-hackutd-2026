@@ -178,3 +178,25 @@ async def test_port_in_use_is_a_clear_error():
             await hub.start()
     finally:
         blocker.close()
+
+
+def test_serial_skips_to_the_newest_reading():
+    from coach.inputs import newest_line
+
+    class FakeSerial:
+        def __init__(self, lines):
+            self.lines = [l.encode() for l in lines]
+
+        @property
+        def in_waiting(self):
+            return sum(len(l) for l in self.lines)
+
+        def readline(self):
+            return self.lines.pop(0) if self.lines else b""
+
+    old = [f"{i},0\n" for i in range(20)]           # a backlog of stale readings
+    ser = FakeSerial(old + ["900,0\n"])
+    line = newest_line(ser)
+    assert int(line.split(",")[0]) > 10              # jumped well past the stale ones...
+    assert ser.in_waiting <= 40                       # ...to within a few readings of the newest
+    assert newest_line(FakeSerial(["5,6\n"])) == "5,6\n"
