@@ -54,6 +54,8 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--invert-steer", action="store_true")
     ap.add_argument("--auto-retry", action=argparse.BooleanOptionalAction, default=True,
                     help="after Accept, keep rewinding until the drill ends, then resume (default on)")
+    ap.add_argument("--max-retries", type=int, default=5,
+                    help="auto-retry stops after this many retries of one drill and resumes (default 5)")
     ap.add_argument("--mode", choices=["lap", "drill"], default="drill",
                     help="lap: keep driving, the coach talks (no Accept/reset). drill: Accept, reset, retry")
     ap.add_argument("--voice", choices=["auto", "windows", "nvidia", "silent", "off"], default=None,
@@ -117,7 +119,7 @@ def build_app(args: argparse.Namespace) -> CoachApp:
                     sound=args.sound, countdown=args.countdown,
                     persist_checkpoint=kind != "sim", mode=args.mode, speaker=speaker,
                     muted=args.mute, agent=args.agent, inputs=build_inputs(args),
-                    auto_retry=args.auto_retry)
+                    auto_retry=args.auto_retry, max_retries=args.max_retries)
 
 
 async def amain(args: argparse.Namespace) -> None:

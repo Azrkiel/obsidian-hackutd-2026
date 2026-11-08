@@ -103,15 +103,16 @@ def test_invert_steer():
 def test_run_inputs_summary():
     r = RunInputs()
     assert r.summary() is None
-    live = {"pedal_source": "arduino", "phone_live": True, "steer": 0, "gas": 0.5, "brake": 0.0}
+    live = {"pedal_source": "arduino", "phone_live": True, "arduino_live": True,
+            "steer": 0, "gas": 0.5, "brake": 0.0}
     for _ in range(8):
         r.add(live, game_gas=0.5, game_brake=0.0)
-    r.add({**live, "pedal_source": "phone"}, 0.5, 0.0)
-    r.add({**live, "pedal_source": "none", "phone_live": False}, 0.5, 0.0)
+    r.add({**live, "pedal_source": "phone", "arduino_live": False}, 0.5, 0.0)
+    r.add({**live, "pedal_source": "none", "phone_live": False, "arduino_live": False}, 0.5, 0.0)
     s = r.summary()
     assert s["pedal_source"] == "mixed"
     assert s["phone_fallback_pct"] == 10 and s["no_pedal_input_pct"] == 10
-    assert s["phone_link_drops"] == 1 and s["pedal_link_drops"] == 1
+    assert s["phone_link_drops"] == 1 and s["pedal_link_drops"] == 1 and s["arduino_link_drops"] == 1
 
 
 async def test_hub_receives_real_udp():
@@ -134,3 +135,46 @@ async def test_hub_receives_real_udp():
     finally:
         await hub.stop()
     assert hub.pad.axes == (0.0, 0.0, 0.0)
+
+
+def test_dropout_reason():
+    from coach.inputs import dropout_reason
+    ok = {"pedal_source": "arduino", "phone_fallback_pct": 0, "no_pedal_input_pct": 0,
+          "phone_link_drops": 0, "pedal_link_drops": 0, "arduino_link_drops": 0}
+    assert dropout_reason(None) is None and dropout_reason(ok) is None
+    assert dropout_reason({**ok, "phone_link_drops": 1}) == "steering_dropout"
+    assert dropout_reason({**ok, "arduino_link_drops": 1, "pedal_source": "mixed"}) == "pedal_dropout"
+    assert dropout_reason({**ok, "pedal_source": "mixed", "no_pedal_input_pct": 25}) == "pedal_dropout"
+    # the receiver never saw pedals (e.g. a real wheel): leave the run alone
+    assert dropout_reason({**ok, "pedal_source": "none", "no_pedal_input_pct": 100}) is None
+
+
+def test_arduino_drop_counted_even_with_phone_fallback():
+    r = RunInputs()
+    st = {"pedal_source": "arduino", "phone_live": True, "arduino_live": True, "gas": 0, "brake": 0}
+    r.add(st)
+    r.add({**st, "pedal_source": "phone", "arduino_live": False})  # fell back: pedals never "none"
+    s = r.summary()
+    assert s["pedal_link_drops"] == 0 and s["arduino_link_drops"] == 1
+
+
+def test_coach_commands_are_not_pad_buttons(hub):
+    got = []
+    hub.on_command = got.append
+    for _ in range(3):
+        hub.feed_phone(b"evt,5,coach_next,tap", PHONE)
+    hub.feed_phone(b"evt,6,coach_resume,tap", PHONE)
+    assert got == ["next", "resume"] and hub.pad.log == []
+
+
+async def test_port_in_use_is_a_clear_error():
+    import socket
+    blocker = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    blocker.bind(("0.0.0.0", 0))
+    port = blocker.getsockname()[1]
+    hub = InputHub(NullPad(), phone_port=port, arduino="off", advertise=False)
+    try:
+        with pytest.raises(RuntimeError, match="bridge/bridge.py"):
+            await hub.start()
+    finally:
+        blocker.close()

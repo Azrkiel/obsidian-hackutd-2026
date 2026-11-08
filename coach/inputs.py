@@ -3,6 +3,7 @@
 Inputs
   phone    UDP :5005   "v1,<seq>,<steer>,<throttle>,<brake>"   steer -1..1, pedals 0..1, ~100 Hz
                        "evt,<id>,<command>,<tap|down|up>"     buttons, each id sent 3x
+                         (coach_next / coach_resume are coach commands, not pad buttons)
                        reply "ack,<seq>" when seq % 30 == 0 so the app shows "Receiver confirmed"
   arduino  serial      "gas,brake" ints 0..1000 per line (hardware/pedals/pedals.ino); "#..." ignored
            UDP (opt.)  the same "gas,brake" text, one reading per datagram
@@ -48,6 +49,10 @@ BINDINGS = {
     "abs_up": "RIGHT_THUMB",
     "camera": "BACK",
 }
+# Phone commands for the coach itself (not pad buttons): "next" accepts an offer or rewinds for a
+# retry, "resume" ends a drill and loads the resume point.
+COACH_COMMANDS = {"coach_next": "next", "coach_resume": "resume"}
+DROPOUT_PCT = 10  # % of a run with no pedal input that makes the run not count
 _COMMAND = re.compile(r"[a-z][a-z0-9_]{0,31}")
 
 
@@ -152,8 +157,8 @@ class RunInputs:
     def __init__(self) -> None:
         self.n = 0
         self.by_source = {"arduino": 0, "phone": 0, "none": 0}
-        self.phone_drops = self.pedal_drops = 0
-        self._phone_live = self._pedals_live = None
+        self.phone_drops = self.pedal_drops = self.arduino_drops = 0
+        self._phone_live = self._pedals_live = self._ard_live = None
         self.gap_sum = 0.0
         self.gap_n = 0
 
@@ -165,7 +170,10 @@ class RunInputs:
         pedals_live = state["pedal_source"] != "none"
         if self._pedals_live and not pedals_live:
             self.pedal_drops += 1
+        if self._ard_live and not state["arduino_live"]:
+            self.arduino_drops += 1
         self._phone_live, self._pedals_live = state["phone_live"], pedals_live
+        self._ard_live = state["arduino_live"]
         if game_brake is not None and game_gas is not None:
             self.gap_sum += abs(state["brake"] - game_brake) + abs(state["gas"] - game_gas)
             self.gap_n += 2
@@ -180,8 +188,26 @@ class RunInputs:
             "no_pedal_input_pct": round(100 * self.by_source["none"] / self.n),
             "phone_link_drops": self.phone_drops,
             "pedal_link_drops": self.pedal_drops,
+            "arduino_link_drops": self.arduino_drops,
             "input_vs_game_pedal_gap": round(self.gap_sum / self.gap_n, 2) if self.gap_n else None,
         }
+
+
+def dropout_reason(summary: dict | None) -> str | None:
+    """Why a run must not count because an input cut out, or None.
+
+    A run where the receiver never saw pedals or the phone (e.g. the driver used a real wheel) is
+    left alone. Otherwise: phone lost mid-run -> steering went to centre; Arduino lost, or pedals
+    gone for more than DROPOUT_PCT of the run -> the game saw the pedals let go, not the driver."""
+    if not summary:
+        return None
+    if summary["phone_link_drops"]:
+        return "steering_dropout"
+    if summary["arduino_link_drops"] or summary["pedal_link_drops"]:
+        return "pedal_dropout"
+    if summary["pedal_source"] != "none" and summary["no_pedal_input_pct"] > DROPOUT_PCT:
+        return "pedal_dropout"
+    return None
 
 
 # --- hub ------------------------------------------------------------------------------------------
@@ -220,6 +246,7 @@ class InputHub:
         self.pad = pad or NullPad()
         self.phone_port, self.arduino, self.arduino_udp_port = phone_port, arduino, arduino_udp_port
         self.invert, self.emit, self.clock, self.advertise = invert_steer, emit or (lambda e: None), clock, advertise
+        self.on_command: Callable[[str], None] | None = None  # set by the coach
         self._lock = threading.Lock()  # the serial reader runs in a thread
         self.steer = self.p_gas = self.p_brake = 0.0
         self.a_gas = self.a_brake = 0.0
@@ -276,6 +303,13 @@ class InputHub:
         return True
 
     def handle_event(self, command: str, phase: str) -> str | None:
+        if command in COACH_COMMANDS:
+            if phase != "up":
+                name = COACH_COMMANDS[command]
+                self.emit({"type": "input", "message": f"phone: {name}"})
+                if self.on_command is not None:
+                    self.on_command(name)
+            return None
         button = BINDINGS.get(command)
         if button is None:
             self.emit({"type": "input", "message": f"unbound phone command {command}"})

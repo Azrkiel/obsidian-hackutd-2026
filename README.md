@@ -138,14 +138,19 @@ uv run --with vgamepad --with pyserial python -m coach --telemetry ac --reset ud
 - Phone buttons map to pad buttons in `BINDINGS` (`coach/inputs.py`): paddles are RB/LB.
 - `--pad none` reads and mixes inputs without a virtual pad (default off Windows).
 - `--invert-steer` flips steering.
-- `--no-inputs` turns the receiver off.
+- The receiver is off unless `--inputs` is given. If UDP 5005 is already taken (by `bridge/bridge.py` or `listen.py`), the coach stops with an error naming them.
+- Phone coach buttons are events too. `evt,<id>,coach_next,tap` accepts the offered drill, or rewinds for a retry when nothing is offered. `evt,<id>,coach_resume,tap` ends the drill and loads the resume point. Both are ignored by `bridge/bridge.py`.
 
-Each scored run carries an `inputs` summary into the evidence packet and the trace: which device drove the pedals, the phone-fallback share, link drops, and the gap between the pedal input and what the game reported. Nemotron is told to blame a pedal cut-out rather than technique when that happens. The dashboard's inputs badge shows the live pedal source.
+Each scored run carries an `inputs` summary into the evidence packet and the trace: which device drove the pedals, the phone-fallback share, link drops, and the gap between the pedal input and what the game reported. The dashboard's inputs badge shows the live pedal source.
+
+**Input dropouts don't count.** A run is marked invalid before any coaching if the phone dropped out (`steering_dropout`: steering went to centre). It is also marked invalid if the Arduino dropped out, or the pedals were missing for more than 10% of the run (`pedal_dropout`: the game saw the pedals let go). Then every mode treats it like any other invalid run: a baseline is declined, a retry is "that lap did not count, same again". Both Nemotron prompts (normal and agent) say to blame the input, not the driver. Runs where the receiver never saw pedals or the phone (e.g. a real wheel) are left alone.
 
 ### Drill loop and resume
 
 - Accepting a drill saves a **resume point** (where the car is now), then rewinds to the checkpoint.
-- With `--auto-retry` (the default), each retry is scored and judged. If the coach offers the drill again, the car rewinds automatically. The loop ends when the coach ends the drill (target hit, or no progress). The car is then loaded back at the resume point.
+- With `--auto-retry` (the default), each retry is scored and judged. If the coach offers the same drill again, the car rewinds automatically. The loop ends when the coach ends the drill (target hit, or no progress), or after `--max-retries` retries (default 5). The car is then loaded back at the resume point.
+- In `--agent` mode, moving to the plan's next goal waits for Accept (or the phone's `coach_next`), so the new cue is heard before the car is rewound. Retries of the same goal loop on their own.
+- Lap mode never rewinds, so none of this applies there.
 - **Resume (end drill)** on the dashboard stops the loop at any time. It aborts a retry in progress and loads the resume point.
 - Use `--no-auto-retry` to confirm each retry with Accept.
 - Resume needs a second saved state, so it works with `--reset udp` (CSP app `SAVE resume` / `RESUME <id>`) and `--reset sim`. In hotkey and manual modes the drill just ends where the car is.

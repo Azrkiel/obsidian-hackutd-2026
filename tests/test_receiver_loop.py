@@ -88,3 +88,53 @@ async def test_input_summary_reaches_the_coach(corner, ref, tmp_path):
     assert packet["inputs"]["pedal_source"] == "arduino"
     assert packet["inputs"]["pedal_link_drops"] == 0
     assert health["inputs"]["pedal_source"] == "arduino"
+
+
+async def test_retry_cap_stops_the_loop_and_resumes(corner, ref, tmp_path):
+    app = make_app(corner, ref, tmp_path, auto_retry=True, max_retries=1)
+    await app.start()
+    try:
+        await app.wait_for(lambda: app.coach.state == "OFFERED", 20)
+        await app.handle_command({"type": "accept", "decision_id": app.coach.offer.decision_id})
+        await app.wait_for(lambda: kinds(app, "resumed"), 30)
+    finally:
+        await app.stop()
+    assert len([e for e in kinds(app, "run") if e["role"] == "retry"]) == 1
+    assert any("stopped after 1 retries" in (e.get("message") or "") for e in kinds(app, "status"))
+
+
+async def test_input_dropout_run_is_not_coached(corner, ref, tmp_path):
+    from conftest import attempt
+    app = make_app(corner, ref, tmp_path)
+    dropped = {"pedal_source": "mixed", "phone_fallback_pct": 0, "no_pedal_input_pct": 30,
+               "phone_link_drops": 0, "pedal_link_drops": 1, "arduino_link_drops": 1,
+               "input_vs_game_pedal_gap": None}
+    await app._handle_run(attempt("late_brake"), [], dropped)
+    run = app.baseline_run["attempt"]
+    assert run["valid"] is False and run["invalid_reason"] == "pedal_dropout"
+    d = app.last_decision
+    assert d["action"] == "end_drill" and d["end_reason"] == "invalid_run"
+
+
+async def test_phone_next_accepts_the_offer(corner, ref, tmp_path):
+    hub = InputHub(NullPad(), phone_port=0, arduino="off", advertise=False)
+    app = make_app(corner, ref, tmp_path, inputs=hub)
+    await app.start()
+    try:
+        await app.wait_for(lambda: app.coach.state == "OFFERED", 20)
+        hub.handle_event("coach_next", "tap")
+        await app.wait_for(lambda: kinds(app, "reset_request"), 20)
+    finally:
+        await app.stop()
+    assert kinds(app, "resume_point")
+
+
+def test_cli_inputs_are_opt_in():
+    import pytest
+    pytest.importorskip("aiohttp")
+    from coach.__main__ import build_app, build_parser
+    args = build_parser().parse_args(["--telemetry", "sim"])
+    assert args.inputs is False and build_app(args).inputs is None
+    args = build_parser().parse_args(["--telemetry", "sim", "--inputs", "--pad", "none", "--arduino", "off"])
+    app = build_app(args)
+    assert app.inputs is not None and app.auto_retry and app.max_retries == 5

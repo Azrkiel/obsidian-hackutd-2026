@@ -25,7 +25,7 @@ from engine.state import AWAIT_RESET, DECIDING, DONE, IDLE, OFFERED, RETRY, Coac
 from engine.trace import TraceWriter
 from engine.voice import ADVICE, REMINDER, VERDICT, Announcer
 
-from .inputs import InputHub, RunInputs
+from .inputs import InputHub, RunInputs, dropout_reason
 from .reset import ResetManager
 from .scorer import CornerScorer
 from .telemetry import Recorder, Sample, SimSource
@@ -58,7 +58,7 @@ class CoachApp:
                  reconnect_s: float = 2.0, decide_kwargs: dict | None = None,
                  reset_kwargs: dict | None = None, mode: str = "drill", speaker: Any = None,
                  muted: bool = False, announcer_kwargs: dict | None = None, agent: bool = False,
-                 inputs: InputHub | None = None, auto_retry: bool = False):
+                 inputs: InputHub | None = None, auto_retry: bool = False, max_retries: int = 5):
         if mode not in ("drill", "lap"):
             raise ValueError(f"mode must be drill or lap, not {mode!r}")
         self.mode = mode
@@ -80,10 +80,11 @@ class CoachApp:
         self.retry_run: dict | None = None
         self.last_decision: dict | None = None
         self.cue_next_off = False
-        self.inputs, self.auto_retry = inputs, auto_retry
+        self.inputs, self.auto_retry, self.max_retries = inputs, auto_retry, max_retries
         self._run_inputs = RunInputs()
         if inputs is not None:
             inputs.emit = self.broadcast
+            inputs.on_command = self._phone_command
         self._health_key: str | None = None
         self.player = _make_player(sound)
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -195,7 +196,15 @@ class CoachApp:
             return
         c = self.coach
         if e["state"] == OFFERED and c.offer and c.drill and c.drill.tries > 0:
-            # mid-drill: the driver already opted in, so rewind straight away
+            if c.drill.tries >= self.max_retries:
+                # safety net: a model that keeps saying "repeat" must not loop forever
+                self.broadcast({"type": "status", "state": c.state,
+                                "message": f"stopped after {c.drill.tries} retries (--max-retries)"})
+                if self.reset.resume_point is not None:
+                    self._spawn(self.reset.resume("retry-limit"))
+                return
+            # same drill, the driver already opted in: rewind straight away. A new plan goal
+            # (tries back at 0) waits for Accept or the phone's "next" so the new cue is heard first.
             self._spawn(c.on_accept(c.offer.decision_id))
         elif e["state"] == DONE and self.reset.resume_point is not None:
             # drill finished (mistake fixed, or no progress): back to where it started
@@ -219,6 +228,18 @@ class CoachApp:
             await self.reset.save_resume_point()  # first rewind of this drill: where to come back to
         await self.reset.reset(decision_id)
 
+    def _phone_command(self, name: str) -> None:
+        """Coach commands from the phone's buttons (evt coach_next / coach_resume)."""
+        c = self.coach
+        if name == "resume":
+            self._spawn(self.handle_command({"type": "resume"}))
+        elif self.mode == "lap":
+            self._note("next does nothing in lap mode")
+        elif c.state == OFFERED and c.offer:
+            self._spawn(self.handle_command({"type": "accept", "decision_id": c.offer.decision_id}))
+        else:
+            self._spawn(self.handle_command({"type": "retry"}))
+
     def _on_resumed(self) -> None:
         self.coach.reset_session()
         self.broadcast({"type": "resumed"})
@@ -239,6 +260,10 @@ class CoachApp:
             self.baseline_run = self.retry_run = None
         state = self.coach.state
         role = "retry" if state == RETRY else "baseline" if state == IDLE else "reference_candidate"
+        dropped = dropout_reason(inputs)
+        if dropped and attempt.valid:
+            # the game saw the pedals/steering let go, not the driver: this run must not be coached
+            attempt.valid, attempt.invalid_reason = False, dropped
         d = asdict(attempt)
         d["brake_board_m"] = round(self.corner.board_zero_m - attempt.brake_onset_m, 1) if attempt.valid else None
         ev = {"type": "run", "role": role, "attempt": d, "trace": trace, "inputs": inputs}
