@@ -113,13 +113,20 @@ function badge(el, text, cls){ el.textContent=text; el.className="badge "+(cls||
 function targetOnset(){
   const o=S.offer; if(!o||!o.target||!S.corner) return null;
   if(o.drill_id==="brake_point") return {key:"brake_onset_m", pos:S.corner.board_zero_m-o.target.marker_m};
-  return {key:"throttle_pickup_m", pos:S.corner.apex_window_m[1]+o.target.marker_m};
+  if(o.drill_id==="throttle_pickup") return {key:"throttle_pickup_m", pos:S.corner.apex_window_m[1]+o.target.marker_m};
+  const d=S.drills&&S.drills[o.drill_id];
+  return d ? {key:d.metric, pos:o.target[d.target_key]} : null;
 }
 function fmt(v,d){ return (v===null||v===undefined)?"-":Number(v).toFixed(d); }
 const ROWS=[["Brake board m","board",1],["Brake onset m","brake_onset_m",1],["Peak brake","peak_brake",2],
   ["Entry km/h","entry_kmh",1],["Apex km/h","apex_kmh",1],["Exit km/h","exit_kmh",1],
   ["Release s","release_s",2],["Min km/h","min_kmh",1],
-  ["Throttle pickup m","throttle_pickup_m",1],["Section s","section_s",2]];
+  ["Throttle pickup m","throttle_pickup_m",1],["Section s","section_s",2],
+  ["Brake bite s","time_to_peak_s",2],["Coast s","coast_s",2],
+  ["Minimum vs apex m","min_vs_apex_m",1],["Time to full throttle s","full_throttle_s",2],
+  ["Trail brake share","trail_brake_share",2],["Lockup s","lockup_s",2],
+  ["Turn-in m","turn_in_m",1],["Last downshift m","last_downshift_m",1],
+  ["Line offset m","line_offset_m",2]];
 function val(a,k){ if(!a) return null; if(k==="board") return S.corner? S.corner.board_zero_m-a.brake_onset_m : null; return a[k]; }
 function renderMetrics(){
   const tb=document.querySelector("#metrics tbody"); tb.innerHTML=""; if(!S.corner) return;
@@ -129,7 +136,7 @@ function renderMetrics(){
     for(const run of [S.base, S.retry]){
       const a=run&&run.attempt, td=document.createElement("td");
       if(!a){ td.textContent="-"; tr.appendChild(td); continue; }
-      const v=val(a,k), dv=(ref&&v!==null)?v-val(ref,k):null;
+      const v=val(a,k), dv=(ref&&v!=null&&val(ref,k)!=null)?v-val(ref,k):null;
       let cls="";
       const comparable=ref&&Math.abs(a.entry_kmh-ref.entry_kmh)<=S.corner.comparable_entry_kmh;
       if(!a.valid||!comparable) cls="inc";
@@ -223,7 +230,7 @@ function onEvent(e){
   else if(e.text&&e.type!=="snapshot") addActivity({ts:e.ts,text:e.text});
   switch(e.type){
   case "snapshot":
-    S.state=e.state; S.corner=e.corner; S.ref=e.reference.attempt; S.refTrace=e.reference.trace||[];
+    S.state=e.state; S.corner=e.corner; S.drills=e.drills||{}; S.ref=e.reference.attempt; S.refTrace=e.reference.trace||[];
     S.base=e.baseline; S.retry=e.retry; S.decision=e.decision; S.offer=e.offer; S.health=e.health; S.tries=e.tries;
     S.plan=e.plan||null; $("activity").innerHTML=""; (e.activity||[]).forEach(addActivity);
     $("voice").innerHTML=""; (e.voice||[]).forEach(addVoice); $("tools").innerHTML=""; (e.tools||[]).forEach(addTool); break;

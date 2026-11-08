@@ -14,6 +14,7 @@ import sys
 import threading
 import time
 from collections import deque
+from engine.drills import DRILLS, TITLES
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Callable
@@ -394,6 +395,8 @@ class CoachApp:
         c = self.coach
         return {
             "type": "snapshot", "state": c.state, "corner": asdict(self.corner),
+            "drills": {k: {"metric": d.metric, "target_key": d.target_key, "unit": d.unit,
+                            "title": TITLES[k]} for k, d in DRILLS.items()},
             "reference": {"attempt": asdict(self.reference), "trace": self.reference_trace},
             "baseline": self.baseline_run, "retry": self.retry_run,
             "decision": self.last_decision, "offer": c.offer.to_dict() if c.offer else None,

@@ -101,7 +101,9 @@ def build_app(args: argparse.Namespace) -> CoachApp:
     else:
         ref_path = ROOT / "fixtures" / "reference.json"
     ref_trace_path = ref_path.with_name(ref_path.stem + "_trace.json")
-    ref_trace = json.loads(ref_trace_path.read_text(encoding="utf-8")) if ref_trace_path.exists() else []
+    ref_doc = json.loads(ref_path.read_text(encoding="utf-8"))
+    ref_trace = (json.loads(ref_trace_path.read_text(encoding="utf-8")) if ref_trace_path.exists()
+                 else ref_doc.get("trace", []))
     kind = args.telemetry[0]
     lap = args.mode == "lap"
     if kind == "sim":

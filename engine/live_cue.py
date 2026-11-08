@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Callable, Protocol
 
 from .models import CornerConfig
+from .drills import DRILLS, target_hit
 
 MAX_GAP_S = 0.2
 
@@ -94,15 +95,21 @@ class LiveCue:
 
     def arm(self, drill_id: str, target: dict, reminder: str = "", wait_wrap: bool = False) -> None:
         self._reset_run()
+        self.drill_id = drill_id
         c = self.corner
         if drill_id == "brake_point":
             mark = c.board_zero_m - target["marker_m"]
             cues = [("pre", mark - 50), ("mark", mark)]
         elif drill_id == "throttle_pickup":
             cues = [("mark", c.apex_window_m[1] + target["marker_m"])]
-        elif drill_id == "brake_release":
-            cues = [("mark", c.gate("turn_in_m"))]  # "ease off from here"
+        elif drill_id in DRILLS:
+            spec = DRILLS[drill_id]
+            if any(not c.telemetry_verified.get(k, False) for k in spec.requires):
+                self.disarm()
+                return
+            cues = [("mark", spec.cue_position(target, c))]
         else:
+            self.disarm()
             return
         self.reminder = reminder if self.say else ""
         if self.reminder:
@@ -146,5 +153,5 @@ class LiveCue:
     def on_run_scored(self, attempt: Any, target_gap: float, tolerance: float) -> None:
         """Hit/miss tone, only if this run was armed. Then disarm."""
         if self.armed:
-            self.player.play("hit" if abs(target_gap) <= tolerance else "miss")
+            self.player.play("hit" if target_hit(self.drill_id, target_gap, tolerance) else "miss")
         self.disarm()
