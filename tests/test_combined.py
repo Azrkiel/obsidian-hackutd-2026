@@ -18,7 +18,7 @@ MODEL = Track.load()
 def make(tmp_path, source, speaker=None):
     first = CONFIG.corners[0]
     app = CoachApp(first, LAP_REFS[first.id][0], source, [], reset_mode="sim", data_dir=tmp_path / "d",
-                   trace_dir=tmp_path / "t", sound=False, countdown=0, persist_checkpoint=False, mode="lap",
+                   trace_dir=tmp_path / "t", sound=False, countdown=3, persist_checkpoint=False, mode="lap",
                    track=CONFIG, track_references=LAP_REFS, track_model=MODEL,
                    references=References(MODEL, tmp_path / "pb.json"), whole_lap=True, speaker=speaker)
     return app
@@ -28,7 +28,7 @@ def kinds(app, *t):
     return [e["type"] for e in app.events if e["type"] in t]
 
 
-async def test_error_retry_inside_the_lap_coach(tmp_path):
+async def test_error_retry_inside_the_lap_coach(tmp_path, monkeypatch):
     les = MODEL.get("lesmo1")
     sim = LapSim(MODEL, errors={"lesmo1": ["early_brake"]}, start_m=les.entry_m - 300)
     app = make(tmp_path, sim)
@@ -40,15 +40,25 @@ async def test_error_retry_inside_the_lap_coach(tmp_path):
         o = lc.open_offer()
         assert o.event.corner_id == "lesmo1" and "brake_early" in o.event.kinds
         assert o.cue and o.cue_source == "rules" and "packet" in o.extra   # ladder (rules) on the event
+        load = app.reset._request_load
+
+        async def load_with_old_pass(decision_id, slot):
+            lc.on_pass(o.event.cpass)  # a pass arriving before the rewind cannot count
+            await load(decision_id, slot)
+
+        monkeypatch.setattr(app.reset, "_request_load", load_with_old_pass)
         await app.handle_command({"type": "accept"})
         await app.wait_for(lambda: "retry_finished" in kinds(app, "retry_finished"), 30)
         await app.wait_for(lambda: len(kinds(app, "track_lap")) >= 2, 60)      # the lap coach carries on
     finally:
         await app.stop()
     judged = [e for e in app.events if e["type"] == "retry_judged"]
-    assert judged and judged[-1]["fixed"]
-    seq = kinds(app, "retry_started", "reset_confirmed", "resumed", "retry_finished")
-    assert seq[0] == "retry_started" and seq[-2:] == ["resumed", "retry_finished"]
+    assert len(judged) == 1 and judged[0]["try"] == 1 and judged[0]["fixed"]
+    assert kinds(app, "retry_started", "reset_request", "reset_confirmed", "retry_judged", "resumed",
+                 "retry_finished") == ["retry_started", "reset_request", "reset_confirmed",
+                                       "retry_judged", "retry_finished"]
+    assert not any(e["type"] == "countdown" and e["n"] > 0 for e in app.events)
+    assert app.reset.resume_point is not None  # returning is still an explicit driver action
     assert app.coach.state != "AWAIT_RESET" and app.auto_retry is False
 
 
@@ -67,7 +77,9 @@ async def test_lap_coachs_sim_errors_get_offers(tmp_path):
         await app.wait_for(lambda: "retry_finished" in kinds(app, "retry_finished"), 60)
     finally:
         await app.stop()
-    assert len([e for e in app.events if e["type"] == "retry_judged"]) >= 1
+    judged = [e for e in app.events if e["type"] == "retry_judged"]
+    assert len(judged) == 1 and not judged[0]["fixed"]
+    assert kinds(app, "reset_request", "resumed") == ["reset_request"]
 
 
 class Mute:

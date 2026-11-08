@@ -12,8 +12,8 @@ While a retry loop runs, errors elsewhere are ignored. Personal bests come from 
 
 Combined with the lap coach (--track ... --mode lap, "standalone" here): the lap coach owns the app's
 coach, so the cue is the decision ladder's answer on the event packet (same 2 s budget), retries are
-judged by the detector, the cue is spoken ahead of the lap coach's advice (talk zones only), and the
-countdown starts when it is spoken. The lap coach skips laps while a retry runs.
+judged by the detector after one confirmed rewind, and driving continues from the retried corner.
+The cue is spoken ahead of the lap coach's advice and starts the offer timer on the straight.
 """
 from __future__ import annotations
 
@@ -63,6 +63,7 @@ class LapCoach:
         self.standalone = getattr(app, "track", None) is not None
         self.retrying: Offer | None = None     # the accepted offer whose retry loop is running
         self._tries = 0
+        self._retry_ready = False
         self._cue_for: dict[str, str] = {}      # coach attempt_id -> offer id waiting for its cue
         self._task: asyncio.Task | None = None
         self.passes = 0
@@ -240,7 +241,7 @@ class LapCoach:
         return self.offers.open_offer()
 
     async def accept(self, offer_id: str | None = None) -> bool:
-        if self.retrying is not None:
+        if self.retrying is not None or self.app.reset.busy:
             self.app._note("a retry is already running")
             return False
         o = self.offers.accept(offer_id)
@@ -249,6 +250,7 @@ class LapCoach:
             return False
         app, coach = self.app, self.app.coach
         self.retrying, self._tries = o, 0
+        self._retry_ready = False
         coach.decide_kwargs = dict(app.decide_kwargs_default)   # retries are judged in think mode
         app.reset.checkpoint = {"pos_m": o.start.pos_m, "speed_kmh": o.start.speed_kmh}
         app.reset.held_event = o.id if o.start.cp is not None else None
@@ -259,7 +261,7 @@ class LapCoach:
             if not (app.select_corner(o.event.corner_id) and coach.restore_offer(decision)):
                 decision = None
         app.broadcast({"type": "retry_started", "offer_id": o.id, "corner": o.event.corner,
-                       "drill": decision.drill_id if decision else None})
+                       "drill": decision.drill_id if decision else None, "single_retry": self.standalone})
         app._spawn(self._analyse(o))
         if decision is not None:
             await coach.on_accept(decision.decision_id)          # today's loop from here
@@ -269,13 +271,22 @@ class LapCoach:
 
     async def _rewind(self, o: Offer) -> None:
         app = self.app
+        if self.standalone:
+            self.scorer.abort()
+            self._retry_ready = await app.reset.reset(f"{o.id}-1", abort_run=True, countdown=0,
+                                                      resume_save_timeout_s=0.25)
+            if not self._retry_ready:
+                app.reset.checkpoint = None
+                self.retry_finished(resumed=False)
+            return
         if app.reset.resume_point is None and app.reset.can_resume and self._tries == 0:
             await app.reset.save_resume_point()
         await app.reset.reset(f"{o.id}-{self._tries + 1}")
 
     def _tries_judged_here(self, p: CornerPass) -> bool:
         o = self.retrying
-        return o is not None and o.extra.get("decision") is None and p.corner_id == o.event.corner_id
+        return (o is not None and o.extra.get("decision") is None and p.corner_id == o.event.corner_id
+                and (not self.standalone or self._retry_ready))
 
     def _judge_retry(self, p: CornerPass, ref: Any) -> None:
         o = self.retrying
@@ -284,7 +295,9 @@ class LapCoach:
         fixed = p.valid and ev is None
         self.app.broadcast({"type": "retry_judged", "offer_id": o.id, "try": self._tries, "fixed": fixed,
                             "kinds": ev.kinds if ev else []})
-        if fixed or self._tries >= self.max_retries:
+        if self.standalone:
+            self.retry_finished(resumed=False)
+        elif fixed or self._tries >= self.max_retries:
             self.app._spawn(self.app.reset.resume(f"{o.id}-done"))
         else:
             self.app._spawn(self._rewind(o))
@@ -313,12 +326,13 @@ class LapCoach:
         if in_time and self.app.announcer:
             self.app.announcer.say(text, "advice", decision_id=d.decision_id, mode=d.mode)
 
-    def retry_finished(self) -> None:
-        """The car is back where Retry was pressed (RESUME confirmed)."""
+    def retry_finished(self, *, resumed: bool = True) -> None:
+        """Release the offer after a one-shot attempt, failed rewind, or confirmed resume."""
         o, self.retrying = self.retrying, None
+        self._retry_ready = False
         self.app.reset.held_event = None
         self._release_coach()
         if o is not None:
-            self.app.broadcast({"type": "retry_finished", "offer_id": o.id})
+            self.app.broadcast({"type": "retry_finished", "offer_id": o.id, "resumed": resumed})
             if self.store is not None:
                 self.app._spawn(self.store.drop(o.id))
