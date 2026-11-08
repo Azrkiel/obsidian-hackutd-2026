@@ -1,8 +1,8 @@
 <div align="center">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/img/logo-stacked-racing-on-dark.png">
-  <img src="docs/img/logo-stacked-racing-on-light.png" alt="Pit Pal logo: Rev in his racing helmet above the PIT PAL wordmark, sim racing coach" width="320">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/banner-dark.png">
+  <img src="docs/img/banner-light.png" alt="Pit Pal banner: Rev in the tach roundel next to the PIT PAL wordmark. Drive better together. AI sim-racing coach for Assetto Corsa" width="860">
 </picture>
 
 ### Drive better together.
@@ -10,10 +10,6 @@
 An AI sim-racing coach that sits in the passenger seat. You steer with an iPhone, brake and throttle with homemade
 pedals, and a pixel pit-crew mascot called **Rev** watches every corner, tells you one thing to fix, and rewinds
 the car so you can try it again. Coaching is written live by **NVIDIA Nemotron**.
-
-<img src="pitpal/assets/rev/src/rev_racer.png" alt="Rev, the Pit Pal mascot: a white pixel creature in a red racing suit" width="140">
-&nbsp;&nbsp;
-<img src="coach/static/pitpal/mascot-helmet.png" alt="Rev in his racing helmet" width="140">
 
 **HackUTD 2026**
 
@@ -46,6 +42,10 @@ it reads the car live, decides what to fix, says it on the next straight, and pu
 ---
 
 ## Meet Rev
+
+<p align="center">
+  <img src="docs/img/rev-lineup.png" alt="Rev in three outfits: the red suit without a helmet (main form), the racing helmet (racing sessions only), and plain white (pairing and empty states)" width="760">
+</p>
 
 Rev sits in the corner of the screen over the game. He shows a pairing QR until your phone connects, puts his helmet
 on when you drive, reacts to lock-ups and slides, and shows the coach's cue as a short bubble: what happened in bold,
@@ -131,8 +131,13 @@ Security and secrets: [SECURITY.md](SECURITY.md); every setting the code reads: 
 
 <div align="center">
 
-<img src="pitpal/assets/icon/icon-pit-pal-monogram-512.png" alt="Pit Pal app icon: a white pixel P on red" width="64">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/logo-long-on-dark.png">
+  <img src="docs/img/logo-long-on-light.png" alt="Pit Pal long logo: Rev in the tach roundel, the PIT PAL wordmark and Drive better together." width="480">
+</picture>
 
-**Pit Pal** · Drive better together.
+<img src="docs/img/app-icon-180.png" alt="Pit Pal app icon: a white pixel P on red" width="56">
+
+<sub>Pit Pal · HackUTD 2026</sub>
 
 </div>
