@@ -218,7 +218,7 @@ uv run python -m coach --telemetry ac --reset hotkey       # presses F7 (load) /
 uv run python -m coach --telemetry ac --reset manual       # you press your own load key
 ```
 
-With the coach as the input receiver (instead of `bridge/bridge.py`). The pad and serial packages stay out of the uv `.venv` (see `PC_SETUP.md`), so `--with` adds them for this run only:
+With the coach as the input receiver (instead of `bridge/bridge.py`). The pad and serial packages stay out of the uv `.venv` (see `SETUP.md`), so `--with` adds them for this run only:
 
 ```
 uv run --with vgamepad --with pyserial python -m coach --telemetry ac --reset udp --inputs

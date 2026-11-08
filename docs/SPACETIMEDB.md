@@ -2,7 +2,7 @@
 
 > Two history systems exist in this repo. This one (per-PC enrollment, module in `spacetime-cloud/`,
 > pages at `/cloud-history-view`, viewer `python -m coach.cloud_viewer`) is separate from the
-> `--history` race history in [HISTORY.md](../HISTORY.md) (module in `spacetime/`).
+> `--history` race history in [HISTORY.md](HISTORY.md) (module in `spacetime/`).
 
 Use this runbook to store racing history in **your SpacetimeDB Maincloud account** and read it
 from another PC. The Python coach, game connection and Rev overlay stay on the Windows game PC.
