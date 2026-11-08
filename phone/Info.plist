@@ -6,5 +6,24 @@
     <array>
         <string>_stealth-racing._udp</string>
     </array>
+    <key>UIAppFonts</key>
+    <array>
+        <string>PitPalBubble.ttf</string>
+        <string>Barlow-Regular.ttf</string>
+        <string>Barlow-Medium.ttf</string>
+        <string>Barlow-SemiBold.ttf</string>
+        <string>Barlow-Bold.ttf</string>
+    </array>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.hackutd.stealth.pair</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>nomadsim</string>
+            </array>
+        </dict>
+    </array>
 </dict>
 </plist>
