@@ -227,9 +227,11 @@ class _PhoneProto(asyncio.DatagramProtocol):
         if reply and self.transport:
             try:
                 self.transport.sendto(reply, addr)
-                if self.hub.race_history is not None:
-                    self.transport.sendto(json.dumps({"type": "race_history", "history": self.hub.race_history},
-                                                     separators=(",", ":")).encode(), addr)
+                if self.hub.race_history is not None and reply.startswith(b"ack,"):
+                    history = json.dumps({"type": "race_history", "history": self.hub.race_history},
+                                         separators=(",", ":")).encode()
+                    session = self.hub.sessions.get(addr)
+                    self.transport.sendto(sign(session.key, history) if session else history, addr)
             except OSError:
                 pass
 

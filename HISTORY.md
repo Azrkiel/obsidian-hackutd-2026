@@ -71,7 +71,7 @@ The viewer subscribes to lightweight tables. Best-lap trace rows are fetched on 
 
 Build the updated `phone/stealth-racing` project in Xcode and connect to a coach running with `--inputs --history`. The cockpit shows **Last section** and **Best today**, scoped to that driver, track, car and corner.
 
-Existing `v1` steering packets and `ack,<seq>` replies remain unchanged. The coach additionally sends a `race_history` JSON datagram after each acknowledgement, with cached last/best times and public cloud coordinates. Older apps ignore that datagram. The new app works from local packets offline. When a new lap UUID arrives with cloud settings, it polls public HTTP SQL up to four times while the outbox catches up; steering never waits for those reads. Invalid latest passes show no time. Today uses the local calendar day on each device; keep the rig and phone in the same timezone for matching best-today values.
+The coach sends a `race_history` JSON datagram after each steering acknowledgement, with cached last/best times and public cloud coordinates. Paired phones receive signed history packets, and unpaired phones receive plain JSON when the receiver allows unpaired input. Older apps ignore that datagram. The new app works from local packets offline. When a new lap UUID arrives with cloud settings, it polls public HTTP SQL up to four times while the outbox catches up. Steering continues during those reads. Invalid latest passes show no time. Today uses the local calendar day on each device. Keep the rig and phone in the same timezone for matching best-today values.
 
 Swift compilation and on-device layout/network checks require macOS/Xcode and remain a deployment check.
 
