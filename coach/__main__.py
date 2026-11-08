@@ -20,10 +20,14 @@ from engine.nemotron import default_providers
 from engine.voice import make_speaker
 
 from .app import CoachApp
+from .checkpoints import CheckpointStore
 from .dashboard import Dashboard
 from .inputs import InputHub, make_pad
 from .pairing import Pairing
 from .telemetry import ACSharedMemory, Recorder, ReplaySource, SimSource
+from .lap_sim import LapSim
+from .reference import References
+from .track import Track
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -43,6 +47,15 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--countdown", type=int, default=3)
     ap.add_argument("--brake-board", type=float, default=86.0, help="sim: first-run brake board (m)")
     ap.add_argument("--transport", choices=["tools", "json"], default=None)
+    w = ap.add_argument_group("whole lap: every error gets a cue and a retry offer (docs/ROLLING_CHECKPOINTS.md)")
+    w.add_argument("--whole-lap", action="store_true",
+                   help="score every corner of --track; with --telemetry sim, drive it with the lap simulator")
+    w.add_argument("--track", default=str(ROOT / "fixtures" / "tracks" / "monza.json"))
+    w.add_argument("--reference-mode", choices=["pb", "ai"], default="pb",
+                   help="pb = personal best, AI line until a corner has one; ai = always the AI line")
+    w.add_argument("--lead-time", type=float, default=4.0, help="retry starts this many s before the brake point")
+    w.add_argument("--plant", default="",
+                   help="lap simulator mistakes, e.g. c1=late_brake,c4=spin+none (per attempt, + separated)")
     g = ap.add_argument_group("inputs (phone + Arduino -> virtual pad; off unless --inputs)")
     g.add_argument("--inputs", action="store_true",
                    help="receive phone + Arduino inputs here instead of running bridge/bridge.py")
@@ -122,7 +135,15 @@ def build_app(args: argparse.Namespace) -> CoachApp:
     ref_trace = json.loads(ref_trace_path.read_text(encoding="utf-8")) if ref_trace_path.exists() else []
     kind = args.telemetry[0]
     lap = args.mode == "lap"
-    if kind == "sim":
+    track = refs = store = None
+    if args.whole_lap:
+        track = Track.load(args.track)
+        refs = References(track, data / "personal_best.json", mode=args.reference_mode)
+    if args.whole_lap and kind == "sim":
+        source = LapSim(track, errors=parse_plant(args.plant), realtime=True,
+                        start_m=track.length_m - 600)
+        reset = args.reset or "sim"
+    elif kind == "sim":
         source = SimSource(corner, brake_board_m=args.brake_board, laps=lap, lap_gap_s=args.lap_gap,
                            release_s=args.release)
         reset = args.reset or ("manual" if lap else "sim")
@@ -138,6 +159,8 @@ def build_app(args: argparse.Namespace) -> CoachApp:
         raise SystemExit(f"unknown telemetry source {kind!r}")
     if reset == "sim" and kind != "sim":
         raise SystemExit("--reset sim needs --telemetry sim")
+    if args.whole_lap and reset == "udp":
+        store = CheckpointStore()
     voice = args.voice or ("auto" if lap else "off")
     speaker = None if voice == "off" else make_speaker(voice)
     return CoachApp(corner, load_attempt(ref_path), source,
@@ -147,7 +170,17 @@ def build_app(args: argparse.Namespace) -> CoachApp:
                     sound=args.sound, countdown=args.countdown,
                     persist_checkpoint=kind != "sim", mode=args.mode, speaker=speaker,
                     muted=args.mute, agent=args.agent, inputs=build_inputs(args),
-                    auto_retry=args.auto_retry, max_retries=args.max_retries)
+                    auto_retry=args.auto_retry, max_retries=args.max_retries,
+                    track=track, references=refs, lead_time_s=args.lead_time,
+                    whole_lap=args.whole_lap, store=store)
+
+
+def parse_plant(spec: str) -> dict[str, list[str | None]]:
+    out: dict[str, list[str | None]] = {}
+    for part in filter(None, (p.strip() for p in spec.split(","))):
+        cid, _, kinds = part.partition("=")
+        out[cid] = [None if k in ("", "none") else k for k in kinds.split("+")]
+    return out
 
 
 async def amain(args: argparse.Namespace) -> None:
