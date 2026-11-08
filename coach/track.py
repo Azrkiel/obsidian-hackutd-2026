@@ -57,6 +57,8 @@ class Track:
         self.corners = sorted(corners, key=lambda c: c.entry_m)
         self._d = [float(r[0]) for r in profile]
         self._kmh = [max(MIN_KMH, float(r[1])) for r in profile]
+        self._gas = [float(r[2]) if len(r) > 2 else 0.0 for r in profile]
+        self._brake = [float(r[3]) if len(r) > 3 else 0.0 for r in profile]
         self._by_id = {c.id: c for c in self.corners}
 
     @classmethod
@@ -76,13 +78,20 @@ class Track:
         return pos_m % self.length_m
 
     # -- AI line --
-    def ai_kmh(self, pos_m: float) -> float:
+    def _at(self, col: list[float], pos_m: float) -> float:
         p = self.wrap(pos_m)
         i = bisect.bisect_right(self._d, p) - 1
         j = (i + 1) % len(self._d)
         d0, d1 = self._d[i], self._d[j] if j else self.length_m
         f = 0.0 if d1 == d0 else (p - d0) / (d1 - d0)
-        return self._kmh[i] + f * (self._kmh[j] - self._kmh[i])
+        return col[i] + f * (col[j] - col[i])
+
+    def ai_kmh(self, pos_m: float) -> float:
+        return self._at(self._kmh, pos_m)
+
+    def ai_pedals(self, pos_m: float) -> tuple[float, float]:
+        """(gas, brake) of the AI line at pos_m."""
+        return self._at(self._gas, pos_m), self._at(self._brake, pos_m)
 
     def ai_time(self, a_m: float, b_m: float, step_m: float = 5.0) -> float:
         """Seconds the AI takes from a to b, driving forward (wraps past the line)."""
