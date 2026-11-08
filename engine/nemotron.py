@@ -16,6 +16,8 @@ NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 NVIDIA_MODEL = os.environ.get("NEMOTRON_MODEL", "nvidia/nemotron-3.5-lightning-30b-a3b")
 OPENROUTER_MODEL = os.environ.get("NEMOTRON_OPENROUTER_MODEL", "nvidia/nemotron-3.5-lightning:free")
+# Self-hosted vLLM on Brev (OpenAI-compatible). Enabled when NEMOTRON_BASE_URL is set.
+BREV_MODEL = os.environ.get("NEMOTRON_BREV_MODEL", "nemotron")  # vLLM --served-model-name
 REASONING_BUDGET = int(os.environ.get("NEMOTRON_REASONING_BUDGET", "512"))
 MAX_TOKENS_THINK = int(os.environ.get("NEMOTRON_MAX_TOKENS_THINK", "900"))
 MAX_TOKENS_FAST = int(os.environ.get("NEMOTRON_MAX_TOKENS_FAST", "200"))
@@ -189,6 +191,7 @@ class ProviderConfig:
     model: str
     think_extra: dict
     fast_extra: dict
+    key_required: bool = True  # False: a base_url alone makes the provider available
 
 
 def nvidia_config() -> ProviderConfig:
@@ -196,6 +199,15 @@ def nvidia_config() -> ProviderConfig:
         "nvidia", NVIDIA_BASE_URL, "NVIDIA_API_KEY", NVIDIA_MODEL,
         {"chat_template_kwargs": {"enable_thinking": True}, "reasoning_budget": REASONING_BUDGET},
         {"chat_template_kwargs": {"enable_thinking": False}})
+
+
+def brev_config() -> ProviderConfig:
+    """Self-hosted vLLM (Brev). No reasoning budget: vLLM has no hosted-style `reasoning_budget`;
+    length is bounded by the prompt, max_tokens and the ladder deadline."""
+    return ProviderConfig(
+        "brev", os.environ.get("NEMOTRON_BASE_URL", ""), "NEMOTRON_API_KEY", BREV_MODEL,
+        {"chat_template_kwargs": {"enable_thinking": True}},
+        {"chat_template_kwargs": {"enable_thinking": False}}, key_required=False)
 
 
 def openrouter_config() -> ProviderConfig:
@@ -218,13 +230,18 @@ class NemotronProvider:
 
     @property
     def available(self) -> bool:
-        return bool(self.api_key) or self._client is not None
+        if self._client is not None:
+            return True
+        if not self.cfg.key_required:
+            return bool(self.cfg.base_url)
+        return bool(self.api_key)
 
     @property
     def client(self) -> Any:
         if self._client is None:
             from openai import AsyncOpenAI
-            self._client = AsyncOpenAI(base_url=self.cfg.base_url, api_key=self.api_key,
+            # vLLM started without --api-key still needs a non-empty key in the SDK
+            self._client = AsyncOpenAI(base_url=self.cfg.base_url, api_key=self.api_key or "EMPTY",
                                        max_retries=0, timeout=30.0)
         return self._client
 
@@ -313,6 +330,7 @@ class NemotronProvider:
 
 
 def default_providers(transport: str | None = None) -> list[NemotronProvider]:
-    """nvidia first, openrouter second; unavailable ones report available=False."""
-    return [NemotronProvider(nvidia_config(), transport=transport),
+    """brev (self-hosted) first, then nvidia, then openrouter; unavailable ones are skipped."""
+    return [NemotronProvider(brev_config(), transport=transport),
+            NemotronProvider(nvidia_config(), transport=transport),
             NemotronProvider(openrouter_config(), transport=transport)]

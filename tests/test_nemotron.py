@@ -170,6 +170,40 @@ async def test_errors_mapped():
     assert e.value.kind == "rate_limited"
 
 
+def test_brev_provider(monkeypatch):
+    from engine.nemotron import brev_config, default_providers
+    monkeypatch.delenv("NEMOTRON_BASE_URL", raising=False)
+    monkeypatch.delenv("NEMOTRON_API_KEY", raising=False)
+    assert not NemotronProvider(brev_config()).available
+    monkeypatch.setenv("NEMOTRON_BASE_URL", "http://brev-host:8000/v1")
+    prov = NemotronProvider(brev_config())
+    assert prov.available  # no key needed
+    assert prov.cfg.base_url == "http://brev-host:8000/v1"
+    assert "reasoning_budget" not in prov.cfg.think_extra
+    assert prov.cfg.think_extra["chat_template_kwargs"]["enable_thinking"] is True
+    assert str(prov.client.base_url).startswith("http://brev-host:8000/v1")
+    assert [p.name for p in default_providers()] == ["brev", "nvidia", "openrouter"]
+
+
+@pytest.mark.asyncio
+async def test_brev_think_request_shape(monkeypatch):
+    from engine.nemotron import brev_config
+    monkeypatch.setenv("NEMOTRON_BASE_URL", "http://brev-host:8000/v1")
+    sent = {}
+
+    class Completions:
+        async def create(self, **kw):
+            sent.update(kw)
+            raise RuntimeError("stop")
+
+    client = NS(chat=NS(completions=Completions()))
+    prov = NemotronProvider(brev_config(), client=client)
+    with pytest.raises(Exception):
+        await prov.call({"attempt_id": "a-1"}, "think", think_tokens=256)
+    assert sent["model"] == "nemotron" and sent["stream"] is True
+    assert sent["extra_body"] == {"chat_template_kwargs": {"enable_thinking": True}}
+
+
 def test_available_requires_key(monkeypatch):
     monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
     assert not NemotronProvider(nvidia_config()).available

@@ -1,7 +1,8 @@
 """Live API spike: latency / reasoning / tool-call reliability of Nemotron modes.
 
-Usage: uv run python scripts/spike_nemotron.py [--n 5] [--provider nvidia|openrouter]
-Needs NVIDIA_API_KEY (and optionally OPENROUTER_API_KEY).
+Usage: uv run python scripts/spike_nemotron.py [--n 5] [--provider brev|nvidia|openrouter]
+Needs NEMOTRON_BASE_URL (Brev vLLM), NVIDIA_API_KEY or OPENROUTER_API_KEY.
+On brev the think@512 and think@256 rows are the same call (vLLM has no reasoning budget).
 """
 from __future__ import annotations
 
@@ -58,7 +59,7 @@ async def main_async(args) -> None:
     packet = build_packet(att, ref, att, corner, None, None)
     provs = [p for p in default_providers() if p.available and args.provider in (None, p.name)]
     if not provs:
-        print("No API key set (NVIDIA_API_KEY / OPENROUTER_API_KEY). Nothing to do.")
+        print("No provider configured (NEMOTRON_BASE_URL / NVIDIA_API_KEY / OPENROUTER_API_KEY). Nothing to do.")
         return
     configs = [("think@512", "think", "tools", 512), ("think@256", "think", "tools", 256),
                ("fast", "fast", "tools", None), ("think@256 json", "think", "json", 256)]
@@ -81,7 +82,7 @@ async def main_async(args) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--n", type=int, default=5, help="calls per config (default 5)")
-    ap.add_argument("--provider", choices=["nvidia", "openrouter"], default=None)
+    ap.add_argument("--provider", choices=["brev", "nvidia", "openrouter"], default=None)
     args = ap.parse_args()
     asyncio.run(main_async(args))
 

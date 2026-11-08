@@ -122,7 +122,7 @@ async def decide(packet: dict, providers: list, *, on_reasoning: Callable[[str],
         if remaining() <= 0:
             return rules("total deadline exhausted")
         if not getattr(prov, "available", True):
-            rung(prov, "think", "skipped", reason="no api key")
+            rung(prov, "think", "skipped", reason="not configured")
             continue
         if breaker.is_open(prov.name):
             rung(prov, "think", "skipped", reason="circuit open")
