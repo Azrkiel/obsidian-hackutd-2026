@@ -107,9 +107,13 @@ class RetryStart:
 
 class CheckpointPicker:
     def __init__(self, track: Track, lead_s: float = 4.0, max_age_s: float = 30.0,
-                 approach_s: float = 15.0, speed_tol: float = 0.25):
+                 approach_s: float = 15.0, speed_tol: float = 0.25, anchor_max_age_s: float = 75.0):
         self.track, self.lead_s, self.max_age_s = track, lead_s, max_age_s
         self.approach_s, self.speed_tol = approach_s, speed_tol
+        # the anchor is the save on this corner's own approach: still the right place to rewind to
+        # after a long off or spin in the corner (a beginner can take well over 30 s to get through),
+        # but never last lap's (a road car's Monza lap is well over 75 s)
+        self.anchor_max_age_s = anchor_max_age_s
 
     def _index(self, c: TrackCorner) -> int:
         return self.track.corners.index(c) + 1   # anchors are 1-based, in corner order
@@ -125,7 +129,7 @@ class CheckpointPicker:
             return now - cp.t <= self.max_age_s
 
         a = store.anchor(self._index(c))
-        if a is not None and fresh(a):
+        if a is not None and now - a.t <= self.anchor_max_age_s:
             return RetryStart("anchor", a.spline * L, a.speed_kmh, a)
         ring = [cp for cp in store.ring if fresh(cp)]
         before = [(tr.ai_time(cp.spline * L, c.key_m), cp) for cp in ring]

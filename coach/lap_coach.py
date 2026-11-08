@@ -35,6 +35,7 @@ from .corner_pass import CornerPass, PassScorer
 if TYPE_CHECKING:
     from .app import CoachApp
 
+RETRY_GIVE_UP_S = 60.0      # a one-shot retry not completed by then ends (it would block every corner)
 # fast mode only (no thinking); 3 s so Nemotron, not the rules fallback, usually writes the cue
 LIVE_BUDGET = {"think_deadline_s": 0.0, "fast_deadline_s": 3.0, "total_deadline_s": 3.0}
 KIND_TEXT = {"wheels_off": "wheels off", "spin": "spin", "lockup": "front lock-up", "wheelspin": "wheelspin",
@@ -66,6 +67,7 @@ class LapCoach:
         self.retrying: Offer | None = None     # the accepted offer whose retry loop is running
         self._tries = 0
         self._retry_ready = False
+        self._retry_at = 0.0                    # when the running retry was accepted (offers clock)
         self._cue_for: dict[str, str] = {}      # coach attempt_id -> offer id waiting for its cue
         self._task: asyncio.Task | None = None
         self.passes = 0
@@ -95,7 +97,18 @@ class LapCoach:
             await self._drop(self.offers.tick())
             if was_open and o.state == "expired" and self.retrying is None:
                 self._release_coach()
+            self._give_up_stale_retry()
             self._push_phone()
+
+    def _give_up_stale_retry(self) -> None:
+        """A one-shot retry the driver never completes (the phone dropped, a spin before the corner,
+        drove off) must not block every other corner: after RETRY_GIVE_UP_S it ends."""
+        o = self.retrying
+        if (o is None or not self.standalone or not self._retry_ready
+                or self.offers.clock() - self._retry_at < RETRY_GIVE_UP_S):
+            return
+        self.app.broadcast({"type": "status", "message": f"retry at {o.event.corner} not completed: back to the lap"})
+        self.retry_finished(resumed=False)
 
     def _push_phone(self) -> None:
         """ofr,<id>,<corner>,<ms left> about 4x/s while an offer is open; ofx,<id> (3x) when it closes."""
@@ -140,7 +153,13 @@ class LapCoach:
         if self.retrying is not None:
             if self._tries_judged_here(p):
                 self._judge_retry(p, ref)
-            return                                       # busy: errors elsewhere are ignored
+                return
+            if not (self.standalone and self._retry_ready):
+                return                                   # busy: errors elsewhere are ignored
+            # the car got past without completing the retry corner: end the retry, coach this corner
+            self.app.broadcast({"type": "status",
+                                "message": f"retry at {self.retrying.event.corner} skipped: back to the lap"})
+            self.retry_finished(resumed=False)
         ev = self.detector.detect(p, ref, flat=c.major_only)
         if ev is None:
             if p.valid:
@@ -263,6 +282,7 @@ class LapCoach:
         app, coach = self.app, self.app.coach
         self.retrying, self._tries = o, 0
         self._retry_ready = False
+        self._retry_at = self.offers.clock()
         coach.decide_kwargs = dict(app.decide_kwargs_default)   # retries are judged in think mode
         app.reset.checkpoint = {"pos_m": o.start.pos_m, "speed_kmh": o.start.speed_kmh}
         app.reset.held_event = o.id if o.start.cp is not None else None
