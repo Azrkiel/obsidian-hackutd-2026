@@ -24,9 +24,13 @@ while True:
     try:
         ser = serial.Serial(port, 115200, timeout=1)
         print("Connected on", port, "- press the pedals")
-        last_print = 0
+        last_print = time.time()
+        n = 0
         while True:
-            line = ser.readline().decode(errors="ignore").strip()
+            line = ser.readline()
+            while ser.in_waiting > 40:      # backlog: skip ahead to the newest reading
+                line = ser.readline()
+            line = line.decode(errors="ignore").strip()
             if not line or line[0] == "#":
                 continue
             try:
@@ -38,10 +42,13 @@ while True:
             pad.right_trigger(value=int(g / 1000 * 255))  # gas
             pad.left_trigger(value=int(b / 1000 * 255))   # brake
             pad.update()
+            n += 1
             now = time.time()
-            if now - last_print > 0.5:
+            if now - last_print >= 0.5:
+                rate = n / (now - last_print)
+                print(f"gas {g / 10:5.1f}%   brake {b / 10:5.1f}%   {rate:3.0f} updates/s")
+                n = 0
                 last_print = now
-                print(f"gas {g / 10:5.1f}%   brake {b / 10:5.1f}%")
     except (serial.SerialException, OSError):
         print("Lost connection, retrying...")
         time.sleep(1)
