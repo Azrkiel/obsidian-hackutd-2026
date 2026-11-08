@@ -34,6 +34,7 @@ from .telemetry import Recorder, Sample, SimSource, TrackSimSource
 COMMANDS = {"accept", "retry", "save_checkpoint", "set_reference", "new_session",
             "toggle_cue_next", "retry_reset", "toggle_mute", "mark_board", "resume",
             "new_pairing", "select_corner", "accept_offer", "settings", "reset_personal_best"}
+TELEMETRY_HZ = 10           # live "telemetry" events for subscribers (the Pit Pal overlay)
 LAP_TOTAL_DEADLINE_S = 8.0  # lap mode: slower than this and the rules sentence is spoken instead
 ACTIVITY_TYPES = {"run", "decision", "reset_request", "reset_confirmed", "reset_failed",
                   "checkpoint", "reference", "session", "input", "resume_point", "resumed", "corner",
@@ -96,6 +97,7 @@ class CoachApp:
         self._main: list[asyncio.Task] = []
         self.latest: Sample | None = None
         self._latest_at = 0.0
+        self._tele_at = 0.0                      # last "telemetry" event (the overlay's live feed)
         self.telemetry_error: str | None = None
         self.last_run: dict | None = None        # last run event (any role)
         self.last_valid_run: dict | None = None
@@ -174,6 +176,14 @@ class CoachApp:
         self._subs.append(cb)
         return lambda: self._subs.remove(cb) if cb in self._subs else None
 
+    def enable_rev_lines(self):
+        """Let Rev (the Pit Pal overlay) comment on good and bad laps: written by Nemotron when a
+        provider is up, by rules otherwise, spoken like any other cue. Off unless asked for."""
+        from .rev_lines import RevLines
+        self.rev = RevLines(self)
+        self.subscribe(self.rev.on_event)
+        return self.rev
+
     def _threadsafe_broadcast(self, event: dict) -> None:
         """The voice worker thread reports through here; subscribers live on the event loop."""
         if self._loop is not None and threading.get_ident() != self._loop_thread:
@@ -186,7 +196,7 @@ class CoachApp:
 
     def broadcast(self, event: dict) -> None:
         event = {"ts": time.time(), **event}
-        if event["type"] != "health":
+        if event["type"] not in ("health", "telemetry"):   # both repeat all the time: not history
             self.events.append(event)
             del self.events[:-2000]
         if event["type"] == "voice" and event["status"] in ("spoken", "dropped", "error"):
@@ -423,6 +433,12 @@ class CoachApp:
     # -- telemetry --
     def _on_sample(self, s: Sample) -> None:
         self.latest, self._latest_at = s, time.monotonic()
+        if self._subs and self._latest_at - self._tele_at >= 1.0 / TELEMETRY_HZ:
+            self._tele_at = self._latest_at
+            self.broadcast({"type": "telemetry", "status": s.status, "speed_kmh": round(s.speed_kmh, 1),
+                            "gas": round(s.gas, 2), "brake": round(s.brake, 2), "steer": round(s.steer, 2),
+                            "pos_m": round(s.pos_m, 1), "g_lat": round(s.g_lat, 2), "slip_f": round(s.slip_f, 2),
+                            "slip_r": round(s.slip_r, 2), "tyres_out": s.tyres_out})
         if self.recorder:
             self.recorder.write(s)
         self.reset.on_sample(s)

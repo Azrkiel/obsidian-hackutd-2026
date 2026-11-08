@@ -32,6 +32,15 @@ def make_web_app(app: CoachApp) -> web.Application:
             raise web.HTTPNotFound(text="pairing is off: start the coach with --inputs")
         return web.Response(text=hub.pairing.qr_svg(), content_type="image/svg+xml",
                             headers={"Cache-Control": "no-store"})
+    async def pair_json(_: web.Request) -> web.StreamResponse:
+        """The pairing link as text (the Pit Pal overlay draws its own pixel QR from it). It holds
+        the key, so it is as private as /pair.svg: keep the dashboard on 127.0.0.1."""
+        hub = app.inputs
+        if hub is None or hub.pairing is None or hub.pairing_mode == "off":
+            raise web.HTTPNotFound(text="pairing is off: start the coach with --inputs")
+        return web.json_response({"uri": hub.pairing.uri(), "mode": hub.pairing_mode,
+                                  "paired": len(hub.sessions)}, headers={"Cache-Control": "no-store"})
+
     async def track(_: web.Request) -> web.StreamResponse:
         info = app.track_info()
         if info is None:
@@ -93,6 +102,7 @@ def make_web_app(app: CoachApp) -> web.Application:
     web_app.router.add_post("/personal_best/reset", reset_pb)
     web_app.router.add_get("/state", state)
     web_app.router.add_get("/pair.svg", pair_svg)
+    web_app.router.add_get("/pair.json", pair_json)
     web_app.router.add_get("/track", track)
     web_app.router.add_get("/ws", ws_handler)
     return web_app

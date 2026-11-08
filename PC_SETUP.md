@@ -179,9 +179,9 @@ Merge notes:
    Swift side does not change the existing packet: a separate UDP packet to the bridge on 5005,
    `c1,<seq>,next`; the bridge forwards it to the coach, which does "accept" when a drill is offered and
    "reset for retry" otherwise.
-2. **Mascot overlay**: transparent always-on-top Python (tkinter) window over AC (AC in borderless
-   windowed), polling `http://127.0.0.1:8020/state`, showing Nemotron's cue as a speech bubble, the countdown
-   and a "thinking" state. Placeholder image until the Poyo art exists (`mascot.png`).
+2. ~~**Mascot overlay**~~ **Done** (branch `rev-overlay`): Rev, the Pit Pal overlay, over AC (borderless or
+   windowed), fed by the coach's `/ws` stream. Start with `--overlay` or `PitPal.bat`; see
+   `docs/PITPAL_OVERLAY.md`.
 3. **One-command start** `start.ps1`: start the tunnel hidden and keep WSL alive, check `/v1/models`, set the
    Nemotron env vars, start coach (+ overlay, + `-Bridge`), open the dashboard.
 4. **Faster decisions**: measure fast-first vs think-first on the fixtures now that the validator rejects

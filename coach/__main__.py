@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -84,6 +85,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="QR pairing for the phone: required = only phones that scanned the code can "
                         "drive; optional (default) = also accept the unpaired app until a phone pairs; "
                         "off = plain UDP")
+    ap.add_argument("--overlay", action="store_true",
+                    help="also start the Pit Pal overlay (Rev) over the game: pairing QR, live reactions, voice lines")
     ap.add_argument("--auto-retry", action=argparse.BooleanOptionalAction, default=True,
                     help="after Accept, keep rewinding until the drill ends, then resume (default on)")
     ap.add_argument("--max-retries", type=int, default=5,
@@ -122,6 +125,16 @@ def print_pairing(hub: InputHub, dashboard_port: int) -> None:
     print(f"\nScan with the Stealth Racing app to pair ({hub.pairing_mode}):\n{qr}\n"
           f"receiver {p.name} [{p.receiver_id}] on {hosts}, UDP {hub.phone_port}; "
           f"also at http://127.0.0.1:{dashboard_port}/pair.svg\n", flush=True)
+def start_overlay(args: argparse.Namespace) -> "subprocess.Popen | None":
+    """Launch the Pit Pal overlay as its own process, so a UI problem can never stall the coach."""
+    host = "127.0.0.1" if args.host in ("", "0.0.0.0") else args.host
+    try:
+        return subprocess.Popen([sys.executable, "-m", "pitpal", "--url", f"http://{host}:{args.port}"], cwd=ROOT)
+    except OSError as e:
+        print(f"overlay did not start ({e}); the coach runs without it", flush=True)
+        return None
+
+
 def parse_sim_corners(specs: list[str]) -> dict[str, dict]:
     if not specs:
         return {k: dict(v) for k, v in DEMO_SIM_CORNERS.items()}
@@ -305,9 +318,15 @@ async def amain(args: argparse.Namespace) -> None:
               flush=True)
         if i.pairing is not None and i.pairing_mode != "off":
             print_pairing(i, args.port)
+    overlay = None
+    if args.overlay:
+        app.enable_rev_lines()
+        overlay = start_overlay(args)
     try:
         await asyncio.Event().wait()
     finally:
+        if overlay is not None and overlay.poll() is None:
+            overlay.terminate()
         await app.stop()
         await dash.stop()
 

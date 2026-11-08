@@ -199,6 +199,11 @@ uv run python -m coach --whole-lap --plant t1=late_brake
   `uv run python scripts/checkpoint_probe.py --seconds 40 --hold-at 10 --restore-at 35`.
   It checks hold and restore in game and prints the frame cost of each save.
 
+## Pit Pal overlay (Rev)
+
+Rev, the Pit Pal mascot, sits over Assetto Corsa: pairing QR, live reactions, the coach's cues as short
+bubbles. Add `--overlay` to the coach, or double-click `PitPal.bat`. Details: `docs/PITPAL_OVERLAY.md`.
+
 ## Live voice coach and agent mode
 
 Lap mode (the demo mode): keep driving, no Accept and no reset. After the corner exit the coach speaks one short sentence, says a reminder (at most 4 words) about 300 m before the braking zone on the next lap, beeps at the target, then gives a spoken verdict after the next exit.
