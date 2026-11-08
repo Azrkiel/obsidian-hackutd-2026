@@ -20,6 +20,9 @@ class CornerConfig:
     reminder_m: float | None = None  # lap mode: where the spoken reminder plays on the approach
     wheelbase_m: float = 2.6  # understeer index (787B is about 2.6 m)
 
+    telemetry_verified: dict[str, bool] = field(default_factory=dict)
+    racing_line: list[list[float]] | None = None  # [track metres, world x, world z]
+
     def gate(self, name: str) -> float:
         """Named corner positions with defaults derived from the placeholder config."""
         g = self.gates or {}
@@ -55,6 +58,14 @@ class Attempt:
     wheelspin_s: float | None = None
     min_kmh: float | None = None
     min_pos_m: float | None = None
+
+    time_to_peak_s: float | None = None
+    coast_s: float | None = None
+    min_vs_apex_m: float | None = None
+    full_throttle_s: float | None = None
+    turn_in_m: float | None = None
+    last_downshift_m: float | None = None
+    line_offset_m: float | None = None
 
     @classmethod
     def from_dict(cls, d: dict) -> "Attempt":

@@ -201,3 +201,69 @@ uv run python scripts/speed_agent.py --n 10 --provider brev --voice
 Done when at least 9 of 10 turns of each kind end in a valid action within the budget (plan 15 s, evaluate 10 s).
 
 Still unverified without the game: the new shared-memory fields (yaw-rate sign, g-forces, wheel slip units, so the lock-up/wheelspin thresholds), the reminder position on the real Monza line, and the extractor on Kunos' `fast_lane.ai`.
+
+## Drill registry and telemetry (D1–D12)
+
+`engine/drills.py` defines all 13 drill types, their metric and target keys, units,
+coaching priority, cue gate, reminders, and evidence prerequisites. Tool enums,
+target schemas, model prompt drill descriptions, plan titles, and dashboard target
+metadata derive from this registry. Corner JSON supplies permitted target ranges
+and per-metric tolerances. The original three drills retain their board/apex marker
+semantics; new targets use the metric's own units.
+
+| Drill | Metric / target key | Live cue |
+| --- | --- | --- |
+| brake_bite | time_to_peak_s | Brake gate |
+| no_coast | coast_s | Turn-in gate |
+| apex_position | min_vs_apex_m | Target minimum-speed position relative to apex midpoint |
+| trail_brake | trail_brake_share | Turn-in gate |
+| throttle_roll_on | full_throttle_s | Second apex |
+| lockup | lockup_s | Brake gate |
+| min_speed | min_kmh | First apex |
+| turn_in | turn_in_m | Target position |
+| downshift | last_downshift_m | Target position |
+| racing_line | line_offset_m | Turn-in gate |
+
+All metrics flow from the driving profile into `Attempt`, evidence, agent session
+history (`laps[].metrics`), run events, and dashboard rows. Old attempts and traces
+remain supported: unavailable measurements stay absent/`None` and cannot produce a
+drill or a successful retry. A measured reference is required for each metric;
+use **Set reference** after a valid recorded run. The placeholder reference does
+not contain evidence for every new drill.
+
+`turn_in_m` is the first steering magnitude strictly above 0.05 at or after brake
+onset. `last_downshift_m` is the last forward-gear reduction from brake onset to
+the first apex; neutral blips are ignored. Gear uses -1 reverse, 0 neutral, and
+1.. forward gears. Trace columns append gear, world x, and world z to the original
+nine columns, preserving old column indices and old replay files.
+
+Minimum-speed advice is offered only when minimum-speed position is already
+within apex-position tolerance. No-coast, lockup, and racing-line goals penalize
+excess; minimum speed penalizes a deficit. Improving past those targets still
+counts as success. Other drills compare both sides of the reference target.
+
+### O2 calibration and racing line
+
+The fixture explicitly sets `telemetry_verified.steering`, `.slip`, and
+`.coordinates` to false. Set these flags in a measured corner configuration only
+after checking the corresponding live AC telemetry. `steering` gates trail braking;
+`slip` gates throttle roll-on and lockup (verify wheelSlip units and the 0.15
+thresholds in `engine/analysis.py`); `coordinates` gates racing-line advice (verify
+world x/z axes, metres, and AI cumulative distance vs normalized lap position).
+These real-game checks cannot be established by simulator tests.
+
+Extract a real track without overwriting the fixtures:
+
+```sh
+uv run python scripts/ac_track_extract.py /path/to/track --out data/corner.json --ref-out data/ai_reference.json
+uv run python -m coach --telemetry sim --reset sim --corner data/corner.json --reference data/ai_reference.json --voice off
+```
+
+The extractor preserves `racing_line` as `[track_metres, world_x, world_z]` points;
+its bundled reference attempt and trace load directly into the coach. Racing-line
+error is RMS distance to local AI line segments through the turn, constrained by
+track progress to avoid nearby parallel sections. Missing coordinates, insufficient
+line coverage, or invalid geometry produce no line metric. AI-derived reference
+profiles cannot supply steering, slip, or gear evidence; record a real reference
+for those drills. Synthetic telemetry supports development but does not validate
+a real AC track's geometry or make the synthetic driver learn every drill.

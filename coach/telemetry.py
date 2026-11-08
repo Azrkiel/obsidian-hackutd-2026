@@ -38,6 +38,7 @@ class Sample:
     slip_r: float = 0.0     # max wheelSlip of the two rears
     load_f: float = 0.0     # wheelLoad fronts, N
     load_r: float = 0.0     # wheelLoad rears, N
+    gear: int | None = None  # -1 reverse, 0 neutral, 1.. forward; None in old recordings
 
 
 # --- Assetto Corsa (original, NOT ACC) shared memory --------------------------------------------
@@ -118,8 +119,8 @@ def parse_sample(phys: SPageFilePhysics, gfx: SPageFileGraphic, track_len_m: flo
                   steer=float(phys.steerAngle), x=float(c[0]), y=float(c[1]), z=float(c[2]),
                   g_lat=float(phys.accG[0]), g_lon=float(phys.accG[2]),
                   yaw_rate=float(phys.localAngularVel[1]),
-                  slip_f=max(float(ws[0]), float(ws[1])), slip_r=max(float(ws[2]), float(ws[3])),
-                  load_f=float(wl[0]) + float(wl[1]), load_r=float(wl[2]) + float(wl[3]))
+                  slip_f=max(abs(float(ws[0])), abs(float(ws[1]))), slip_r=max(abs(float(ws[2])), abs(float(ws[3]))),
+                  load_f=float(wl[0]) + float(wl[1]), load_r=float(wl[2]) + float(wl[3]), gear=int(phys.gear) - 1)
 
 
 class ACSharedMemory:
@@ -311,7 +312,7 @@ class SimSource:
         slip_r = 0.03 + (0.2 if gas > 0.9 and v < 35 else 0.0)
         return Sample(self.t, self.packet, status, self.pos / n, self.pos, speed, gas, brake,
                       steer, self.pos, 0.0, 0.0, g_lat=v * yaw / 9.81, g_lon=g_lon, yaw_rate=yaw,
-                      slip_f=slip_f, slip_r=slip_r)
+                      slip_f=slip_f, slip_r=slip_r, gear=max(1, min(6, int(speed / 55) + 1)))
 
     async def samples(self) -> AsyncIterator[Sample]:
         loop = asyncio.get_running_loop()
