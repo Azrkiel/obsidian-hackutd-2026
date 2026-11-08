@@ -165,6 +165,7 @@ class LapCoach:
         self._cue_for[attempt.attempt_id] = offer.id
         self.app.baseline_run = {"type": "run", "role": "baseline", "attempt": attempt.__dict__,
                                  "trace": ev.cpass.trace}
+        self.app.capture_history({**self.app.baseline_run, "corner_id": ev.corner_id})
         await coach.on_scored(attempt, ev.cpass.trace, {"event": ev.summary()})
 
     async def _standalone_cue(self, offer: Offer) -> None:

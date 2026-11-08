@@ -6,5 +6,8 @@ rem Nemotron / voice settings come from your environment (see PC_SETUP.md); with
 cd /d "%~dp0"
 set VOICE=auto
 if defined NVIDIA_API_KEY set VOICE=nvidia
-uv run --with vgamepad --with pyserial python -m coach --telemetry ac --reset udp --inputs --track fixtures/track_monza.json --voice %VOICE% --overlay %*
+set "CLOUD_ARGS="
+if exist "data\cloud\config.json" set "CLOUD_ARGS=--extra cloud"
+if defined SPACETIMEDB_URL set "CLOUD_ARGS=--extra cloud"
+uv run %CLOUD_ARGS% --with vgamepad --with pyserial python -m coach --telemetry ac --reset udp --inputs --track fixtures/track_monza.json --voice %VOICE% --overlay %*
 if errorlevel 1 pause

@@ -52,9 +52,11 @@ button:disabled{opacity:.35;cursor:not-allowed}
 </head>
 <body>
 <header>
+  <a class="badge" href="/history-view" style="color:var(--blue);text-decoration:none">Session history</a>
   <span class="badge" id="state">IDLE</span>
   <span class="badge" id="ai">Rules (AI unavailable)</span>
   <span class="badge" id="tel">telemetry: no data</span>
+  <span class="badge" id="cloud" style="display:none"></span>
   <span class="badge" id="rst">reset: idle</span>
   <span class="badge" id="inp">inputs: off</span>
   <span class="badge" id="mode">drill mode</span>
@@ -154,6 +156,10 @@ function renderTop(){
   badge($("ai"),h.ai.label+(h.ai.provider?" ("+h.ai.provider+")":""),h.ai.mode==="rules"?"warn":"ok");
   const t=h.telemetry; badge($("tel"),"telemetry: "+t.state+(t.age_s!=null?" ("+t.age_s+"s)":"")+(t.error&&t.state==="no data"?" - "+t.error:""),
     t.state==="live"?"ok":t.state==="paused"?"warn":"bad");
+  const c=h.cloud||{state:"disabled"}, cb=$("cloud");
+  cb.style.display=c.state==="disabled"?"none":"";
+  badge(cb,"history sync: "+c.state.replace("_"," ")+(c.pending?" ("+c.pending+" pending)":"")+(c.rejected?" ("+c.rejected+" rejected)":"")+(c.capture_complete===false?" - incomplete":""),
+    c.state==="synced"||c.state==="viewer"?"ok":c.state==="syncing"||c.state==="offline"?"warn":"bad");
   const r=h.reset; badge($("rst"),"reset: "+r.status+(r.checkpoint?"":" (no checkpoint)"),r.status==="failed"?"bad":r.status==="idle"?"":"warn");
   $("b-accept").disabled=S.state!=="OFFERED";
   $("b-retry_reset").style.display=(S.state==="AWAIT_RESET"||r.status==="failed")?"":"none";

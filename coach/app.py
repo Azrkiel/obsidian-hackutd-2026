@@ -13,6 +13,7 @@ import sys
 import threading
 import time
 from collections import deque
+from contextvars import ContextVar
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Callable
@@ -35,6 +36,7 @@ COMMANDS = {"accept", "retry", "save_checkpoint", "set_reference", "new_session"
             "toggle_cue_next", "retry_reset", "toggle_mute", "mark_board", "resume",
             "new_pairing", "select_corner", "accept_offer", "settings", "reset_personal_best"}
 TELEMETRY_HZ = 10           # live "telemetry" events for subscribers (the Pit Pal overlay)
+_HISTORY_ORIGIN = ContextVar("coach_history_origin", default=None)
 LAP_TOTAL_DEADLINE_S = 8.0  # lap mode: slower than this and the rules sentence is spoken instead
 ACTIVITY_TYPES = {"run", "decision", "reset_request", "reset_confirmed", "reset_failed",
                   "checkpoint", "reference", "session", "input", "resume_point", "resumed", "corner",
@@ -77,6 +79,7 @@ class CoachApp:
             corner = track.corners[0]
             reference, reference_trace = track_references[corner.id]
         self.mode, self.track = mode, track
+        self.cloud_history = self.cloud_runtime = None
         self.track_laps: deque[dict] = deque(maxlen=20)
         self.last_lap_runs: dict | None = None
         self._lap_events: dict[str, dict] = {}
@@ -196,6 +199,10 @@ class CoachApp:
 
     def broadcast(self, event: dict) -> None:
         event = {"ts": time.time(), **event}
+        if event["type"] in ("run", "decision", "track_lap"):
+            sid = _HISTORY_ORIGIN.get() or self._history_session_id()
+            if sid:
+                event.setdefault("_history_session_id", sid)
         if event["type"] not in ("health", "telemetry"):   # both repeat all the time: not history
             self.events.append(event)
             del self.events[:-2000]
@@ -248,10 +255,25 @@ class CoachApp:
         return "new session"
 
     def _spawn(self, coro) -> asyncio.Task:
-        task = asyncio.get_running_loop().create_task(coro)
+        origin = _HISTORY_ORIGIN.set(_HISTORY_ORIGIN.get() or self._history_session_id())
+        try:
+            task = asyncio.get_running_loop().create_task(coro)
+        finally:
+            _HISTORY_ORIGIN.reset(origin)
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         return task
+
+    def _history_session_id(self):
+        sync = getattr(self.cloud_runtime, "sync", None)
+        return sync.session_id if sync is not None else None
+
+    def capture_history(self, event: dict) -> None:
+        """A scored path without a dashboard event can still contribute one history record."""
+        sync = getattr(self.cloud_runtime, "sync", None)
+        if sync is not None:
+            sync.capture({"ts": time.time(), **event,
+                          "_history_session_id": _HISTORY_ORIGIN.get() or sync.session_id})
 
     # -- coach wiring --
     def _on_coach_event(self, e: dict) -> None:
@@ -432,6 +454,8 @@ class CoachApp:
 
     # -- telemetry --
     def _on_sample(self, s: Sample) -> None:
+        if self.cloud_runtime is not None:
+            self.cloud_runtime.update_metadata()
         self.latest, self._latest_at = s, time.monotonic()
         if self._subs and self._latest_at - self._tele_at >= 1.0 / TELEMETRY_HZ:
             self._tele_at = self._latest_at
@@ -502,6 +526,7 @@ class CoachApp:
             "auto_retry": self.auto_retry,
             "resume_available": self.reset.resume_point is not None,
             "mode": self.mode,
+            "cloud": self.cloud_runtime.status() if self.cloud_runtime is not None else {"state": "disabled"},
             "agent": self.coach.agent is not None,
             "track": self.track.name if self.track is not None else None,
             "voice": None if self.announcer is None else {
@@ -738,6 +763,8 @@ class CoachApp:
     # -- lifecycle --
     async def start(self) -> None:
         self._loop, self._loop_thread = asyncio.get_running_loop(), threading.get_ident()
+        if self.cloud_runtime is not None:
+            await self.cloud_runtime.start()
         if self.inputs is not None:
             await self.inputs.start()
         self._main = [asyncio.create_task(self._telemetry_loop()),
@@ -763,6 +790,8 @@ class CoachApp:
             await self.inputs.stop()
         if self.recorder:
             self.recorder.close()
+        if self.cloud_runtime is not None:
+            await self.cloud_runtime.stop()
 
     async def wait_for(self, pred: Callable[[], bool], timeout: float = 30.0) -> None:
         end = time.monotonic() + timeout

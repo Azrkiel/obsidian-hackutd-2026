@@ -26,6 +26,7 @@ from engine.voice import make_speaker
 from .app import CoachApp
 from .checkpoints import CheckpointStore
 from .dashboard import Dashboard
+from .cloud_runtime import configure_cloud
 from .inputs import InputHub, make_pad
 from .pairing import Pairing
 from .telemetry import ACSharedMemory, Recorder, ReplaySource, SimSource
@@ -51,6 +52,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--data-dir", default=str(ROOT / "data"))
     ap.add_argument("--traces", default=str(ROOT / "traces"))
     ap.add_argument("--record", action="store_true", help="write samples to data/recordings/")
+    ap.add_argument("--cloud", action=argparse.BooleanOptionalAction, default=True,
+                    help="use a configured cloud history profile (default on; --no-cloud keeps this run local)")
     ap.add_argument("--sound", action=argparse.BooleanOptionalAction, default=None)
     ap.add_argument("--countdown", type=int, default=3)
     ap.add_argument("--brake-board", type=float, default=86.0, help="sim: first-run brake board (m)")
@@ -298,11 +301,13 @@ def parse_plant(spec: str) -> dict[str, list[str | None]]:
 
 async def amain(args: argparse.Namespace) -> None:
     app = build_app(args)
+    configure_cloud(app, args.telemetry[0], enabled=args.cloud)
     dash = Dashboard(app, args.host, args.port)
     await dash.start()
     try:
         await app.start()
     except RuntimeError as e:  # e.g. UDP 5005 already taken by bridge.py
+        await app.stop()
         await dash.stop()
         raise SystemExit(f"error: {e}") from e
     voice = "off" if app.announcer is None else app.announcer.speaker.name

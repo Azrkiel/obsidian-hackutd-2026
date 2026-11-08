@@ -10,6 +10,8 @@ from pathlib import Path
 from aiohttp import WSMsgType, web
 
 from .app import CoachApp
+from .cloud_history import HistoryService
+from .history_routes import add_history_routes
 
 STATIC = Path(__file__).parent / "static"
 
@@ -105,6 +107,15 @@ def make_web_app(app: CoachApp) -> web.Application:
     web_app.router.add_get("/pair.json", pair_json)
     web_app.router.add_get("/track", track)
     web_app.router.add_get("/ws", ws_handler)
+    history = getattr(app, "cloud_history", None) or HistoryService(data_dir=app.data_dir)
+    app.cloud_history = history
+    add_history_routes(web_app, history)
+    if getattr(app, "cloud_runtime", None) is None:
+        async def history_lifecycle(_):
+            await history.start()
+            yield
+            await history.close()
+        web_app.cleanup_ctx.append(history_lifecycle)
     return web_app
 
 

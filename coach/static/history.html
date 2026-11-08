@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PitPal · Session history</title>
+<style>
+:root{color-scheme:dark;--bg:#0e1116;--panel:#171c24;--ink:#e8edf3;--dim:#98a5b6;--good:#3ddc84;--line:#2a3340;--warn:#ffc233}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,Segoe UI,sans-serif}
+header{border-bottom:1px solid var(--line);background:var(--panel);padding:24px max(24px,calc((100vw - 1200px)/2))}.brand{color:var(--good);font-weight:700;letter-spacing:.14em;font-size:12px;text-transform:uppercase}h1{font-size:32px;margin:4px 0}p{color:var(--dim);margin:4px 0}
+main{max-width:1248px;margin:auto;padding:24px}.toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:20px}.status{margin-right:auto;color:var(--dim)}button,select{font:inherit;border:1px solid var(--line);border-radius:8px;background:#222a35;color:var(--ink);padding:9px 14px}button{cursor:pointer}button.primary{background:var(--good);color:#06210f;font-weight:700}button:disabled{opacity:.45;cursor:default}button:focus-visible,select:focus-visible,a:focus-visible{outline:3px solid var(--warn);outline-offset:3px}
+.layout{display:grid;grid-template-columns:340px 1fr;gap:20px}.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px;min-width:0}h2{font-size:18px;margin:0 0 16px}.sessions{display:grid;gap:10px}.session{text-align:left;padding:14px;width:100%;background:#10151c}.session[aria-current=true]{border-color:var(--good)}.session strong,.session span{display:block}.meta{font-size:13px;color:var(--dim)}.empty{padding:30px 0;color:var(--dim)}.error{color:var(--warn)}.tabs{display:flex;gap:8px;margin:20px 0;flex-wrap:wrap}.tabs button[aria-pressed=true]{border-color:var(--good);color:var(--good)}.records{display:grid;gap:12px}.record{border-top:1px solid var(--line);padding-top:14px}.record h3{margin:0;font-size:16px}.record p{color:var(--ink);overflow-wrap:anywhere}.footer{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:18px}.label{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}[hidden]{display:none!important}@media(max-width:760px){.layout{grid-template-columns:1fr}header{padding:20px 24px}h1{font-size:27px}main{padding:18px}.panel{padding:16px}}
+</style>
+<script src="/history.js" defer></script>
+</head>
+<body>
+<header><div class="brand">PitPal</div><h1>Session history</h1><p>Your laps and coaching, available across your registered PCs.</p></header>
+<main>
+<div class="toolbar"><div id="status" class="status" role="status" aria-live="polite">Loading saved history…</div><label for="source">Source</label><select id="source"><option value="">All sessions</option><option value="ac">Assetto Corsa</option><option value="sim">Simulator</option><option value="replay">Replay</option></select><button id="refresh" class="primary">Refresh</button></div>
+<div id="notice" class="panel" hidden></div>
+<div class="layout">
+<section class="panel" aria-labelledby="sessions-title"><h2 id="sessions-title">Sessions</h2><div id="sessions" class="sessions"></div><div class="footer"><button id="sessions-back" disabled>First page</button><button id="sessions-next" disabled>Next page</button></div></section>
+<section class="panel" aria-labelledby="details-title"><div class="label">Session detail</div><h2 id="details-title">Choose a session</h2><p id="details-meta">Select a session to see laps, corner attempts, and coaching advice.</p><div id="tabs" class="tabs" hidden><button data-kind="laps" aria-pressed="true">Laps</button><button data-kind="attempts" aria-pressed="false">Corner attempts</button><button data-kind="decisions" aria-pressed="false">Coaching</button></div><div id="records" class="records"></div><div class="footer"><span id="details-freshness" class="meta"></span><button id="records-next" hidden>More results</button></div></section>
+</div>
+</main>
+</body></html>
