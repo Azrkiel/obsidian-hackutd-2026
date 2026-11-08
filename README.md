@@ -6,6 +6,17 @@ Optional persistent race history: start with `--history`. See [HISTORY.md](HISTO
 
 Implementation status, test evidence, resume commands, and remaining deployment work: [race history handoff](.Codex/handoffs/2026-11-08-0540.md).
 
+## Race PC: one command (no hosting)
+
+```
+uv run python scripts/rig.py          # Assetto Corsa: shared memory, CSP reset (UDP 9101), phone/Arduino inputs
+uv run python scripts/rig.py --sim    # same, with the simulated car
+uv run python scripts/rig.py --lan    # phones on the same Wi-Fi can open the dashboard and the leaderboard
+uv run python scripts/rig.py -- --agent --track fixtures/track_monza.json   # extra coach flags after --
+```
+
+Everything runs on the race PC. The dashboard (http://127.0.0.1:8020) shows live telemetry, the Nemotron coach, the Monza map and the brake chart, and its buttons control the game through the coach (rewind, retry, resume, checkpoint, mark board). Race history is saved in `data/history.sqlite3`. If the SpacetimeDB CLI is installed (`spacetime` on PATH or `SPACETIME_CLI`), the script also starts a local SpacetimeDB server on 127.0.0.1:3000 (data in `data/spacetime`), publishes the race-history module from `spacetime/prebuilt/` (no Node or npm needed) and gives the coach a writer identity kept in `data/spacetime_local.json`; the header then shows "Synced to SpacetimeDB". Keep `data/` between sessions. Ctrl+C stops the coach and the local server.
+
 ## Thinking engine
 
 Nemotron reads a scored attempt's metrics and picks one coaching action; the car is reset and the retry is scored.
@@ -167,7 +178,7 @@ CSP reset app (draft): copy `csp/nomadsim_reset/` to `<assettocorsa>/apps/lua/no
 
 Not tested without AC: the shared-memory struct offsets against a live game (layout copied from the CSP `sim_info.py`, parsing is unit-tested on fake buffers), the CSP Lua API calls, `SendInput` hotkeys, `winsound` playback, and the corner positions (placeholders until real laps are logged).
 
-Corner positions in `fixtures/corner_monza_t1.json` are placeholders; replace after logging real laps.
+Single-corner mode uses `fixtures/corner_monza_t1_measured.json` by default: Monza T1 at its position measured from F1 data (start 520, apexes 875-955, exit 1060 m), with a simulator reference braking at the 100 m board (`scripts/make_t1_fixture.py`). `fixtures/corner_monza_t1.json` keeps the old placeholder gates for the unit tests. Check the boards in the game (press B) and press Set reference after a clean real lap.
 
 ## Live voice coach and agent mode
 

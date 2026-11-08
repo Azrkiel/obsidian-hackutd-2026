@@ -40,7 +40,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--reset", choices=["udp", "hotkey", "manual", "sim"], default=None)
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8020)
-    ap.add_argument("--corner", default=str(ROOT / "fixtures" / "corner_monza_t1.json"))
+    ap.add_argument("--corner", default=str(ROOT / "fixtures" / "corner_monza_t1_measured.json"),
+                    help="corner JSON (default: Monza T1 at its measured position)")
     ap.add_argument("--reference", default=None)
     ap.add_argument("--data-dir", default=str(ROOT / "data"))
     ap.add_argument("--traces", default=str(ROOT / "traces"))
@@ -200,8 +201,9 @@ def build_app(args: argparse.Namespace) -> CoachApp:
         ref_path = Path(args.reference)
     elif (data / "reference.json").exists():
         ref_path = data / "reference.json"
-    else:
-        ref_path = ROOT / "fixtures" / "reference.json"
+    else:  # the corner file names its own reference ("_reference"), else the generic one
+        named = json.loads(Path(args.corner).read_text(encoding="utf-8")).get("_reference")
+        ref_path = Path(args.corner).with_name(named) if named else ROOT / "fixtures" / "reference.json"
     ref_trace_path = ref_path.with_name(ref_path.stem + "_trace.json")
     ref_doc = json.loads(ref_path.read_text(encoding="utf-8"))
     ref_trace = (json.loads(ref_trace_path.read_text(encoding="utf-8")) if ref_trace_path.exists()
