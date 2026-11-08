@@ -163,3 +163,33 @@ async def test_pairing_over_real_udp(tmp_path):
     finally:
         tx.close()
         await hub.stop()
+
+
+def test_optional_mode_locks_once_a_phone_pairs(pairing):
+    hub = hub_for(pairing)
+    assert hub.feed_phone(b"v1,30,0.2,0.5,0", OTHER) == b"ack,30"     # before pairing: accepted
+    paired_phone(hub, pairing)
+    assert hub.feed_phone(b"v1,31,0.9,1,0", OTHER) is None             # after: another device is out
+    hub.tick()
+    assert hub.pad.axes[0] != 0.9
+    hub.new_pairing_code()                                             # a new code reopens it
+    assert hub.feed_phone(b"v1,60,0.1,0,0", OTHER) == b"ack,60"
+
+
+def test_replayed_hello_cannot_hijack_the_session(pairing):
+    hub = hub_for(pairing)
+    phone = PhoneClient(pairing.uri())
+    hello = phone.hello()
+    phone.accept(hub.feed_phone(hello, PHONE))
+    assert hub.feed_phone(hello, PHONE) is None                        # replay (address forged) refused
+    assert phone.check(hub.feed_phone(phone.send("v1,30,0.3,0,0"), PHONE)) == b"ack,30"
+
+
+def test_hosts_are_cached(monkeypatch):
+    import coach.pairing as cp
+    calls = []
+    monkeypatch.setattr(cp, "local_ipv4s", lambda: calls.append(1) or ["192.168.1.5"])
+    p = Pairing(None, name="X")
+    for _ in range(50):
+        assert p.hosts() == ["192.168.1.5"]
+    assert len(calls) == 1

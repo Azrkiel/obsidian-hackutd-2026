@@ -42,6 +42,8 @@ import json
 import re
 import secrets
 import socket
+import time
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import quote
@@ -117,6 +119,8 @@ class Pairing:
         self.port = port
         self.name = _NAME.sub("", name or socket.gethostname().split(".")[0])[:32] or "NomadSim"
         self._hosts = hosts
+        self._hosts_cache: tuple[float, list[str]] | None = None
+        self._seen_hellos: deque[bytes] = deque(maxlen=256)  # replayed hellos are refused
         self.key = self._load() or self._new_key()
 
     # -- key --
@@ -139,14 +143,22 @@ class Pairing:
     def rotate(self) -> None:
         """New code: phones paired with the old one must scan again."""
         self.key = self._new_key()
+        self._seen_hellos.clear()
 
     @property
     def receiver_id(self) -> str:
         return hashlib.sha256(self.key).hexdigest()[:8]
 
     # -- code --
-    def hosts(self) -> list[str]:
-        return list(self._hosts) if self._hosts is not None else local_ipv4s()
+    def hosts(self, ttl_s: float = 10.0) -> list[str]:
+        """The PC's LAN addresses, cached: looking them up can block (hostname resolution on
+        Windows), and the status is read every second on the event loop."""
+        if self._hosts is not None:
+            return list(self._hosts)
+        now = time.monotonic()
+        if self._hosts_cache is None or now - self._hosts_cache[0] > ttl_s:
+            self._hosts_cache = (now, local_ipv4s())
+        return list(self._hosts_cache[1])
 
     def uri(self) -> str:
         return (f"{SCHEME}://pair?v={VERSION}&h={','.join(self.hosts())}&p={self.port}"
@@ -193,6 +205,11 @@ class Pairing:
         pn = parts[1]
         if not hmac.compare_digest(mac(self.key, b"h1," + pn, 16), parts[2]):
             return None
+        if pn in self._seen_hellos:
+            # A recorded hello resent (possibly with the phone's address forged) must not replace
+            # the phone's live session; a real phone always sends a fresh nonce.
+            return None
+        self._seen_hellos.append(pn)
         rn = secrets.token_hex(8).encode()
         body = b"w1," + pn + b"," + rn + b"," + self.name.encode()
         session = Session(hmac.new(self.key, b"s1," + pn + b"," + rn, hashlib.sha256).digest())

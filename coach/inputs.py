@@ -253,8 +253,9 @@ class InputHub:
         self.phone_port, self.arduino, self.arduino_udp_port = phone_port, arduino, arduino_udp_port
         self.invert, self.emit, self.clock, self.advertise = invert_steer, emit or (lambda e: None), clock, advertise
         self.on_command: Callable[[str], None] | None = None  # set by the coach
-        # QR pairing: "off" = plain packets only, "optional" = plain or signed (a paired address
-        # only signed), "required" = signed only
+        # QR pairing: "off" = plain packets only; "optional" = plain packets accepted only until the
+        # first phone pairs, then signed only (another device on the Wi-Fi can't join in unsigned);
+        # "required" = signed only
         self.pairing = pairing
         self.pairing_mode = pairing_mode if pairing is not None else "off"
         self.sessions: dict[Any, Session] = {}
@@ -291,7 +292,7 @@ class InputHub:
                     return self._reject(addr, "bad signature")
             elif looks_signed(data):
                 return b"rehello"                     # we restarted or rotated: ask for a new hello
-            elif self.pairing_mode == "required":
+            elif self.pairing_mode == "required" or self.sessions:
                 return self._reject(addr, "unpaired")
         p = parse_phone(data)
         if p is None:

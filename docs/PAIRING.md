@@ -18,7 +18,7 @@ replaces the key; every phone must scan again.
 
 | `--pairing` | Who can drive |
 | --- | --- |
-| `optional` (default for now) | paired phones, and the current unpaired app. Once a phone pairs from an address, unsigned packets from that address are ignored. |
+| `optional` (default for now) | the current unpaired app, **until the first phone pairs**; from then on, like `required` (no unsigned packets from anyone). "New pairing code" clears the pairing and reopens it. |
 | `required` | only phones that scanned the code. Switch to this once the app ships pairing. |
 | `off` | plain UDP, as before (no QR) |
 
@@ -61,7 +61,9 @@ Rules:
 - Everything else is the existing protocol, unchanged: ~100 Hz v1, events sent 3× per id, ack every
   30th seq.
 
-What it protects: nobody without the QR can steer, press buttons, or fake "Receiver confirmed".
+What it protects (in `required` mode, or in `optional` once a phone has paired): nobody without
+the QR can steer, press buttons, or fake "Receiver confirmed". A recorded hello can't be replayed
+to knock a paired phone off its session.
 What it doesn't: packets are signed, not encrypted (steering values are not secret), and anyone who
 sees the QR can pair. Show it on the PC's own screen; regenerate it if it was shared.
 
