@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+import threading
 import time
 from collections import deque
 from dataclasses import asdict
@@ -11,17 +12,20 @@ from pathlib import Path
 from typing import Any, Callable
 
 from engine import ladder
+from engine.agent_tools import AgentSession
 from engine.live_cue import LiveCue, NullPlayer
 from engine.models import Attempt, CornerConfig
 from engine.state import AWAIT_RESET, DONE, IDLE, OFFERED, RETRY, Coach
 from engine.trace import TraceWriter
+from engine.voice import ADVICE, REMINDER, VERDICT, Announcer
 
 from .reset import ResetManager
 from .scorer import CornerScorer
 from .telemetry import Recorder, Sample, SimSource
 
 COMMANDS = {"accept", "retry", "save_checkpoint", "set_reference", "new_session",
-            "toggle_cue_next", "retry_reset"}
+            "toggle_cue_next", "retry_reset", "toggle_mute", "mark_board"}
+LAP_TOTAL_DEADLINE_S = 8.0  # lap mode: slower than this and the rules sentence is spoken instead
 ACTIVITY_TYPES = {"run", "decision", "reset_request", "reset_confirmed", "reset_failed",
                   "checkpoint", "reference", "session"}
 
@@ -45,7 +49,11 @@ class CoachApp:
                  recorder: Recorder | None = None, sound: bool | None = False,
                  countdown: int = 3, tick_s: float = 1.0, persist_checkpoint: bool = True,
                  reconnect_s: float = 2.0, decide_kwargs: dict | None = None,
-                 reset_kwargs: dict | None = None):
+                 reset_kwargs: dict | None = None, mode: str = "drill", speaker: Any = None,
+                 muted: bool = False, announcer_kwargs: dict | None = None, agent: bool = False):
+        if mode not in ("drill", "lap"):
+            raise ValueError(f"mode must be drill or lap, not {mode!r}")
+        self.mode = mode
         self.corner, self.source, self.providers = corner, source, providers
         self.data_dir = Path(data_dir)
         self.recorder, self.reconnect_s = recorder, reconnect_s
@@ -66,7 +74,14 @@ class CoachApp:
         self.cue_next_off = False
         self._health_key: str | None = None
         self.player = _make_player(sound)
-        self.live_cue = LiveCue(corner, self.player)
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._loop_thread: int | None = None
+        # voice: the driver hears the cue; quiet inside the scored corner
+        self.announcer = Announcer(speaker, quiet_zone=(corner.start_gate_m, corner.exit_gate_m),
+                                   on_event=self._threadsafe_broadcast, muted=muted,
+                                   **(announcer_kwargs or {})) if speaker is not None else None
+        say = (lambda text: self.announcer.say(text, REMINDER)) if self.announcer else None
+        self.live_cue = LiveCue(corner, self.player, say=say)
         self.trace = TraceWriter(trace_dir)
         self.scorer = CornerScorer(corner, self._on_run)
         self.sim = source if isinstance(source, SimSource) else None
@@ -77,20 +92,38 @@ class CoachApp:
         if self.sim is not None and reset_mode == "sim" and not self.reset.checkpoint:
             self.reset.set_checkpoint(self.sim.start_pos_m, self.sim.v0_kmh)
             self.activity.clear()
+        dk = dict(decide_kwargs or {})
+        if mode == "lap":
+            dk.setdefault("total_deadline_s", LAP_TOTAL_DEADLINE_S)
         self.coach = Coach(corner, reference, providers, self._on_coach_event, self._request_reset,
-                           trace=self.trace, live_cue=self.live_cue,
-                           decide_kwargs=decide_kwargs or {})
+                           trace=self.trace, live_cue=self.live_cue, decide_kwargs=dk,
+                           lap_mode=mode == "lap",
+                           agent=AgentSession(corner, reference, self.reference_trace) if agent else None)
 
     # -- broadcast --
     def subscribe(self, cb: Callable[[dict], None]) -> Callable[[], None]:
         self._subs.append(cb)
         return lambda: self._subs.remove(cb) if cb in self._subs else None
 
+    def _threadsafe_broadcast(self, event: dict) -> None:
+        """The voice worker thread reports through here; subscribers live on the event loop."""
+        if self._loop is not None and threading.get_ident() != self._loop_thread:
+            try:
+                self._loop.call_soon_threadsafe(self.broadcast, event)
+            except RuntimeError:  # loop closed during shutdown
+                pass
+        else:
+            self.broadcast(event)
+
     def broadcast(self, event: dict) -> None:
         event = {"ts": time.time(), **event}
         if event["type"] != "health":
             self.events.append(event)
             del self.events[:-2000]
+        if event["type"] == "voice" and event["status"] in ("spoken", "dropped", "error"):
+            event["text_log"] = (f"said: {event['text']}" if event["status"] == "spoken"
+                                 else f"voice {event['status']} ({event.get('reason')}): {event['text']}")
+            self.activity.append({"ts": event["ts"], "type": "voice", "text": event["text_log"]})
         if event["type"] in ACTIVITY_TYPES:
             event["text"] = self._activity_text(event)
             self.activity.append({"ts": event["ts"], "type": event["type"], "text": event["text"]})
@@ -131,9 +164,26 @@ class CoachApp:
     def _on_coach_event(self, e: dict) -> None:
         if e["type"] == "decision":
             self.last_decision = e
-            if e["action"] == "offer_drill" and self.sim is not None and e.get("drill_id") == "brake_point":
-                self.sim.set_target_board(e["target"]["marker_m"])
+            if e["action"] == "offer_drill" and self.sim is not None:
+                if e.get("drill_id") == "brake_point":
+                    self.sim.set_target_board(e["target"]["marker_m"])
+                elif e.get("drill_id") == "brake_release":
+                    self.sim.set_target_release(e["target"]["release_s"])
         self.broadcast(e)
+        if e["type"] == "decision":
+            self._speak_decision(e)
+
+    def _speak_decision(self, e: dict) -> None:
+        if self.announcer is None:
+            return
+        meta = {"decision_id": e.get("decision_id"), "mode": e.get("mode")}
+        if e["action"] == "offer_drill":
+            if e.get("plan_action") == "advance_plan" and e.get("summary"):
+                self.announcer.say(e["summary"], VERDICT, **meta)  # "On target." then the next goal
+            text, kind = e.get("cue") or "", VERDICT if e.get("verdict") else ADVICE
+        else:
+            text, kind = e.get("summary") or "", VERDICT
+        self.announcer.say(text, kind, **meta)
 
     async def _request_reset(self, decision_id: str) -> None:
         await self.reset.reset(decision_id)
@@ -164,7 +214,7 @@ class CoachApp:
         elif role == "retry":
             self.retry_run = ev
         self.broadcast(ev)
-        await self.coach.on_scored(attempt)
+        await self.coach.on_scored(attempt, trace)
 
     # -- telemetry --
     def _on_sample(self, s: Sample) -> None:
@@ -172,8 +222,12 @@ class CoachApp:
         if self.recorder:
             self.recorder.write(s)
         self.reset.on_sample(s)
+        if self.announcer:
+            self.announcer.on_position(s.pos_m)
         self.live_cue.on_sample(s.t, s.pos_m, s.speed_kmh)
         self.scorer.add(s)
+        if self.announcer:
+            self.announcer.pump()
 
     async def _telemetry_loop(self) -> None:
         while True:
@@ -216,6 +270,11 @@ class CoachApp:
             "providers": {getattr(p, "name", "?"): bool(getattr(p, "available", False))
                           for p in self.providers},
             "cue_next_off": self.cue_next_off,
+            "mode": self.mode,
+            "agent": self.coach.agent is not None,
+            "voice": None if self.announcer is None else {
+                "speaker": getattr(self.announcer.speaker, "name", "?"),
+                "muted": self.announcer.muted, "queued": len(self.announcer.queue)},
         }
 
     def snapshot(self) -> dict:
@@ -227,10 +286,16 @@ class CoachApp:
             "decision": self.last_decision, "offer": c.offer.to_dict() if c.offer else None,
             "tries": c.drill.tries if c.drill else 0,
             "activity": list(self.activity), "health": self.health(),
+            "voice": [e for e in self.events if e["type"] == "voice"
+                      and e["status"] in ("spoken", "dropped", "error")][-20:],
+            "plan": c.plan_dict() if hasattr(c, "plan_dict") else None,
+            "tools": [e for e in self.events if e["type"] == "tool_call"][-40:],
         }
 
     async def _health_loop(self) -> None:
         while True:
+            if self.announcer:
+                self.announcer.pump()  # telemetry may be off
             h = self.health()
             self.broadcast(h)
             await asyncio.sleep(1.0)
@@ -273,6 +338,13 @@ class CoachApp:
             if c.state != AWAIT_RESET and self.reset.status != "failed":
                 return self._note("no reset to retry")
             self._spawn(self.reset.retry())
+        elif kind == "toggle_mute":
+            if self.announcer is None:
+                return self._note("voice is off (--voice)")
+            self.announcer.toggle_mute()
+            self.broadcast(self.health())
+        elif kind == "mark_board":
+            self.mark_board(msg.get("board_m"))
 
     def set_reference(self) -> bool:
         run = self.last_valid_run
@@ -282,6 +354,8 @@ class CoachApp:
         a = Attempt.from_dict(run["attempt"])
         self.reference, self.reference_trace = a, run["trace"]
         self.coach.reference = a
+        if self.coach.agent is not None:
+            self.coach.agent.set_reference(a, run["trace"])
         self.data_dir.mkdir(parents=True, exist_ok=True)
         ad = {k: v for k, v in run["attempt"].items() if k != "brake_board_m"}
         (self.data_dir / "reference.json").write_text(json.dumps(ad), encoding="utf-8")
@@ -289,8 +363,28 @@ class CoachApp:
         self.broadcast({"type": "reference", "attempt": run["attempt"], "trace": run["trace"]})
         return True
 
+    def mark_board(self, board_m: Any = None) -> dict | None:
+        """Step 0: drive slowly past each brake board and press the hotkey; logs the position."""
+        if self.latest is None:
+            self._note("no telemetry: cannot mark a board")
+            return None
+        path = self.data_dir / "boards.json"
+        try:
+            marks = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+        except ValueError:
+            marks = []
+        rec = {"pos_m": round(self.latest.pos_m, 1), "board_m": board_m,
+               "x": self.latest.x, "z": self.latest.z, "ts": time.time()}
+        marks.append(rec)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(marks, indent=1), encoding="utf-8")
+        self.broadcast({"type": "status", "state": self.coach.state,
+                        "message": f"board marked at {rec['pos_m']:.0f} m ({len(marks)} in data/boards.json)"})
+        return rec
+
     # -- lifecycle --
     async def start(self) -> None:
+        self._loop, self._loop_thread = asyncio.get_running_loop(), threading.get_ident()
         self._main = [asyncio.create_task(self._telemetry_loop()),
                       asyncio.create_task(self._health_loop())]
         self._spawn(ladder.warm_up(self.providers))

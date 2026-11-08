@@ -18,6 +18,9 @@ Layout:
 - `engine/state.py` - `Coach` state machine
 - `engine/trace.py` - JSONL decision traces (`traces/<session>.jsonl`)
 - `engine/live_cue.py` - live audio cues during retries (no LLM)
+- `engine/voice.py`, `engine/nvidia_tts.py` - spoken coaching: Windows voice (or NVIDIA Magpie TTS), announcer rules
+- `engine/analysis.py` - driving profile, micro-sector splits, run comparison (pure functions over a trace)
+- `engine/agent_tools.py`, `engine/plan.py` - agent mode: read tools, plan actions, validation, session plan
 - `fixtures/` - placeholder Monza T1 corner, reference lap, sample attempts
 - `scripts/spike_nemotron.py` - live API latency/reliability spike
 
@@ -52,6 +55,8 @@ Env vars:
 | `NEMOTRON_REASONING_BUDGET`, `NEMOTRON_MAX_TOKENS_THINK`, `NEMOTRON_MAX_TOKENS_FAST` | budgets (512 / 900 / 200) |
 | `NEMOTRON_TRANSPORT` | `tools` (default) or `json` |
 | `ENGINE_THINK_DEADLINE_S`, `ENGINE_FAST_DEADLINE_S`, `ENGINE_TOTAL_DEADLINE_S` | deadlines (6 / 4 / 10) |
+| `ENGINE_PLAN_THINK_S`, `ENGINE_PLAN_TOTAL_S`, `ENGINE_EVAL_THINK_S`, `ENGINE_EVAL_TOTAL_S` | agent mode deadlines (12 / 15 / 8 / 10; lap mode caps every turn at 8 s) |
+| `NVIDIA_TTS_VOICE`, `NVIDIA_TTS_FUNCTION_ID`, `NVIDIA_TTS_URL` | `--voice nvidia` (Magpie TTS Multilingual, uses `NVIDIA_API_KEY`) |
 
 ### Self-hosting on Brev
 
@@ -121,3 +126,40 @@ CSP reset app (draft): copy `csp/nomadsim_reset/` to `<assettocorsa>/apps/lua/no
 Not tested without AC: the shared-memory struct offsets against a live game (layout copied from the CSP `sim_info.py`, parsing is unit-tested on fake buffers), the CSP Lua API calls, `SendInput` hotkeys, `winsound` playback, and the corner positions (placeholders until real laps are logged).
 
 Corner positions in `fixtures/corner_monza_t1.json` are placeholders; replace after logging real laps.
+
+## Live voice coach and agent mode
+
+Lap mode (the demo mode): keep driving, no Accept and no reset. After the corner exit the coach speaks one short sentence, says a reminder (at most 4 words) about 300 m before the braking zone on the next lap, beeps at the target, then gives a spoken verdict after the next exit.
+
+```
+uv run python -m coach --mode lap --telemetry sim                      # simulator, Windows voice
+uv run python -m coach --mode lap --telemetry ac --voice windows       # in the game
+uv run python -m coach --mode lap --agent --telemetry sim --brake-board 86 --release 0.15
+```
+
+- `--voice auto|windows|nvidia|silent|off` (default: auto in lap mode, off in drill mode); `--mute` or **M** mutes. `nvidia` falls back to the Windows voice per message.
+- Voice rules: nothing is spoken inside the scored corner (start gate to exit gate); at least 5 s between messages; advice older than 10 s (reminders 3 s) is dropped, never played late. A turn slower than 8 s gets the rules coach's sentence instead.
+- Spoken text is validated: cue and summary at most 12 words, reminder at most 4, every number from the evidence (or a tool result).
+- `--agent`: Nemotron runs the session. After the baseline it may call read tools for up to 3 rounds (`get_driving_profile`, `get_splits`, `compare_runs`, `get_session_history`, `get_corner_info`), then `set_plan` with 1 to 3 goals. After each retry: `offer_drill` (repeat/adjust), `advance_plan` (met / skipped), `revise_plan` or `end_session`. The dashboard shows the checklist and every tool call. Without a model the rules coach builds the same kind of plan.
+- Drills: `brake_point`, `brake_release` (new: seconds from peak brake to off, beep at turn-in), `throttle_pickup`.
+- Simulator knobs: `--brake-board` (first-lap board), `--release` (first-lap release time; 0.15 triggers the release drill), `--lap-gap` (seconds between corner passes).
+- **B** (or Mark board) logs the car position to `data/boards.json`: drive slowly past each brake board and press it (step 0).
+
+Corner data from the game (step 0, untested on a real file):
+
+```
+uv run python scripts/ac_track_extract.py "<assettocorsa>/content/tracks/monza" --dump data/fast_lane.csv
+uv run python scripts/ac_track_extract.py "<assettocorsa>/content/tracks/monza" --out fixtures/corner_monza_t1.json --ref-out fixtures/reference_ai.json
+```
+
+It prints a before/after diff of the corner keys it changes (gates, apex window, track length) before writing.
+
+Speed test for agent turns (step 7, needs a live provider; `--fake` checks the script offline):
+
+```
+uv run python scripts/speed_agent.py --n 10 --provider brev --voice
+```
+
+Done when at least 9 of 10 turns of each kind end in a valid action within the budget (plan 15 s, evaluate 10 s).
+
+Still unverified without the game: the new shared-memory fields (yaw-rate sign, g-forces, wheel slip units, so the lock-up/wheelspin thresholds), the reminder position on the real Monza line, and the extractor on Kunos' `fast_lane.ai`.

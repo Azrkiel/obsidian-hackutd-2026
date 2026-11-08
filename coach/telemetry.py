@@ -30,6 +30,14 @@ class Sample:
     x: float
     y: float
     z: float
+    # step 1 extras (defaults keep old recordings and constructors working)
+    g_lat: float = 0.0      # accG[0], lateral g
+    g_lon: float = 0.0      # accG[2], longitudinal g (sign: verify in game, step 8)
+    yaw_rate: float = 0.0   # localAngularVel[1], rad/s (sign: verify in game)
+    slip_f: float = 0.0     # max wheelSlip of the two fronts
+    slip_r: float = 0.0     # max wheelSlip of the two rears
+    load_f: float = 0.0     # wheelLoad fronts, N
+    load_r: float = 0.0     # wheelLoad rears, N
 
 
 # --- Assetto Corsa (original, NOT ACC) shared memory --------------------------------------------
@@ -44,8 +52,22 @@ _STATUS = {AC_OFF: "off", AC_REPLAY: "replay", AC_LIVE: "live", AC_PAUSE: "pause
 
 class SPageFilePhysics(ctypes.Structure):
     _pack_ = 4
+    # Field order from the same sim_info.py, through localAngularVel (truncated after it).
+    # Untested against the live game: check yaw-rate sign and g-forces in step 8.
     _fields_ = [("packetId", c_int32), ("gas", c_float), ("brake", c_float), ("fuel", c_float),
-                ("gear", c_int32), ("rpms", c_int32), ("steerAngle", c_float), ("speedKmh", c_float)]
+                ("gear", c_int32), ("rpms", c_int32), ("steerAngle", c_float), ("speedKmh", c_float),
+                ("velocity", c_float * 3), ("accG", c_float * 3), ("wheelSlip", c_float * 4),
+                ("wheelLoad", c_float * 4), ("wheelsPressure", c_float * 4),
+                ("wheelAngularSpeed", c_float * 4), ("tyreWear", c_float * 4),
+                ("tyreDirtyLevel", c_float * 4), ("tyreCoreTemperature", c_float * 4),
+                ("camberRAD", c_float * 4), ("suspensionTravel", c_float * 4),
+                ("drs", c_float), ("tc", c_float), ("heading", c_float), ("pitch", c_float),
+                ("roll", c_float), ("cgHeight", c_float), ("carDamage", c_float * 5),
+                ("numberOfTyresOut", c_int32), ("pitLimiterOn", c_int32), ("abs", c_float),
+                ("kersCharge", c_float), ("kersInput", c_float), ("autoShifterOn", c_int32),
+                ("rideHeight", c_float * 2), ("turboBoost", c_float), ("ballast", c_float),
+                ("airDensity", c_float), ("airTemp", c_float), ("roadTemp", c_float),
+                ("localAngularVel", c_float * 3)]
 
 
 class SPageFileGraphic(ctypes.Structure):
@@ -89,10 +111,15 @@ def parse_sample(phys: SPageFilePhysics, gfx: SPageFileGraphic, track_len_m: flo
     """Pure conversion of the two live pages into a Sample (unit-tested with fake buffers)."""
     pn = float(gfx.normalizedCarPosition)
     c = gfx.carCoordinates
+    ws, wl = phys.wheelSlip, phys.wheelLoad  # FL, FR, RL, RR
     return Sample(t=time.monotonic() if t is None else t, packet_id=int(phys.packetId),
                   status=_STATUS.get(int(gfx.status), "off"), pos_norm=pn, pos_m=pn * track_len_m,
                   speed_kmh=float(phys.speedKmh), gas=float(phys.gas), brake=float(phys.brake),
-                  steer=float(phys.steerAngle), x=float(c[0]), y=float(c[1]), z=float(c[2]))
+                  steer=float(phys.steerAngle), x=float(c[0]), y=float(c[1]), z=float(c[2]),
+                  g_lat=float(phys.accG[0]), g_lon=float(phys.accG[2]),
+                  yaw_rate=float(phys.localAngularVel[1]),
+                  slip_f=max(float(ws[0]), float(ws[1])), slip_r=max(float(ws[2]), float(ws[3])),
+                  load_f=float(wl[0]) + float(wl[1]), load_r=float(wl[2]) + float(wl[3]))
 
 
 class ACSharedMemory:
@@ -190,7 +217,9 @@ class SimSource:
     def __init__(self, corner: CornerConfig, seed: int = 1, realtime: bool = True,
                  brake_board_m: float = 86.0, hz: float = 100.0, skill: float = 0.6,
                  apex_kmh: float = 74.0, pickup_after_apex_m: float = 22.0,
-                 start_pos_m: float | None = None, with_pause: bool = False):
+                 start_pos_m: float | None = None, with_pause: bool = False,
+                 laps: bool = False, lap_gap_s: float = 12.0, lap_start_m: float = 0.0,
+                 release_s: float = 0.55):
         self.corner, self.realtime, self.dt, self.skill = corner, realtime, 1.0 / hz, skill
         rng = random.Random(seed)
         self.v0_kmh = 318.0 + rng.uniform(-0.5, 0.5)
@@ -203,6 +232,12 @@ class SimSource:
         self.end_m = corner.exit_gate_m + 100
         self.accel = 8.1
         self.with_pause = with_pause
+        # lap mode: after the corner the car "drives the rest of the lap" (parked for lap_gap_s),
+        # then reappears at lap_start_m: a lap wrap, like AC's position going 5793 -> 0
+        self.laps, self.lap_gap_s, self.lap_start_m = laps, lap_gap_s, lap_start_m
+        self.release_s = release_s  # seconds from peak brake to off (ramp before the apex)
+        self.target_release_s: float | None = None
+        self._parked_at: float | None = None
         self.pos, self.t, self.packet, self.parked = self.start_pos_m, 0.0, 0, False
         self._stop = False
         self._tele = False
@@ -211,9 +246,14 @@ class SimSource:
     def set_target_board(self, board_m: float) -> None:
         self.target_onset_m = self.corner.board_zero_m - board_m
 
+    def set_target_release(self, release_s: float) -> None:
+        self.target_release_s = float(release_s)
+
     def teleport_to(self, pos_m: float, speed_kmh: float) -> None:
         if self.target_onset_m is not None:
             self.onset_m += self.skill * (self.target_onset_m - self.onset_m)
+        if self.target_release_s is not None:
+            self.release_s += self.skill * (self.target_release_s - self.release_s)
         self.pos, self.v0_kmh, self.parked, self._tele = pos_m, speed_kmh, False, True
 
     def stop(self) -> None:
@@ -230,13 +270,31 @@ class SimSource:
             span = max(self.apex_start - self.onset_m, 1.0)
             a = (v0 * v0 - va * va) / (2 * span)
             v = math.sqrt(max(v0 * v0 - 2 * a * (pos - self.onset_m), va * va))
-            return v * 3.6, 0.0, min(1.0, max(0.3, a / 42.0))
+            peak = min(1.0, max(0.3, a / 42.0))
+            # progressive release: brake ramps from peak to 0 over the last release_s before the apex
+            rel_m = max(self.release_s, 0.0) * (va + 0.25 * (v0 - va))
+            left = self.apex_start - pos
+            if rel_m > 0 and left < rel_m:
+                peak *= max(left / rel_m, 0.0)
+            return v * 3.6, 0.0, peak
         if pos < self.pickup_m:
             return self.apex_kmh + 0.02 * (pos - self.apex_start), 0.0, 0.0
         vp = (self.apex_kmh + 0.02 * (self.pickup_m - self.apex_start)) / 3.6
         d = pos - self.pickup_m
         v = math.sqrt(vp * vp + 2 * self.accel * d)
         return v * 3.6, min(1.0, 0.4 + d / 20.0), 0.0
+
+    def _steer(self, pos: float) -> float:
+        """Right then left through the chicane (normalised steering input)."""
+        c = self.corner
+        ti, a1, a2, ex = c.gate("turn_in_m"), c.gate("apex1_m"), c.gate("apex2_m"), c.exit_gate_m
+        if ti <= pos < a1:
+            return 0.30 * math.sin(math.pi / 2 * (pos - ti) / max(a1 - ti, 1.0))
+        if a1 <= pos < a2:
+            return 0.30 - 0.55 * (pos - a1) / max(a2 - a1, 1.0)
+        if a2 <= pos < ex:
+            return -0.25 * (1 - (pos - a2) / max(ex - a2, 1.0))
+        return 0.0
 
     def _sample(self, status: str = "live") -> Sample:
         if self.parked:
@@ -245,8 +303,15 @@ class SimSource:
             speed, gas, brake = self._profile(self.pos)
         self.packet += 1
         n = self.corner.track_length_m
+        steer = 0.0 if self.parked else self._steer(self.pos)
+        v = speed / 3.6
+        yaw = v * math.tan(steer * 0.25) / self.corner.wheelbase_m  # kinematic, neutral car
+        g_lon = -brake * 2.4 + gas * 0.6 if not self.parked else 0.0
+        slip_f = 0.03 + (0.25 if brake > 0.97 and v < 40 else 0.0)  # front lock at low speed
+        slip_r = 0.03 + (0.2 if gas > 0.9 and v < 35 else 0.0)
         return Sample(self.t, self.packet, status, self.pos / n, self.pos, speed, gas, brake,
-                      0.0, self.pos, 0.0, 0.0)
+                      steer, self.pos, 0.0, 0.0, g_lat=v * yaw / 9.81, g_lon=g_lon, yaw_rate=yaw,
+                      slip_f=slip_f, slip_r=slip_r)
 
     async def samples(self) -> AsyncIterator[Sample]:
         loop = asyncio.get_running_loop()
@@ -263,7 +328,9 @@ class SimSource:
             elif not self.parked:
                 self.pos += (s.speed_kmh / 3.6) * self.dt
                 if self.pos >= self.end_m:
-                    self.pos, self.parked = self.end_m, True
+                    self.pos, self.parked, self._parked_at = self.end_m, True, self.t
+            elif self.laps and self.t - (self._parked_at or self.t) >= self.lap_gap_s:
+                self.teleport_to(self.lap_start_m, self.v0_kmh)
             self.t += self.dt
             if self.realtime:
                 await asyncio.sleep(max(0.0, wall0 + self.t - loop.time()))

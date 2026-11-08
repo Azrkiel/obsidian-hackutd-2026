@@ -38,8 +38,21 @@ def test_rejections(mk_packet):
     assert not validate(bad(p, target={"marker_m": 100, "peak_brake": 1.5}), p)[0]
     assert not validate(bad(p, cue=""), p)[0]
     assert not validate(bad(p, cue=" ".join(["go"] * 21)), p)[0]
-    assert not validate(bad(p, verdict="repeat"), p)[0]  # verdict on baseline
+    v = bad(p, verdict="repeat")  # stray verdict on a baseline is dropped, the offer kept
+    assert validate(v, p) == (True, None) and "verdict" not in v.arguments
     assert not validate(good_end(p, "bogus"), p)[0]
+    assert not validate(good_end(p, "no_coaching_needed"), p)[0]  # 14 m late is not "fine"
+
+
+def test_baseline_offer_must_match_delta(mk_packet):
+    clean = mk_packet("clean")
+    assert not validate(good_offer(clean, cue="Brake at the 100 m board."), clean)[0]
+    assert validate(good_end(clean, "no_coaching_needed"), clean)[0]
+    p = mk_packet("early_throttle")
+    t = ToolCall("offer_drill", {"attempt_id": p["attempt_id"], "drill_id": "throttle_pickup",
+                                 "target": {"marker_m": 20, "peak_brake": 0.9},
+                                 "cue": "Pick up throttle 20 m past the apex."})
+    assert validate(t, p) == (True, None) and t.arguments["target"] == {"marker_m": 20}
     assert not validate(None, p)[0]
 
 

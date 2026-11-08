@@ -46,7 +46,7 @@ async def test_invalid_twice_rules(mk_packet):
 async def test_429_next_provider(mk_packet):
     p = mk_packet("late_brake")
     a = FakeProvider("a", steps=[{"error": "rate_limited"}])
-    b = FakeProvider("b", steps=[{"call": good_end(p)}])
+    b = FakeProvider("b", steps=[{"call": good_offer(p)}])
     d, rungs = await decide(p, [a, b], breaker=CircuitBreaker(), **FAST)
     assert d.provider == "b" and d.mode == "think"
     assert len(a.calls) == 1  # no fast retry on rate limit

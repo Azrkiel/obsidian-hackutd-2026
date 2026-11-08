@@ -34,6 +34,18 @@ button.primary{background:var(--good);color:#06210f;border-color:var(--good)}
 button:disabled{opacity:.35;cursor:not-allowed}
 #overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.7);font-size:240px;font-weight:800;z-index:5}
 #toast{position:fixed;bottom:16px;right:16px;background:#222a35;padding:10px 16px;border-radius:8px;display:none;max-width:60ch}
+#voice{list-style:none;margin:0;padding:0;max-height:200px;overflow:auto}
+#voice li{padding:5px 0;border-bottom:1px solid var(--line);font-size:22px}
+#voice li.reminder{color:var(--blue)}#voice li.dropped{color:var(--dim);text-decoration:line-through;font-size:17px}
+#voice li small{color:var(--dim);font-size:14px;margin-left:8px}
+#plan{list-style:none;margin:0;padding:0}
+#plan li{padding:6px 0;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:baseline}
+#plan li .box{font-size:24px;width:1.2em}#plan li.done{color:var(--good)}#plan li.active{font-weight:700}#plan li.failed{color:var(--dim)}
+#plan li small{color:var(--dim);font-size:15px}
+#tools{list-style:none;margin:0;padding:0;max-height:240px;overflow:auto;font:15px/1.4 ui-monospace,Consolas,monospace}
+#tools li{padding:4px 0;border-bottom:1px solid var(--line)}#tools li b{color:var(--blue)}#tools li .ms{color:var(--dim);float:right}
+#tools li .res{color:#b8c4d3;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hidden{display:none}
 </style>
 </head>
 <body>
@@ -42,6 +54,8 @@ button:disabled{opacity:.35;cursor:not-allowed}
   <span class="badge" id="ai">Rules (AI unavailable)</span>
   <span class="badge" id="tel">telemetry: no data</span>
   <span class="badge" id="rst">reset: idle</span>
+  <span class="badge" id="mode">drill mode</span>
+  <span class="badge" id="vox">voice: off</span>
 </header>
 <main>
   <div>
@@ -53,7 +67,10 @@ button:disabled{opacity:.35;cursor:not-allowed}
       <div class="legend"><span style="color:#8793a3">&#9632; reference</span><span style="color:#ffc233">&#9632; baseline</span><span style="color:#3ddc84">&#9632; retry</span><span style="color:#4aa8ff">| drill target</span></div></div>
   </div>
   <div>
-    <div class="panel"><h2>Thinking</h2><div id="thinking">&nbsp;</div></div>
+    <div class="panel" id="p-voice"><h2>Coach said</h2><ul id="voice"></ul></div>
+    <div class="panel hidden" id="p-plan" style="margin-top:16px"><h2>Session plan</h2><ul id="plan"></ul></div>
+    <div class="panel hidden" id="p-tools" style="margin-top:16px"><h2>Tool calls</h2><ul id="tools"></ul></div>
+    <div class="panel" style="margin-top:16px"><h2>Thinking</h2><div id="thinking">&nbsp;</div></div>
     <div class="panel" style="margin-top:16px"><h2>Activity</h2><ul id="activity"></ul></div>
   </div>
 </main>
@@ -65,13 +82,15 @@ button:disabled{opacity:.35;cursor:not-allowed}
   <button id="b-set_reference">Set reference</button>
   <button id="b-new_session">New session</button>
   <button id="b-toggle_cue_next">Cue off next try</button>
+  <button id="b-toggle_mute">Mute (M)</button>
+  <button id="b-mark_board">Mark board (B)</button>
 </div>
 <div id="overlay"></div><div id="toast"></div>
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
 const S = {state: "IDLE", corner: null, ref: null, refTrace: [], base: null, retry: null, offer: null,
-           decision: null, health: null, tries: 0, thinking: ""};
+           decision: null, health: null, tries: 0, thinking: "", plan: null, tools: []};
 let ws, tToast;
 
 function send(o){ if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
@@ -92,6 +111,7 @@ function targetOnset(){
 function fmt(v,d){ return (v===null||v===undefined)?"-":Number(v).toFixed(d); }
 const ROWS=[["Brake board m","board",1],["Brake onset m","brake_onset_m",1],["Peak brake","peak_brake",2],
   ["Entry km/h","entry_kmh",1],["Apex km/h","apex_kmh",1],["Exit km/h","exit_kmh",1],
+  ["Release s","release_s",2],["Min km/h","min_kmh",1],
   ["Throttle pickup m","throttle_pickup_m",1],["Section s","section_s",2]];
 function val(a,k){ if(!a) return null; if(k==="board") return S.corner? S.corner.board_zero_m-a.brake_onset_m : null; return a[k]; }
 function renderMetrics(){
@@ -128,10 +148,44 @@ function renderTop(){
   $("b-accept").disabled=S.state!=="OFFERED";
   $("b-retry_reset").style.display=(S.state==="AWAIT_RESET"||r.status==="failed")?"":"none";
   $("b-toggle_cue_next").textContent=h.cue_next_off?"Cue off next try: ON":"Cue off next try";
+  const lap=h.mode==="lap";
+  badge($("mode"),lap?"lap mode: keep driving":"drill mode",lap?"ok":"");
+  for(const k of ["accept","retry","save_checkpoint"]) $("b-"+k).classList.toggle("hidden",lap);
+  const v=h.voice; badge($("vox"),!v?"voice: off":v.muted?"voice: MUTED":"voice: "+v.speaker,!v?"":v.muted?"warn":"ok");
+  $("b-toggle_mute").textContent=v&&v.muted?"Unmute (M)":"Mute (M)"; $("b-toggle_mute").disabled=!v;
+  $("p-voice").classList.toggle("hidden",!v);
+}
+function addVoice(e){
+  if(!["spoken","dropped","error"].includes(e.status)) return;
+  const li=document.createElement("li"); li.className=e.status==="spoken"?e.kind:"dropped";
+  li.appendChild(document.createTextNode(e.text));
+  const sm=document.createElement("small"); sm.textContent=hhmmss(e.ts)+" "+e.kind+(e.status!=="spoken"?" ("+(e.reason||e.status)+")":"");
+  li.appendChild(sm); const ul=$("voice"); ul.prepend(li); while(ul.children.length>20) ul.lastChild.remove();
+}
+const BOX={done:"\u2611",failed:"\u2612",active:"\u25B6",pending:"\u2610"};
+function renderPlan(){
+  const p=S.plan, ul=$("plan"); $("p-plan").classList.toggle("hidden",!p); ul.innerHTML=""; if(!p) return;
+  for(const g of p.goals){
+    const li=document.createElement("li"); li.className=g.status;
+    const box=document.createElement("span"); box.className="box"; box.textContent=BOX[g.status]||BOX.pending;
+    const t=document.createElement("span"); t.textContent=g.title||g.drill_id;
+    const sm=document.createElement("small"); sm.textContent=" "+(g.done_when||"")+(g.hits?" | hits "+g.hits:"")+(g.tries?" | tries "+g.tries:"");
+    t.appendChild(sm); li.appendChild(box); li.appendChild(t); ul.appendChild(li);
+  }
+}
+function addTool(e){
+  $("p-tools").classList.remove("hidden");
+  const li=document.createElement("li");
+  const ms=document.createElement("span"); ms.className="ms"; ms.textContent=(e.ms!=null?e.ms.toFixed(0)+" ms":"")+(e.round?" r"+e.round:"");
+  const b=document.createElement("b"); b.textContent=e.name;
+  li.appendChild(ms); li.appendChild(b); li.appendChild(document.createTextNode("("+JSON.stringify(e.arguments||{}).slice(1,-1)+")"));
+  const r=document.createElement("span"); r.className="res"; r.textContent=(e.error?"error: "+e.error:e.summary||"");
+  li.appendChild(r); const ul=$("tools"); ul.prepend(li); while(ul.children.length>40) ul.lastChild.remove();
 }
 function renderCue(){
   const d=S.decision;
-  $("cue").textContent=d?(d.cue||d.summary||""):"Drive a baseline run through the corner.";
+  const lap=S.health&&S.health.mode==="lap";
+  $("cue").textContent=d?(d.cue||d.summary||""):(lap?"Keep driving. The coach talks after the corner.":"Drive a baseline run through the corner.");
   const a=S.retry&&S.retry.attempt||S.base&&S.base.attempt, ref=S.ref;
   let ev=""; if(d&&a&&ref){
     ev="Measured: braked "+fmt(a.brake_onset_m,0)+" m (reference "+fmt(ref.brake_onset_m,0)+" m), throttle "+fmt(a.throttle_pickup_m,0)+" m (reference "+fmt(ref.throttle_pickup_m,0)+" m)"
@@ -152,15 +206,20 @@ function draw(){
   line(S.refTrace,"#8793a3",2); line(S.base&&S.base.trace,"#ffc233",2); line(S.retry&&S.retry.trace,"#3ddc84",3);
   const t=targetOnset(); if(t){ g.strokeStyle="#4aa8ff"; g.lineWidth=2; g.setLineDash([6,4]); g.beginPath(); g.moveTo(px(t.pos),10); g.lineTo(px(t.pos),H-24); g.stroke(); g.setLineDash([]); }
 }
-function renderAll(){ renderTop(); renderCue(); renderMetrics(); draw(); }
+function renderAll(){ renderTop(); renderCue(); renderMetrics(); renderPlan(); draw(); }
 
 function onEvent(e){
-  if(e.text&&e.type!=="snapshot") addActivity({ts:e.ts,text:e.text});
+  if(e.type==="voice"){ if(e.text_log) addActivity({ts:e.ts,text:e.text_log}); }
+  else if(e.text&&e.type!=="snapshot") addActivity({ts:e.ts,text:e.text});
   switch(e.type){
   case "snapshot":
     S.state=e.state; S.corner=e.corner; S.ref=e.reference.attempt; S.refTrace=e.reference.trace||[];
     S.base=e.baseline; S.retry=e.retry; S.decision=e.decision; S.offer=e.offer; S.health=e.health; S.tries=e.tries;
-    $("activity").innerHTML=""; (e.activity||[]).forEach(addActivity); break;
+    S.plan=e.plan||null; $("activity").innerHTML=""; (e.activity||[]).forEach(addActivity);
+    $("voice").innerHTML=""; (e.voice||[]).forEach(addVoice); $("tools").innerHTML=""; (e.tools||[]).forEach(addTool); break;
+  case "voice": addVoice(e); break;
+  case "plan": S.plan=e.plan; break;
+  case "tool_call": addTool(e); break;
   case "status": S.state=e.state||S.state; if(e.message) toast(e.message); break;
   case "health": S.health=e; break;
   case "countdown": { const o=$("overlay"); if(e.n>0){ o.style.display="flex"; o.textContent=e.n; } else o.style.display="none"; break; }
@@ -169,9 +228,9 @@ function onEvent(e){
   case "run":
     S.thinking=""; $("thinking").innerHTML="&nbsp;";
     if(e.role==="baseline"){ S.base=e; S.retry=null; } else if(e.role==="retry") S.retry=e; break;
-  case "decision": S.decision=e; S.offer=e.action==="offer_drill"?e:null; break;
+  case "decision": S.decision=e; S.offer=e.action==="offer_drill"?e:null; if(e.plan) S.plan=e.plan; break;
   case "reference": S.ref=e.attempt; S.refTrace=e.trace||[]; break;
-  case "session": S.base=S.retry=S.decision=S.offer=null; S.thinking=""; $("thinking").innerHTML="&nbsp;"; break;
+  case "session": S.base=S.retry=S.decision=S.offer=S.plan=null; S.thinking=""; $("thinking").innerHTML="&nbsp;"; $("tools").innerHTML=""; break;
   case "reset_failed": toast("Reset failed: "+e.reason); break;
   }
   renderAll();
@@ -184,9 +243,12 @@ function connect(){
 }
 function accept(){ if(S.state==="OFFERED"&&S.offer) send({type:"accept",decision_id:S.offer.decision_id}); }
 $("b-accept").onclick=accept;
-for(const k of ["retry","retry_reset","save_checkpoint","set_reference","new_session","toggle_cue_next"])
+for(const k of ["retry","retry_reset","save_checkpoint","set_reference","new_session","toggle_cue_next","toggle_mute","mark_board"])
   $("b-"+k).onclick=()=>send({type:k});
-document.addEventListener("keydown",ev=>{ if(ev.code==="Space"||ev.code==="Enter"){ if(ev.target.tagName==="BUTTON"&&ev.target.id!=="b-accept") return; ev.preventDefault(); accept(); } });
+document.addEventListener("keydown",ev=>{
+  if(ev.code==="KeyM"){ send({type:"toggle_mute"}); return; }
+  if(ev.code==="KeyB"){ send({type:"mark_board"}); return; }
+  if(ev.code==="Space"||ev.code==="Enter"){ if(ev.target.tagName==="BUTTON"&&ev.target.id!=="b-accept") return; ev.preventDefault(); accept(); } });
 window.addEventListener("resize",draw);
 connect();
 </script>
