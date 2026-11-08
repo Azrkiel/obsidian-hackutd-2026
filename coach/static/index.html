@@ -44,7 +44,7 @@ code{font:600 13px/18px var(--font-sans);font-variant-ligatures:none;font-featur
 .brand .pp-label{padding-bottom:4px}
 .race{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2) var(--space-3)}
 a.pp-pill{text-decoration:none}
-.race #c-src{margin-right:var(--space-3)}
+.race #c-src{margin-right:var(--space-3);font:600 13px/18px var(--font-sans);letter-spacing:.04em;color:var(--ink-muted)}
 .checker{height:24px;background:url(/pitpal/pattern-checker.svg) left top/auto 24px repeat-x;image-rendering:pixelated}
 
 /* status pill */
@@ -218,9 +218,6 @@ summary:focus-visible{outline:3px solid var(--ink);outline-offset:4px}
   <div class="brand"><span class="pp-display d44">Pit Pal</span><span class="pp-label">Sim racing coach</span></div>
   <div class="race" role="status" aria-live="polite">
     <span class="small" id="c-src"></span>
-    <span class="pp-pill" id="s-state">IDLE</span>
-    <span class="pp-pill" id="s-ai">Rules (AI unavailable)</span>
-    <span class="pp-pill" id="s-reset">reset: idle</span>
     <a class="pp-pill pp-pill--info" id="s-history" href="/history-view">Session history</a>
     <span class="pp-pill" id="race-sync">History off</span>
   </div>
@@ -456,10 +453,7 @@ function cloudPill(c){
 function renderTop(){
   const h=S.health; if(!h) return;
   cloudPill(h.cloud);
-  pill($("s-state"),S.state,"");
-  pill($("s-ai"),h.ai.label+(h.ai.provider?" ("+h.ai.provider+")":""),h.ai.mode==="rules"?"caution":"go");
   const t=h.telemetry, i=h.inputs, v=h.voice;
-  pill($("s-reset"),"reset: "+h.reset.status+(h.reset.checkpoint?"":" (no checkpoint)"),h.reset.status==="failed"?"brand":h.reset.status==="idle"?"":"caution");
   S.inputs=i?" · pedals: "+i.pedal_source+" · phone "+i.phone+" · arduino "+i.arduino+(i.serial_error&&i.arduino!=="live"?" ("+i.serial_error+")":""):"";
   if(t.state!=="live") $("l-src").textContent=(t.state==="paused"?"Game paused":"No telemetry"+(t.error?": "+t.error:""))+S.inputs;
   const r=h.reset, lap=h.mode==="lap";
