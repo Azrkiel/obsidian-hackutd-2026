@@ -33,17 +33,18 @@ a{color:var(--signal-blue)}
   text-shadow:var(--c) 0 0 #12141c,calc(-1*var(--c)) 0 0 #12141c,0 var(--c) 0 #12141c,0 calc(-1*var(--c)) 0 #12141c,
     calc(-1*var(--c)) calc(-1*var(--c)) 0 #12141c,var(--c) calc(-1*var(--c)) 0 #12141c,calc(-1*var(--c)) var(--c) 0 #12141c,
     var(--c) var(--c) 0 var(--brand),calc(2*var(--c)) var(--c) 0 #12141c,var(--c) calc(2*var(--c)) 0 #12141c,calc(2*var(--c)) calc(2*var(--c)) 0 #12141c}
-.d44{font-size:44px}.d88{font-size:88px}.d264{font-size:264px}
+.d44{font-size:44px}.d66{font-size:66px}.d88{font-size:88px}.d264{font-size:264px}
 .pp-label{font:600 12px/16px var(--font-sans);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-muted)}
 .small{font:500 14px/20px var(--font-sans);color:var(--ink-muted)}
 code{font:600 13px/18px var(--font-sans);font-variant-ligatures:none;font-feature-settings:"liga" 0,"calt" 0;letter-spacing:.04em;color:var(--ink);background:var(--hairline);padding:1px 6px}
 
 /* header */
-.top{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-4) var(--space-6);padding:var(--space-4) var(--space-8) var(--space-3)}
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-4) var(--space-6);padding:var(--space-3) var(--space-8) var(--space-2)}
 .brand{display:flex;align-items:flex-end;gap:var(--space-3);margin-right:auto}
 .brand .pp-label{padding-bottom:4px}
 .race{display:flex;align-items:center;gap:var(--space-3)}
 .race .pp-label{padding-top:6px}
+.race #c-src{margin-right:var(--space-3)}
 .checker{height:24px;background:url(/pitpal/pattern-checker.svg) left top/auto 24px repeat-x;image-rendering:pixelated}
 
 /* status pill */
@@ -55,36 +56,39 @@ code{font:600 13px/18px var(--font-sans);font-variant-ligatures:none;font-featur
 /* layout */
 .wrap{max-width:1480px;margin:0 auto;padding:var(--space-6) var(--space-8) var(--space-8);display:flex;flex-direction:column;gap:var(--space-6)}
 .grid{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:var(--space-6)}
+@media(min-width:1101px) and (min-height:640px){.grid{height:calc(100vh - 132px)}.grid>.panel{display:flex;flex-direction:column;min-height:0;overflow:auto}}
+.wrap{padding-top:var(--space-4)!important}
 @media(max-width:1100px){.grid{grid-template-columns:1fr}.wrap,.top{padding-left:var(--space-4);padding-right:var(--space-4)}}
-.panel{--c3:var(--outline-strong);margin:3px;padding:var(--space-4) var(--space-6) var(--space-6);background:var(--surface);box-shadow:0 -3px 0 0 var(--c3),0 3px 0 0 var(--c3),-3px 0 0 0 var(--c3),3px 0 0 0 var(--c3)}
-.phead{display:flex;align-items:baseline;justify-content:space-between;gap:var(--space-4);margin-bottom:var(--space-4)}
+.panel{--c3:var(--outline-strong);margin:3px;padding:var(--space-3) var(--space-6) var(--space-4);background:var(--surface);box-shadow:0 -3px 0 0 var(--c3),0 3px 0 0 var(--c3),-3px 0 0 0 var(--c3),3px 0 0 0 var(--c3)}
+.phead{display:flex;align-items:baseline;justify-content:space-between;gap:var(--space-4);margin-bottom:var(--space-2)}
 .phead .small{text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .phead--end{justify-content:flex-end}
 .ptitle{margin:0;font:600 20px/26px var(--font-sans);color:var(--ink)}
 
 /* 01 live */
-.gauges{display:flex;flex-wrap:wrap;align-items:flex-end;gap:var(--space-6) var(--space-8)}
+.gauges{display:flex;flex-wrap:wrap;align-items:flex-end;gap:var(--space-4) var(--space-6)}
 .readout{display:flex;flex-direction:column;gap:var(--space-2)}
-.gearbox{--c3:var(--pixel-outline);margin:3px;min-width:96px;padding:12px 16px 10px;background:var(--raised);box-shadow:0 -3px 0 0 var(--c3),0 3px 0 0 var(--c3),-3px 0 0 0 var(--c3),3px 0 0 0 var(--c3),inset 0 3px 0 0 rgba(255,255,255,.12);text-align:center}
-.rpm{display:flex;flex-direction:column;gap:var(--space-2);margin-left:auto}
+.gearbox{--c3:var(--pixel-outline);margin:3px;min-width:76px;padding:8px 12px 6px;background:var(--raised);box-shadow:0 -3px 0 0 var(--c3),0 3px 0 0 var(--c3),-3px 0 0 0 var(--c3),3px 0 0 0 var(--c3),inset 0 3px 0 0 rgba(255,255,255,.12);text-align:center}
+.rpm{display:flex;flex-direction:column;align-items:flex-end;gap:var(--space-2);margin-left:auto}
 .pp-led{display:inline-flex;gap:var(--space-1)}
 .pp-led i{width:18px;height:18px;background:var(--hairline)}
 .pp-led i.on-go{background:var(--go)}.pp-led i.on-caution{background:var(--caution)}.pp-led i.on-brand{background:var(--brand);box-shadow:var(--shadow-led)}
 .rpm b{font:700 20px/26px var(--font-sans)}
-.drive{display:grid;grid-template-columns:72px minmax(0,1fr) 72px;gap:var(--space-6);align-items:end;margin-top:var(--space-6)}
+.drive{display:grid;grid-template-columns:66px minmax(0,1fr) 66px;gap:var(--space-6);align-items:end;margin-top:var(--space-3)}
 .pad{display:flex;flex-direction:column;align-items:center;gap:var(--space-2)}
-.pad .well{--c3:var(--outline-strong);position:relative;width:66px;height:168px;margin:3px;overflow:hidden;background:var(--raised);box-shadow:0 -3px 0 0 var(--c3),0 3px 0 0 var(--c3),-3px 0 0 0 var(--c3),3px 0 0 0 var(--c3)}
+.pad .well{--c3:var(--outline-strong);position:relative;width:60px;height:104px;margin:3px;overflow:hidden;background:var(--raised);box-shadow:0 -3px 0 0 var(--c3),0 3px 0 0 var(--c3),-3px 0 0 0 var(--c3),3px 0 0 0 var(--c3)}
 .pad .fill{position:absolute;left:0;right:0;bottom:0;height:0;background:var(--brand)}
 .pad.throttle .fill{background:var(--ink)}
 .pad b{font:700 16px/20px var(--font-sans)}
 .steer{display:flex;flex-direction:column;align-items:center;gap:var(--space-2)}
-.dial{position:relative;width:196px;height:196px}
+.dial{position:relative;width:150px;height:150px}
+.dial svg{width:150px;height:150px}
 .dial svg{position:absolute;inset:0}
-.dial .rider{position:absolute;left:46px;top:42px;width:104px;transform-origin:50% 70%}
+.dial .rider{position:absolute;left:35px;top:32px;width:80px;transform-origin:50% 70%}
 .steer-row{display:flex;align-items:baseline;gap:var(--space-3)}
 .steer-row b{font:700 20px/26px var(--font-sans)}
-.lapbar{margin-top:var(--space-6)}
-#l-map{display:block;width:100%;flex:1;min-height:240px;max-height:520px}
+.lapbar{margin-top:var(--space-3);min-height:0}
+#l-map{display:block;width:100%;flex:1;min-height:150px}
 .grid>.panel:first-child{display:flex;flex-direction:column}
 .grid>.panel:first-child .lapbar{flex:1;display:flex;flex-direction:column}
 #l-map text{font:600 26px var(--font-sans)}
@@ -97,13 +101,13 @@ code{font:600 13px/18px var(--font-sans);font-variant-ligatures:none;font-featur
 
 /* 02 coach */
 .coach-row{display:flex;align-items:flex-end;gap:var(--space-3)}
-.coach-row .mascot{width:132px;flex:none}
-.pp-bubble{--c3:var(--outline-strong);position:relative;flex:1;min-width:0;max-width:560px;padding:16px 20px;color:var(--ink);background:var(--raised);
-  box-shadow:0 -3px 0 0 var(--c3),0 3px 0 0 var(--c3),-3px 0 0 0 var(--c3),3px 0 0 0 var(--c3),var(--shadow-panel);margin:3px 3px 30px}
+.coach-row .mascot{width:88px;flex:none}
+.pp-bubble{--c3:var(--outline-strong);position:relative;flex:1;min-width:0;max-width:600px;padding:10px 16px;color:var(--ink);background:var(--raised);
+  box-shadow:0 -3px 0 0 var(--c3),0 3px 0 0 var(--c3),-3px 0 0 0 var(--c3),3px 0 0 0 var(--c3),var(--shadow-panel);margin:3px 3px 16px}
 .pp-bubble::after{content:"";position:absolute;left:-15px;bottom:18px;width:12px;height:12px;background:var(--raised);
   box-shadow:0 -3px 0 0 var(--c3),0 3px 0 0 var(--c3),-3px 0 0 0 var(--c3),-6px 3px 0 0 var(--c3),3px 0 0 0 var(--raised)}
 .pp-bubble--warn{--c3:var(--accent);background:var(--brand-tint)}.pp-bubble--warn::after{background:var(--brand-tint);box-shadow:0 -3px 0 0 var(--c3),0 3px 0 0 var(--c3),-3px 0 0 0 var(--c3),-6px 3px 0 0 var(--c3),3px 0 0 0 var(--brand-tint)}
-#cue{margin:0;font:700 28px/34px var(--font-sans)}
+#cue{margin:0;font:700 24px/30px var(--font-sans)}
 #cue-sub{margin:var(--space-2) 0 0;color:var(--ink-muted)}
 .thinking-led{display:inline-flex;gap:var(--space-1);margin-bottom:var(--space-2)}
 .thinking-led i{width:12px;height:12px;background:var(--hairline)}
@@ -111,16 +115,17 @@ code{font:600 13px/18px var(--font-sans);font-variant-ligatures:none;font-featur
 .thinking-led i:nth-child(2){animation:pp-blink 1000ms steps(1,end) 333ms infinite}
 .thinking-led i:nth-child(3){animation:pp-blink 1000ms steps(1,end) 666ms infinite}
 .thinking-led i{background:var(--caution)}
-.insight{display:grid;grid-template-columns:auto minmax(0,1fr);gap:var(--space-2) var(--space-4);margin:0 0 var(--space-4)}
-.insight dt{padding-top:3px}
-.insight dd{margin:0}
+.tip{display:flex;gap:var(--space-3);align-items:baseline;margin:0 0 var(--space-3);font:500 15px/22px var(--font-sans);color:var(--ink)}
+.tip .pp-label{flex:none;color:var(--caution)}
 .chips{display:flex;flex-wrap:wrap;gap:var(--space-1)}
 .chip{font:600 12px/16px var(--font-sans);padding:3px 8px;background:var(--hairline);color:var(--ink);letter-spacing:.03em}
-.actions{display:flex;flex-wrap:wrap;gap:var(--space-3);align-items:center;margin-bottom:var(--space-2)}
-.plan{margin-top:var(--space-4);padding-top:var(--space-4);border-top:1px solid var(--hairline)}
-.plan ol{list-style:none;margin:var(--space-3) 0 0;padding:0;display:flex;flex-direction:column;gap:var(--space-2)}
-.plan li{display:flex;gap:var(--space-3);align-items:center;min-height:36px}
-.plan .mark{width:28px;height:28px;flex:none;display:flex;align-items:center;justify-content:center;background:var(--hairline);font:700 13px/16px var(--font-sans);color:var(--ink-muted)}
+.actions{display:flex;flex-wrap:wrap;gap:var(--space-3);align-items:center;margin-bottom:0}
+.actions .small{margin-left:auto}
+.plan{margin-top:var(--space-3);padding-top:var(--space-3);border-top:1px solid var(--hairline)}
+.plan ol{list-style:none;margin:var(--space-2) 0 0;padding:0;display:flex;flex-wrap:wrap;gap:var(--space-2) var(--space-4)}
+.plan li{display:flex;gap:var(--space-3);align-items:center;min-height:24px}
+.plan li .small{display:none!important}
+.plan .mark{width:24px;height:24px;flex:none;display:flex;align-items:center;justify-content:center;background:var(--hairline);font:700 13px/16px var(--font-sans);color:var(--ink-muted)}
 .plan li.active .mark{background:var(--caution);color:#12141c}
 .plan li.done .mark{background:var(--go);color:var(--on-go)}
 .plan li.failed .mark{background:var(--brand);color:#fff}
@@ -143,23 +148,27 @@ code{font:600 13px/18px var(--font-sans);font-variant-ligatures:none;font-featur
 .pp-btn[disabled]{cursor:not-allowed;transform:none;color:var(--ink-muted);background:var(--raised);box-shadow:0 -3px 0 0 var(--hairline),0 3px 0 0 var(--hairline),-3px 0 0 0 var(--hairline),3px 0 0 0 var(--hairline)}
 
 /* 03 corner */
-.corner{margin-top:var(--space-4);padding-top:var(--space-4);border-top:1px solid var(--hairline)}
-.corner-grid{display:grid;grid-template-columns:1fr;gap:var(--space-4)}
-canvas{height:200px!important}
+.corner{margin-top:var(--space-3);padding-top:var(--space-3);border-top:1px solid var(--hairline);display:flex;flex-direction:column;flex:1;min-height:0}
+.corner-grid>div:first-child{display:flex;flex-direction:column;flex:1 1 auto}
+.corner-grid>div,.corner>*,.grid>.panel>*{flex-shrink:0}
+.corner,.corner-grid,.corner-grid>div:first-child,.grid>.panel:first-child .lapbar{flex-shrink:1}
+.corner-grid{display:flex;flex-direction:column;gap:var(--space-2);flex:1;min-height:0}
+.chartbox{position:relative;flex:1;min-height:120px;margin-top:var(--space-2)}
+.chartbox canvas{position:absolute;inset:0;height:100%!important}
 canvas{width:100%;height:240px;display:block;background:var(--bg);box-shadow:0 0 0 1px var(--hairline)}
-.legend{display:flex;flex-wrap:wrap;gap:var(--space-2) var(--space-4);margin-top:var(--space-3)}
+.legend{display:flex;flex-wrap:wrap;gap:var(--space-1) var(--space-4);margin-top:var(--space-2)}
 .legend span{display:inline-flex;align-items:center;gap:6px;font:500 14px/20px var(--font-sans);color:var(--ink-muted)}
 .legend i{width:12px;height:12px;background:var(--k)}
 .legend i.dash{height:2px;width:14px;background:repeating-linear-gradient(90deg,var(--k) 0 4px,transparent 4px 7px)}
-table{width:100%;border-collapse:collapse;font:500 16px/22px var(--font-sans)}
-th,td{text-align:right;padding:6px 8px;border-bottom:1px solid var(--hairline);font-variant-numeric:tabular-nums}
+table{width:100%;border-collapse:collapse;font:500 15px/21px var(--font-sans)}
+th,td{text-align:right;padding:3px 8px;border-bottom:1px solid var(--hairline);font-variant-numeric:tabular-nums}
 th{font:600 12px/16px var(--font-sans);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted)}
 th:first-child,td:first-child{text-align:left}
 td:first-child{color:var(--ink-muted)}
 td small{font-size:13px;margin-left:6px}
 td.better{color:var(--go)}td.worse{color:var(--accent)}td.inc{color:var(--ink-faint)}
-details{margin-top:var(--space-3)}
-summary{cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:var(--space-2);min-height:36px;color:var(--ink-muted);font:600 14px/20px var(--font-sans)}
+details{margin-top:var(--space-1)}
+summary{cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:var(--space-2);min-height:30px;color:var(--ink-muted);font:600 14px/20px var(--font-sans)}
 summary::-webkit-details-marker{display:none}
 summary::before{content:"";width:0;height:0;border:5px solid transparent;border-left:7px solid currentColor;transform-origin:3px 5px}
 details[open]>summary::before{transform:rotate(90deg)}
@@ -209,6 +218,7 @@ summary:focus-visible{outline:3px solid var(--ink);outline-offset:4px}
 <header class="top">
   <div class="brand"><span class="pp-display d44">Pit Pal</span><span class="pp-label">Sim racing coach</span></div>
   <div class="race" role="status" aria-live="polite">
+    <span class="small" id="c-src"></span>
     <span class="pp-label">Race</span><span class="pp-display d44 tab" id="race-n">--</span>
     <span class="pp-pill" id="race-sync">History off</span>
   </div>
@@ -218,11 +228,10 @@ summary:focus-visible{outline:3px solid var(--ink);outline-offset:4px}
 <div class="wrap">
 <div class="grid">
   <section class="panel pp-enter" aria-label="Live telemetry">
-    <div class="phead phead--end"><span class="small" id="l-src">Waiting for Assetto Corsa</span></div>
     <div class="gauges">
-      <div class="readout"><div class="pp-display d88 tab" id="l-speed">0</div><span class="pp-label">km/h</span></div>
-      <div class="readout" style="align-items:center"><div class="gearbox"><div class="pp-display d88" id="l-gear">N</div></div><span class="pp-label" id="l-gear-label">Gear</span></div>
-      <div class="rpm"><span class="pp-led" id="l-led" aria-hidden="true"></span><div><b class="tab" id="l-rpm">-</b> <span class="pp-label" id="l-rpm-label">rpm</span></div></div>
+      <div class="readout"><div class="pp-display d66 tab" id="l-speed">0</div><span class="pp-label">km/h</span></div>
+      <div class="readout" style="align-items:center"><div class="gearbox"><div class="pp-display d66" id="l-gear">N</div></div><span class="pp-label" id="l-gear-label">Gear</span></div>
+      <div class="rpm"><span class="small" id="l-src">Waiting for Assetto Corsa</span><span class="pp-led" id="l-led" aria-hidden="true"></span><div><b class="tab" id="l-rpm">-</b> <span class="pp-label" id="l-rpm-label">rpm</span></div></div>
     </div>
     <div class="drive">
       <div class="pad brake"><div class="well"><div class="fill" id="l-brake-fill"></div></div><b class="tab" id="l-brake">0%</b><span class="pp-label">Brake</span></div>
@@ -241,7 +250,6 @@ summary:focus-visible{outline:3px solid var(--ink);outline-offset:4px}
   </section>
 
   <section class="panel pp-enter" aria-label="Coach">
-    <div class="phead phead--end"><span class="small" id="c-src">Nemotron insights</span></div>
     <div class="coach-row">
       <img class="mascot pp-bob" id="c-mascot" src="/pitpal/stealth-racer.png" alt="Pit Pal">
       <div class="pp-bubble" id="c-bubble" aria-live="polite">
@@ -250,14 +258,9 @@ summary:focus-visible{outline:3px solid var(--ink);outline-offset:4px}
         <p id="cue-sub" class="small"></p>
       </div>
     </div>
-    <dl class="insight" id="c-insight">
-      <dt class="pp-label">Why</dt><dd id="i-why" class="small">Nemotron reads your run and picks one change at a time.</dd>
-      <dt class="pp-label">Data</dt><dd id="i-data" class="small">-</dd>
-      <dt class="pp-label">Tools</dt><dd id="i-tools"><span class="small">-</span></dd>
-      <dt class="pp-label">Model</dt><dd id="i-model" class="small">-</dd>
-    </dl>
-    <div class="actions">
-      <button class="pp-btn" id="b-accept" disabled>Accept (Space)</button>
+    <p class="tip"><span class="pp-label">Tip</span><span id="tip">Brake at the same marker every time so each try is comparable.</span></p>
+    <div class="actions" id="actions">
+      <button class="pp-btn pp-btn--small" id="b-accept" disabled>Accept (Space)</button>
       <button class="pp-btn pp-btn--quiet pp-btn--small" id="b-retry">Retry</button>
       <button class="pp-btn pp-btn--go pp-btn--small hidden" id="b-resume">Resume</button>
       <button class="pp-btn pp-btn--quiet pp-btn--small hidden" id="b-retry_reset">Retry reset</button>
@@ -265,10 +268,9 @@ summary:focus-visible{outline:3px solid var(--ink);outline-offset:4px}
     <div class="plan hidden" id="p-plan"><span class="pp-label">Session plan</span><ol id="plan"></ol></div>
     <div class="corner" aria-labelledby="metrics-title">
     <h2 class="ptitle" id="metrics-title">Brake pedal through the corner</h2>
-    <p class="small" style="margin:2px 0 var(--space-3)">How hard you pressed the brake (0 to 100%) at each metre of the corner</p>
     <div class="corner-grid">
       <div>
-        <canvas id="cv" width="900" height="240" role="img" aria-label="Brake pedal against distance into the lap"></canvas>
+        <div class="chartbox"><canvas id="cv" width="900" height="240" role="img" aria-label="Brake pedal against distance into the lap"></canvas></div>
         <div class="legend">
           <span><i style="--k:var(--ink-muted)"></i>Reference lap (the goal)</span><span><i style="--k:var(--caution)"></i>Your first run</span>
           <span><i style="--k:var(--go)"></i>Your retry</span><span><i class="dash" style="--k:var(--signal-blue)"></i>Where to start braking</span>
@@ -433,7 +435,8 @@ const SYNC={live:["Synced to SpacetimeDB","go"],offline:["SpacetimeDB offline, s
 function renderTop(){
   const h=S.health; if(!h) return;
   const rc=h.race||{}, sy=SYNC[rc.sync]||SYNC.off;
-  $("race-n").textContent=rc.number?String(rc.number).padStart(2,"0"):"--";
+  $("race-n").textContent=rc.number?String(rc.number).padStart(2,"0"):"";
+  $("race-n").classList.toggle("hidden",!rc.number); $("race-n").previousElementSibling.classList.toggle("hidden",!rc.number);
   pill($("race-sync"),sy[0]+(rc.sync==="live"&&rc.database?" · "+rc.database:""),sy[1]);
   const t=h.telemetry, i=h.inputs, v=h.voice;
   S.inputs=i?" · pedals: "+i.pedal_source:"";
@@ -446,8 +449,18 @@ function renderTop(){
   $("b-toggle_mute").textContent=v&&v.muted?"Unmute (M)":"Mute (M)"; $("b-toggle_mute").disabled=!v;
   $("p-voice").classList.toggle("hidden",!v);
   for(const k of ["accept","retry","save_checkpoint"]) $("b-"+k).classList.toggle("hidden",lap);
+  $("actions").classList.toggle("hidden",[...$("actions").children].every(b=>b.classList.contains("hidden")));
   $("c-src").textContent=(lap?"Lap mode: keep driving":"Drill mode")+(h.agent?" · agent":"")+(v?(v.muted?" · voice muted":" · voice on"):"");
 }
+const TIPS={
+  brake_point:"Brake on a fixed marker, then move it one board at a time.",
+  brake_release:"Ease off the brake as you turn in to keep the front gripping.",
+  throttle_pickup:"Squeeze the throttle once the car points at the exit.",
+  brake_bite:"Hit peak brake pressure early, then bleed it off.",
+  no_coast:"Go straight from brake to throttle, no coasting.",
+  trail_brake:"Keep a little brake on into the turn, release by the apex.",
+  lockup:"Brake a touch softer at first; a locked wheel slows you less.",
+  _:"Change one thing per try so you can tell what helped."};
 function renderCue(){
   const d=S.decision, lap=S.health&&S.health.mode==="lap", thinking=S.state==="DECIDING";
   const after=S.track?"after "+S.track.corners[S.track.corners.length-1].name:"after the corner";
@@ -455,20 +468,10 @@ function renderCue(){
   $("cue").textContent=thinking?"Reading your run.":d?(d.cue||d.summary||""):(lap?"Keep driving. I talk "+after+".":"Drive a baseline run through the corner.");
   $("cue-sub").textContent=!thinking&&d&&d.action==="end_drill"?"Drill finished: "+(d.end_reason||"done").replace(/_/g," ")+".":"";
   $("c-mascot").src=S.state==="RETRY"||S.state==="AWAIT_RESET"||lap?"/pitpal/mascot-helmet.png":"/pitpal/stealth-racer.png";
-  $("c-mascot").style.width=$("c-mascot").src.endsWith("mascot-helmet.png")?"156px":"132px";
-  // insight rows: what Nemotron decided and on which numbers
-  const a=S.retry&&S.retry.attempt||S.base&&S.base.attempt, ref=S.ref;
-  const said=$("cue").textContent;
-  $("i-why").textContent=d?(d.summary&&d.summary!==said?d.summary:d.verdict==="repeat"?"Same change again: you are closer but not there yet.":d.verdict==="adjust"?"Adjusted the target after your last try.":"One change at a time, from your latest run."):"Nemotron reads your run and picks one change at a time.";
-  $("i-data").textContent=a&&ref?"You braked at "+fmt(a.brake_onset_m,0)+" m (reference "+fmt(ref.brake_onset_m,0)+" m), back on throttle at "+fmt(a.throttle_pickup_m,0)+" m (reference "+fmt(ref.throttle_pickup_m,0)+" m), corner in "+fmt(a.section_s,2)+" s.":"No scored run yet.";
-  const tools=$("i-tools"); tools.replaceChildren();
-  const calls=d&&d.tool_calls||[];
-  if(calls.length){ const w=document.createElement("span"); w.className="chips";
-    calls.forEach(c=>{ const s=document.createElement("span"); s.className="chip"; s.textContent=c.name||c.tool||"tool"; w.appendChild(s); });
-    tools.appendChild(w); }
-  else { const s=document.createElement("span"); s.className="small"; s.textContent=d?(d.mode==="rules"?"Rules coach, no tools":"No tool calls this turn"):"-"; tools.appendChild(s); }
-  const h=S.health;
-  $("i-model").textContent=d?(d.mode==="rules"?"Rules fallback (Nemotron not reachable)":[d.model||"Nemotron",d.mode,d.provider].filter(Boolean).join(" · "))+(d.latency_ms?" · "+(d.latency_ms/1000).toFixed(1)+" s":""):h?(h.ai.mode==="rules"?"Rules fallback (Nemotron not reachable)":h.ai.label):"-";
+  $("c-mascot").style.width=$("c-mascot").src.endsWith("mascot-helmet.png")?"104px":"88px";
+  // one tip: Nemotron's own reason when it gave one, else a drill tip
+  const said=$("cue").textContent, drill=(S.offer||d||{}).drill_id;
+  $("tip").textContent=d&&d.summary&&d.summary!==said?d.summary:TIPS[drill]||TIPS._;
 }
 function renderPlan(){
   const p=S.plan, ul=$("plan"); $("p-plan").classList.toggle("hidden",!p); ul.replaceChildren(); if(!p) return;
@@ -477,7 +480,7 @@ function renderPlan(){
     const m=document.createElement("span"); m.className="mark"; m.textContent=g.status==="done"?"OK":g.status==="failed"?"X":String(i+1).padStart(2,"0");
     const t=document.createElement("span"), b=document.createElement("b"); b.textContent=g.title||g.drill_id;
     const sm=document.createElement("span"); sm.className="small"; sm.textContent=(g.done_when||"")+(g.tries?" · tries "+g.tries:"")+(g.hits?" · hits "+g.hits:"");
-    t.appendChild(b); t.appendChild(sm); li.appendChild(m); li.appendChild(t); ul.appendChild(li);
+    li.title=sm.textContent; t.appendChild(b); t.appendChild(sm); li.appendChild(m); li.appendChild(t); ul.appendChild(li);
   });
 }
 
@@ -491,7 +494,7 @@ const ROWS=[["Brake board m","board",1],["Brake onset m","brake_onset_m",1],["Pe
   ["Trail brake share","trail_brake_share",2],["Lockup s","lockup_s",2],
   ["Turn-in m","turn_in_m",1],["Last downshift m","last_downshift_m",1],
   ["Line offset m","line_offset_m",2]];
-const KEY_ROWS=["board","apex_kmh","release_s","throttle_pickup_m","section_s"];
+const KEY_ROWS=["board","release_s","section_s"];
 function val(a,k){ if(!a) return null; if(k==="board") return S.corner? S.corner.board_zero_m-a.brake_onset_m : null; return a[k]; }
 function metricRow(label,k,d){
   const ref=S.ref, t=targetOnset(), tol=S.corner.tolerance;
@@ -517,8 +520,8 @@ function metricRow(label,k,d){
 function renderMetrics(){
   const key=document.querySelector("#metrics-key tbody"), all=document.querySelector("#metrics tbody");
   key.replaceChildren(); all.replaceChildren(); if(!S.corner) return;
-  $("metrics-title").textContent="Brake pedal through "+S.corner.name+(S.track?" (coached corner)":"");
-  const t=targetOnset(), keys=new Set(KEY_ROWS); if(t) keys.add(t.key);
+  $("metrics-title").textContent="Brake pedal (0 to 100%) through "+S.corner.name+(S.track?", the coached corner":"");
+  const t=targetOnset(), keys=new Set(KEY_ROWS); if(t&&t.key!=="brake_onset_m") keys.add(t.key); // the board row already shows the brake point
   for(const [label,k,d] of ROWS){ all.appendChild(metricRow(label,k,d)); if(keys.has(k)) key.appendChild(metricRow(label,k,d)); }
 }
 function draw(){
