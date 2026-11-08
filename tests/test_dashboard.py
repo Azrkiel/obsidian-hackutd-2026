@@ -62,7 +62,7 @@ async def test_settings_api(tmp_path):
     track = Track.load()
     refs = References(track, tmp_path / "pb.json")
     base = load_corner("fixtures/corner_monza_t1.json")
-    app = CoachApp(base, refs.get("c1").as_attempt(), LapSim(track), [], reset_mode="sim",
+    app = CoachApp(base, refs.get("t1").as_attempt(), LapSim(track), [], reset_mode="sim",
                    data_dir=tmp_path / "d", trace_dir=tmp_path / "t", sound=False, countdown=0,
                    persist_checkpoint=False, track_model=track, references=refs, whole_lap=True)
     client = TestClient(TestServer(make_web_app(app)))

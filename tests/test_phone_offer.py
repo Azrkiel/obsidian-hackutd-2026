@@ -79,7 +79,7 @@ def test_lap_coach_pushes_at_4_per_second_then_closes(monkeypatch):
     offers = OfferManager(countdown_s=5, clock=clock, on_change=lambda e: None)
     lc = LapCoach(FakeApp(h, clock), offers=offers)
     E = dataclasses.make_dataclass("E", ["id", "corner_id", "corner", "severity", "kinds", "facts"])
-    ev = E("e7", "c4", "Lesmo 1", "minor", ["time_lost"], {})
+    ev = E("e7", "lesmo1", "Lesmo 1", "minor", ["time_lost"], {})
     o, _ = offers.new(ev, RetryStart("sim", 1800, 230))
     offers.cue_delivered("e7", "cue", "rules")
     sent = h._transports[0].out

@@ -17,18 +17,18 @@ BASE = load_corner(ROOT / "fixtures" / "corner_monza_t1.json")
 def make(tmp_path, errors, start_m):
     refs = References(TRACK, tmp_path / "pb.json")
     sim = LapSim(TRACK, errors=errors, start_m=start_m)
-    app = CoachApp(BASE, refs.get("c1").as_attempt(), sim, [], reset_mode="sim",
+    app = CoachApp(BASE, refs.get("t1").as_attempt(), sim, [], reset_mode="sim",
                    data_dir=tmp_path / "data", trace_dir=tmp_path / "traces", sound=False, countdown=0,
                    persist_checkpoint=False, track_model=TRACK, references=refs)
     return app, sim
 
 
 async def test_drill_loop_runs_at_lesmo(tmp_path):
-    les = TRACK.get("c4")
-    app, sim = make(tmp_path, {"c4": ["early_brake", None, None, None, None]}, les.entry_m - 400)
-    assert app.select_corner("c4")
+    les = TRACK.get("lesmo1")
+    app, sim = make(tmp_path, {"lesmo1": ["early_brake", None, None, None, None]}, les.entry_m - 400)
+    assert app.select_corner("lesmo1")
     assert app.corner.name == "Lesmo 1" and app.scorer.corner is app.corner
-    assert app.coach.reference.attempt_id == "ref-ai-c4"
+    assert app.coach.reference.attempt_id == "ref-ai-lesmo1"
     anchor = TRACK.anchor_m(les, 4.0)
     assert app.reset.checkpoint["pos_m"] == pytest.approx(anchor)
     await app.start()
@@ -47,21 +47,21 @@ async def test_drill_loop_runs_at_lesmo(tmp_path):
     assert kinds[:6] == ["corner", "run", "decision", "reset_request", "reset_confirmed", "run"]
     retry = app.retry_run["attempt"]
     assert retry["brake_onset_m"] == pytest.approx(les.brake_m, abs=12)       # the clean retry
-    les_log = [e for e in sim.log if e[0] == "c4"]
-    assert les_log[0] == ("c4", 0, "early_brake") and les_log[-1][2] is None
+    les_log = [e for e in sim.log if e[0] == "lesmo1"]
+    assert les_log[0] == ("lesmo1", 0, "early_brake") and les_log[-1][2] is None
 
 
 async def test_corner_change_waits_for_the_drill(tmp_path):
     app, _ = make(tmp_path, {}, 0)
-    assert app.select_corner("c1")
+    assert app.select_corner("t1")
     app.coach.state = "RETRY"
-    assert not app.select_corner("c4") and app.corner.name == "Rettifilo"
+    assert not app.select_corner("lesmo1") and app.corner.name == "Rettifilo"
     app.coach.state = "IDLE"
-    await app.handle_command({"type": "select_corner", "corner_id": "c4"})
+    await app.handle_command({"type": "select_corner", "corner_id": "lesmo1"})
     assert app.corner.name == "Lesmo 1"
     assert not app.select_corner("nope")
 
 
 def test_flat_corner_has_no_drills(tmp_path):
     app, _ = make(tmp_path, {}, 0)
-    assert app.select_corner("c2") and app.corner.allowed["drills"] == []
+    assert app.select_corner("curva_grande") and app.corner.allowed["drills"] == []

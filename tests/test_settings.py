@@ -35,7 +35,7 @@ def test_saved_and_reloaded(tmp_path):
 def make(tmp_path, **kw):
     refs = References(TRACK, tmp_path / "pb.json")
     base = load_corner(ROOT / "fixtures" / "corner_monza_t1.json")
-    return CoachApp(base, refs.get("c1").as_attempt(), LapSim(TRACK), [], reset_mode="sim",
+    return CoachApp(base, refs.get("t1").as_attempt(), LapSim(TRACK), [], reset_mode="sim",
                     data_dir=tmp_path / "data", trace_dir=tmp_path / "traces", sound=False, countdown=0,
                     persist_checkpoint=False, track_model=TRACK, references=refs, whole_lap=True, **kw)
 

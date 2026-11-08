@@ -182,9 +182,9 @@ uv run python -m coach --whole-lap --telemetry ac --reset udp --inputs
 - Settings (saved in `data/settings.json`, applied live): `GET/POST /settings`, with fields
   `reference` (`pb`|`ai`), `sensitivity_s`, `countdown_s`, `lead_time_s` and `voice`.
   `POST /personal_best/reset` clears the personal bests.
-- `fixtures/tracks/monza.json` is **synthetic** until the real AI line is in:
-  `uv run python scripts/ac_track_extract.py "<assettocorsa>/content/tracks/monza" --track-out fixtures/tracks/monza.json --names "Rettifilo,Curva Grande,Roggia,Lesmo 1,Lesmo 2,Ascari,Parabolica"`,
-  then check the printed corner table. Personal bests from the synthetic track are not reused.
+- Corners come from the lap coach's `fixtures/track_monza.json` (F1-measured, 787B boards).
+  `fixtures/tracks/monza.json` (the retry model: AI speed profile, Curva Grande for major errors)
+  is built from it with `python scripts/track_model.py`; rebuild it after changing the config.
 - Before the first in-game run (coach stopped):
   `uv run python scripts/checkpoint_probe.py --seconds 40 --hold-at 10 --restore-at 35`.
   It checks hold and restore in game and prints the frame cost of each save.

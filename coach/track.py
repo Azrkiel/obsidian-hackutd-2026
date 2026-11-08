@@ -32,6 +32,7 @@ class TrackCorner:
     apex_window_m: tuple[float, float]
     exit_m: float
     ai: dict[str, float]
+    board_zero_m: float | None = None   # the 0 m brake board (lap coach config); turn-in if unknown
 
     @property
     def major_only(self) -> bool:
@@ -47,7 +48,8 @@ class TrackCorner:
         return cls(d["id"], d["name"], d["kind"], float(d["entry_m"]),
                    None if d.get("brake_m") is None else float(d["brake_m"]), float(d["turn_in_m"]),
                    tuple(float(x) for x in d["apex_m"]), tuple(float(x) for x in d["apex_window_m"]),
-                   float(d["exit_m"]), dict(d.get("ai", {})))
+                   float(d["exit_m"]), dict(d.get("ai", {})),
+                   None if d.get("board_zero_m") is None else float(d["board_zero_m"]))
 
 
 class Track:
@@ -147,4 +149,5 @@ class Track:
             allowed["drills"] = []
         return replace(base, name=corner.name, track_length_m=self.length_m, start_gate_m=corner.entry_m,
                        apex_window_m=corner.apex_window_m, exit_gate_m=corner.exit_m,
-                       board_zero_m=corner.turn_in_m, gates=gates, allowed=allowed, reminder_m=None)
+                       board_zero_m=corner.board_zero_m if corner.board_zero_m is not None else corner.turn_in_m,
+                       gates=gates, allowed=allowed, reminder_m=None, id=corner.id)

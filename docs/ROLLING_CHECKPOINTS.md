@@ -20,7 +20,7 @@ cue and a 5-second opt-in to rewind and retry that corner, from the phone (Next)
 | Stable save (retry start, fallback 3) | **Approximated:** off every corner and within 25% of the AI speed there (the Lua save report has only position and speed). Revisit in B. |
 | Errors during a retry loop | **Ignored** until the loop ends and the car is back where Retry was pressed. |
 | Personal best | **Normal laps only**: passes during a retry loop never set a best. |
-| Track data | Built against a **synthetic Monza line** (`scripts/synth_track.py`) until the game PC's `fast_lane.ai` is copied in; then regenerate `fixtures/tracks/monza.json` and hand-check the corners. |
+| Track data | **Kevin's F1-measured corners** (`fixtures/track_monza.json`, PR #7) for both coaches. The retry model `fixtures/tracks/monza.json` is built from it by `scripts/track_model.py` (787B sim lap as the speed profile, Curva Grande added from the F1 T3 marker). The real `fast_lane.ai` replaces the profile later (`ac_track_extract.py --model-out`). |
 | Reference | **AI racing line or personal best**, chosen **globally** (no per-corner override). |
 | Personal best | **Saved on disk**, with a **reset** button. |
 | Settings | **Dashboard `/settings` page now**, Pit Pal panel later (same API). Settings: reference, error sensitivity, countdown length, retry lead time, voice on/off. |

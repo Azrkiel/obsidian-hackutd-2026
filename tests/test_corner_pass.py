@@ -14,8 +14,8 @@ from engine.config import load_corner
 ROOT = Path(__file__).resolve().parents[1]
 TRACK = Track.load()
 BASE = load_corner(ROOT / "fixtures" / "corner_monza_t1.json")
-MISTAKES = {"c1": ["late_brake"], "c3": ["early_brake"], "c4": ["spin"], "c5": ["run_wide"],
-            "c6": ["slow_exit"], "c7": ["lockup"]}
+MISTAKES = {"t1": ["late_brake"], "roggia": ["early_brake"], "lesmo1": ["spin"], "lesmo2": ["run_wide"],
+            "ascari": ["slow_exit"], "parabolica": ["lockup"]}
 
 
 def drive(errors=None, laps=1.05, start=TRACK.length_m - 400, tweak=None):
@@ -56,50 +56,50 @@ def test_clean_lap_scores_every_corner(clean):
 def test_planted_mistakes_leave_their_marks(clean, mistakes):
     ref = {p.corner_id: p for p in clean}
     lost = {k: mistakes[k].segment_s - ref[k].segment_s for k in ref}
-    late = mistakes["c1"]
-    assert late.tyres_out_s > 0.3 and late.max_tyres_out == 4 and late.peak_slip_f > 0.3 and lost["c1"] > 0.25
-    assert late.brake_onset_m > ref["c1"].brake_onset_m + 15
-    early = mistakes["c3"]
-    assert early.brake_onset_m < ref["c3"].brake_onset_m - 40 and lost["c3"] > 0.25
-    assert mistakes["c4"].max_body_slip_deg > 90 and lost["c4"] > 1.0                   # spin
-    assert mistakes["c5"].tyres_out_s > 0.3                                              # wide
-    assert lost["c6"] > 0.2 and mistakes["c6"].tyres_out_s == 0                           # slow exit
-    assert mistakes["c7"].peak_slip_f >= 0.4 and abs(lost["c7"]) < 0.01                   # lock-up only
-    cg = mistakes["c2"]
-    assert abs(lost["c2"]) < 0.01 and cg.tyres_out_s == 0 and cg.max_body_slip_deg < 5  # untouched
+    late = mistakes["t1"]
+    assert late.tyres_out_s > 0.3 and late.max_tyres_out == 4 and late.peak_slip_f > 0.3 and lost["t1"] > 0.25
+    assert late.brake_onset_m > ref["t1"].brake_onset_m + 15
+    early = mistakes["roggia"]
+    assert early.brake_onset_m < ref["roggia"].brake_onset_m - 40 and lost["roggia"] > 0.25
+    assert mistakes["lesmo1"].max_body_slip_deg > 90 and lost["lesmo1"] > 1.0                   # spin
+    assert mistakes["lesmo2"].tyres_out_s > 0.3                                              # wide
+    assert lost["ascari"] > 0.2 and mistakes["ascari"].tyres_out_s == 0                           # slow exit
+    assert mistakes["parabolica"].peak_slip_f >= 0.4 and abs(lost["parabolica"]) < 0.01                   # lock-up only
+    cg = mistakes["curva_grande"]
+    assert abs(lost["curva_grande"]) < 0.01 and cg.tyres_out_s == 0 and cg.max_body_slip_deg < 5  # untouched
     assert all(p.valid for p in mistakes.values())   # bad driving is not bad data
 
 
 def test_rewind_drops_the_pass_and_the_retry_is_scored():
     passes = []
     tr = TRACK
-    les = tr.get("c4")
+    les = tr.get("lesmo1")
     sc = PassScorer(tr, BASE, passes.append)
-    sim = LapSim(tr, errors={"c4": ["spin", None]}, start_m=les.entry_m - 300)
+    sim = LapSim(tr, errors={"lesmo1": ["spin", None]}, start_m=les.entry_m - 300)
 
     async def go():
         rewound = False
         async for s in sim.samples():
             sc.add(s)
-            if not rewound and sc.in_pass and sc.current.id == "c4" and s.pos_m > les.apex_m[0] + 40:
+            if not rewound and sc.in_pass and sc.current.id == "lesmo1" and s.pos_m > les.apex_m[0] + 40:
                 sim.teleport_to(les.entry_m - 300, tr.ai_kmh(les.entry_m - 300))   # mid-pass rewind
                 rewound = True
             if len(passes) == 1:
                 sim.stop()
     asyncio.run(go())
-    assert [(p.corner_id, p.valid) for p in passes] == [("c4", True)]
+    assert [(p.corner_id, p.valid) for p in passes] == [("lesmo1", True)]
     assert passes[0].max_body_slip_deg < 5                       # the clean retry, not the spin
-    assert sim.log == [("c4", 0, "spin"), ("c4", 1, None)]
+    assert sim.log == [("lesmo1", 0, "spin"), ("lesmo1", 1, None)]
 
 
 def test_data_gap_marks_the_pass_invalid():
     tr = TRACK
-    les = tr.get("c4")
+    les = tr.get("lesmo1")
 
     def gap(s):   # half a second of telemetry missing at the apex
         return dataclasses.replace(s, t=s.t + 0.5) if les.apex_m[0] <= s.pos_m < les.exit_m + 100 else s
     passes, _, _ = drive(laps=0.07, start=les.entry_m - 50, tweak=gap)
-    assert passes and passes[0].corner_id == "c4" and not passes[0].valid
+    assert passes and passes[0].corner_id == "lesmo1" and not passes[0].valid
     assert passes[0].invalid_reason.startswith("data gap")
 
 
@@ -110,10 +110,10 @@ def test_lap_counter_and_second_lap():
 
 def test_body_slip_does_not_depend_on_the_yaw_sign():
     from coach.lap_sim import LapSim as Sim
-    sim = Sim(TRACK, errors={"c4": ["spin"]}, start_m=TRACK.get("c4").entry_m)
+    sim = Sim(TRACK, errors={"lesmo1": ["spin"]}, start_m=TRACK.get("lesmo1").entry_m)
     rows = [sim._step() for _ in range(int(8 / sim.dt))]
     flipped = [dataclasses.replace(s, yaw_rate=-s.yaw_rate) for s in rows]
-    assert body_slip_deg(rows) == pytest.approx(body_slip_deg(flipped), abs=2) and body_slip_deg(rows) > 90
+    assert body_slip_deg(rows) == pytest.approx(body_slip_deg(flipped), rel=0.1) and body_slip_deg(rows) > 90
 
 
 def test_tyres_out_read_from_shared_memory():

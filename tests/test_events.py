@@ -37,8 +37,8 @@ def clean():
 
 @pytest.fixture(scope="module")
 def bad():
-    return lap({"c1": ["late_brake"], "c3": ["early_brake"], "c4": ["spin"], "c5": ["run_wide"],
-                "c6": ["slow_exit"], "c7": ["lockup"]})
+    return lap({"t1": ["late_brake"], "roggia": ["early_brake"], "lesmo1": ["spin"], "lesmo2": ["run_wide"],
+                "ascari": ["slow_exit"], "parabolica": ["lockup"]})
 
 
 def detect(p, th=None):
@@ -52,30 +52,30 @@ def test_clean_lap_raises_nothing(clean):
 
 def test_each_mistake_raises_its_event(bad):
     ev = {k: detect(p) for k, p in bad.items()}
-    assert ev["c2"] is None
-    assert ev["c1"].severity == MAJOR and {"wheels_off", "lockup", "brake_late"} <= set(ev["c1"].kinds)
-    assert ev["c3"].severity == MINOR and set(ev["c3"].kinds) == {"time_lost", "brake_early"}
-    assert ev["c4"].severity == MAJOR and "spin" in ev["c4"].kinds
-    assert "wheels_off" in ev["c5"].kinds
-    assert ev["c6"].kinds == ["time_lost"] and ev["c6"].facts["time_lost_s"] > 0.25
-    assert ev["c7"].kinds == ["lockup"]
-    assert ev["c3"].facts["brake_delta_m"] < -15 and ev["c1"].summary()["reference"] == "ai"
+    assert ev["curva_grande"] is None
+    assert ev["t1"].severity == MAJOR and {"wheels_off", "lockup", "brake_late"} <= set(ev["t1"].kinds)
+    assert ev["roggia"].severity == MINOR and set(ev["roggia"].kinds) == {"time_lost", "brake_early"}
+    assert ev["lesmo1"].severity == MAJOR and "spin" in ev["lesmo1"].kinds
+    assert "wheels_off" in ev["lesmo2"].kinds
+    assert ev["ascari"].kinds == ["time_lost"] and ev["ascari"].facts["time_lost_s"] > 0.25
+    assert ev["parabolica"].kinds == ["lockup"]
+    assert ev["roggia"].facts["brake_delta_m"] < -15 and ev["t1"].summary()["reference"] == "ai"
 
 
 def test_sensitivity_setting(bad):
-    p = bad["c6"]
+    p = bad["ascari"]
     assert detect(p, Thresholds(time_lost_s=0.5)) is None
     assert detect(p, Thresholds(time_lost_s=0.1)) is not None
 
 
 def test_flat_corner_only_major(clean):
-    p = dataclasses.replace(clean["c2"], segment_s=clean["c2"].segment_s + 1.0)
+    p = dataclasses.replace(clean["curva_grande"], segment_s=clean["curva_grande"].segment_s + 1.0)
     assert detect(p) is None                                     # slow, but flat: minor ignored
     assert detect(dataclasses.replace(p, tyres_out_s=0.8)).kinds == ["wheels_off"]
 
 
 def test_bad_data_raises_nothing(bad):
-    assert detect(dataclasses.replace(bad["c1"], valid=False, invalid_reason="data gap")) is None
+    assert detect(dataclasses.replace(bad["t1"], valid=False, invalid_reason="data gap")) is None
 
 
 # -- picker --
@@ -91,7 +91,7 @@ def ck(seq, kind, pos_m, kmh, anchor="-", t=100.0):
 
 
 def test_picker_prefers_this_laps_anchor():
-    les = TRACK.get("c4")
+    les = TRACK.get("lesmo1")
     a = TRACK.anchor_m(les, 4.0)
     st = store_with([ck(1, "t", a - 200, 230), ck(2, "a", a, 230, anchor=4)])
     got = CheckpointPicker(TRACK).pick(les, st, now=105.0)
@@ -101,7 +101,7 @@ def test_picker_prefers_this_laps_anchor():
 
 
 def test_picker_falls_back_to_the_buffer_then_the_oldest_stable():
-    les = TRACK.get("c4")
+    les = TRACK.get("lesmo1")
     key = les.key_m
     far, near, late = TRACK.pos_before(key, 6.0), TRACK.pos_before(key, 4.5), TRACK.pos_before(key, 2.0)
     st = store_with([ck(1, "t", far, TRACK.ai_kmh(far)), ck(2, "t", near, TRACK.ai_kmh(near)),
@@ -118,7 +118,7 @@ def test_picker_falls_back_to_the_buffer_then_the_oldest_stable():
 
 
 def test_picker_in_sim_mode():
-    les = TRACK.get("c4")
+    les = TRACK.get("lesmo1")
     s = CheckpointPicker(TRACK, lead_s=5.0).for_sim(les)
     assert s.source == "sim" and TRACK.ai_time(s.pos_m, les.key_m) == pytest.approx(5.0, abs=0.05)
 
@@ -132,7 +132,7 @@ class Clock:
 
 
 def ev(n, bad):
-    e = detect(bad["c1"])
+    e = detect(bad["t1"])
     return dataclasses.replace(e, id=f"e{n}")
 
 

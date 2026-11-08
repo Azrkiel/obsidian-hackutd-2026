@@ -22,6 +22,7 @@ from .track import Track, TrackCorner
 ERRORS = ("early_brake", "late_brake", "run_wide", "slow_exit", "lockup", "spin")
 LAT_MS2 = 24.0
 EARLY_M, LATE_M, LATE_PICKUP_M, LATE_EXIT = 70.0, 25.0, 45.0, 0.72
+SLOW_EXIT = 0.955                 # speed after the apex on a slow exit (Ascari: ~0.35 s lost)
 SPIN_S, SPIN_KMH, RECOVER_MS2 = 1.2, 15.0, 6.0
 
 
@@ -107,8 +108,8 @@ class LapSim:
                 out = 4 if pos <= a1 + 25 else 0
         elif m == "run_wide" and a2 + 10 <= pos <= c.exit_m - 10:
             v, out = v * 0.9, 4
-        elif m == "slow_exit" and pos > a2:
-            v *= 0.85
+        elif m == "slow_exit" and pos > a1:   # from the (first) apex: late, timid throttle
+            v *= SLOW_EXIT
             gas, _ = tr.ai_pedals(pos - LATE_PICKUP_M)
         elif m == "lockup" and c.brake_m is not None and c.brake_m + 20 <= pos <= c.brake_m + 60:
             slip_f = 0.4

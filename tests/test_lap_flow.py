@@ -17,7 +17,7 @@ BASE = load_corner(ROOT / "fixtures" / "corner_monza_t1.json")
 def make(tmp_path, errors, start_m, countdown_s=5.0):
     refs = References(TRACK, tmp_path / "pb.json")
     sim = LapSim(TRACK, errors=errors, start_m=start_m)
-    app = CoachApp(BASE, refs.get("c1").as_attempt(), sim, [], reset_mode="sim",
+    app = CoachApp(BASE, refs.get("t1").as_attempt(), sim, [], reset_mode="sim",
                    data_dir=tmp_path / "data", trace_dir=tmp_path / "traces", sound=False, countdown=0,
                    persist_checkpoint=False, track_model=TRACK, references=refs, whole_lap=True)
     app.lap_coach.offers.countdown_s = countdown_s
@@ -33,14 +33,14 @@ def offer_states(app, oid):
 
 
 async def test_error_offer_accept_retry_resume(tmp_path):
-    les = TRACK.get("c4")
-    app, sim, refs = make(tmp_path, {"c4": ["early_brake"]}, les.entry_m - 300)
+    les = TRACK.get("lesmo1")
+    app, sim, refs = make(tmp_path, {"lesmo1": ["early_brake"]}, les.entry_m - 300)
     await app.start()
     try:
         lc = app.lap_coach
         await app.wait_for(lambda: lc.open_offer() is not None, 20)
         o = lc.open_offer()
-        assert o.event.corner_id == "c4" and "brake_early" in o.event.kinds
+        assert o.event.corner_id == "lesmo1" and "brake_early" in o.event.kinds
         assert o.cue and o.cue_source == "rules" and o.extra.get("decision") is not None
         assert o.start.source == "sim"
         pressed_at = sim.pos
@@ -63,8 +63,8 @@ async def test_error_offer_accept_retry_resume(tmp_path):
 
 
 async def test_flat_corner_retry_is_judged_by_the_detector(tmp_path):
-    cg = TRACK.get("c2")
-    app, sim, _ = make(tmp_path, {"c2": ["run_wide", "run_wide"]}, cg.entry_m - 300)
+    cg = TRACK.get("curva_grande")
+    app, sim, _ = make(tmp_path, {"curva_grande": ["run_wide", "run_wide"]}, cg.entry_m - 300)
     await app.start()
     try:
         lc = app.lap_coach
@@ -79,13 +79,13 @@ async def test_flat_corner_retry_is_judged_by_the_detector(tmp_path):
     judged = [e for e in app.events if e["type"] == "retry_judged"]
     # the 2nd attempt (first retry) still runs wide, the next is clean
     assert [j["fixed"] for j in judged] == [False, True]
-    assert [x for x in sim.log if x[0] == "c2"][:3] == [("c2", 0, "run_wide"), ("c2", 1, "run_wide"),
-                                                        ("c2", 2, None)]
+    assert [x for x in sim.log if x[0] == "curva_grande"][:3] == [("curva_grande", 0, "run_wide"), ("curva_grande", 1, "run_wide"),
+                                                        ("curva_grande", 2, None)]
 
 
 async def test_unanswered_offer_expires_and_the_coach_is_free(tmp_path):
-    les = TRACK.get("c4")
-    app, _, _ = make(tmp_path, {"c4": ["early_brake"]}, les.entry_m - 300, countdown_s=0.2)
+    les = TRACK.get("lesmo1")
+    app, _, _ = make(tmp_path, {"lesmo1": ["early_brake"]}, les.entry_m - 300, countdown_s=0.2)
     await app.start()
     try:
         lc = app.lap_coach
@@ -99,15 +99,15 @@ async def test_unanswered_offer_expires_and_the_coach_is_free(tmp_path):
 
 
 async def test_newer_error_supersedes(tmp_path):
-    app, _, _ = make(tmp_path, {"c4": ["early_brake"], "c5": ["early_brake"]}, TRACK.get("c4").entry_m - 300,
+    app, _, _ = make(tmp_path, {"lesmo1": ["early_brake"], "lesmo2": ["early_brake"]}, TRACK.get("lesmo1").entry_m - 300,
                      countdown_s=30)
     await app.start()
     try:
         lc = app.lap_coach
-        await app.wait_for(lambda: lc.offers.current is not None and lc.offers.current.event.corner_id == "c5"
+        await app.wait_for(lambda: lc.offers.current is not None and lc.offers.current.event.corner_id == "lesmo2"
                            and lc.offers.current.state == "open", 20)
         first = lc.offers.history[0]
-        assert first.event.corner_id == "c4" and first.state == "superseded"
+        assert first.event.corner_id == "lesmo1" and first.state == "superseded"
         assert app.corner.name == "Lesmo 2"
     finally:
         await app.stop()
@@ -120,5 +120,5 @@ async def test_personal_bests_from_normal_laps_only(tmp_path):
         await app.wait_for(lambda: len(refs.summary()["personal_bests"]) == 7, 20)
     finally:
         await app.stop()
-    assert refs.get("c1").source == "pb"
+    assert refs.get("t1").source == "pb"
     assert not [e for e in app.events if e["type"] == "corner_event"]
