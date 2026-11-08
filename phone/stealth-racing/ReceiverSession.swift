@@ -49,12 +49,14 @@ final class ReceiverSession {
     @ObservationIgnored private var historyTask: Task<Void, Never>?
 
     // Settings
-    /// Fallback throttle/brake for when the Arduino pedals fail. When off, the
-    /// phone sends 0 for both and the receiver relies on the Arduino.
+    /// On-screen throttle/brake. On: the receiver takes the pedals from the phone, even
+    /// while the Arduino is plugged in (it goes on standby). Off: the phone sends 0 and
+    /// the receiver uses the Arduino again.
     var onScreenPedals = UserDefaults.standard.object(forKey: "onScreenPedals") as? Bool ?? false {
         didSet {
             UserDefaults.standard.set(onScreenPedals, forKey: "onScreenPedals")
             if !onScreenPedals { releasePedals() }
+            if onScreenPedals != oldValue { sendPedalMode() }
         }
     }
     /// Wheel rotation (degrees) that maps to full steering lock.
@@ -239,6 +241,15 @@ final class ReceiverSession {
         }
     }
 
+    /// Tells the receiver who drives the pedals: `pedals_phone` or `pedals_auto` (Arduino first).
+    /// Not a pad button, so it isn't a SimCommand (it would show up in the Controls list).
+    func sendPedalMode() {
+        guard sending else { return }
+        eventID += 1
+        let packet = "evt,\(eventID),\(onScreenPedals ? "pedals_phone" : "pedals_auto"),tap"
+        for _ in 0..<3 { sendRaw(packet, sign: true) }
+    }
+
     func releasePedals() {
         throttle = 0
         brake = 0
@@ -299,6 +310,9 @@ final class ReceiverSession {
     private func startDriving() {
         guard !sending, let connection else { return }
         sending = true
+        // A phone with on-screen pedals on takes the pedals as soon as it connects. (A phone with them
+        // off says nothing, so a Pedals switch made on the dashboard or Rev is left alone.)
+        if onScreenPedals { sendPedalMode() }
         if Self.activeSessions == 0 {
             Self.idleTimerWasDisabled = UIApplication.shared.isIdleTimerDisabled
             UIApplication.shared.isIdleTimerDisabled = true

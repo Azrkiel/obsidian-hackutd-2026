@@ -211,3 +211,35 @@ def test_serial_skips_to_the_newest_reading():
     assert int(line.split(",")[0]) > 10              # jumped well past the stale ones...
     assert ser.in_waiting <= 40                       # ...to within a few readings of the newest
     assert newest_line(FakeSerial(["5,6\n"])) == "5,6\n"
+
+
+# -- pedal source switch (app's On-screen pedals toggle, dashboard, Rev) --
+def test_phone_mode_takes_pedals_while_arduino_is_live(hub):
+    hub.feed_arduino("0,0")                       # board plugged in, pedals dead
+    hub.feed_phone(b"v1,1,0.2,0.7,0.1", ("10.0.0.2", 1))
+    assert hub.tick()["pedal_source"] == "arduino"
+    hub.handle_event("pedals_phone", "tap")
+    o = hub.tick()
+    assert o["pedal_source"] == "phone" and o["pedal_mode"] == "phone"
+    assert o["brake"] == pytest.approx(0.1)
+    assert hub.status()["arduino"] == "standby"
+    hub.handle_event("pedals_auto", "tap")
+    assert hub.tick()["pedal_source"] == "arduino"
+    assert hub.status()["arduino"] == "live"
+
+
+def test_switching_to_phone_is_not_a_pedal_dropout():
+    from coach.inputs import RunInputs, dropout_reason
+    r = RunInputs()
+    live = {"pedal_source": "arduino", "phone_live": True, "arduino_live": True, "pedal_mode": "auto"}
+    phone = {"pedal_source": "phone", "phone_live": True, "arduino_live": False, "pedal_mode": "phone"}
+    for _ in range(20):
+        r.add(live)
+    for _ in range(20):
+        r.add(phone)
+    assert dropout_reason(r.summary()) is None
+
+
+def test_set_pedal_mode_rejects_unknown(hub):
+    assert not hub.set_pedal_mode("arduino_only")
+    assert hub.set_pedal_mode("phone") and hub.pedal_mode == "phone"

@@ -56,6 +56,10 @@ BINDINGS = {
 # Phone commands for the coach itself (not pad buttons): "next" accepts an offer or rewinds for a
 # retry, "resume" ends a drill and loads the resume point.
 COACH_COMMANDS = {"coach_next": "next", "coach_resume": "resume"}
+# Phone commands that pick who drives the pedals: the app's "On-screen pedals" toggle sends these.
+# "phone" = the phone's pedals even while the Arduino is plugged in and sending; "auto" = Arduino first.
+PEDAL_COMMANDS = {"pedals_phone": "phone", "pedals_auto": "auto"}
+PEDAL_MODES = ("auto", "phone")
 DROPOUT_PCT = 10  # % of a run with no pedal input that makes the run not count
 _COMMAND = re.compile(r"[a-z][a-z0-9_]{0,31}")
 
@@ -174,7 +178,7 @@ class RunInputs:
         pedals_live = state["pedal_source"] != "none"
         if self._pedals_live and not pedals_live:
             self.pedal_drops += 1
-        if self._ard_live and not state["arduino_live"]:
+        if self._ard_live and not state["arduino_live"] and state.get("pedal_mode") != "phone":
             self.arduino_drops += 1
         self._phone_live, self._pedals_live = state["phone_live"], pedals_live
         self._ard_live = state["arduino_live"]
@@ -271,6 +275,7 @@ class InputHub:
         self._lock = threading.Lock()  # the serial reader runs in a thread
         self.steer = self.p_gas = self.p_brake = 0.0
         self.a_gas = self.a_brake = 0.0
+        self.pedal_mode = "auto"   # "auto" = Arduino while fresh, else phone; "phone" = phone only
         self.t_phone = self.t_ard = float("-inf")
         self._seq: dict[Any, int] = {}
         self._events: dict[Any, deque] = {}
@@ -278,7 +283,7 @@ class InputHub:
         self._releases: list[tuple[float, str]] = []
         self._release_due: dict[str, float] = {}
         self.out = {"steer": 0.0, "gas": 0.0, "brake": 0.0, "pedal_source": "none",
-                    "phone_live": False, "arduino_live": False}
+                    "phone_live": False, "arduino_live": False, "pedal_mode": "auto"}
         self.senders: set[str] = set()
         self.serial_port: str | None = None
         self.serial_error: str | None = None
@@ -380,7 +385,21 @@ class InputHub:
             self.t_ard = self.clock()
         return True
 
+    def set_pedal_mode(self, mode: str) -> bool:
+        """Who drives gas/brake: "auto" (Arduino first, phone fallback) or "phone" (phone only)."""
+        if mode not in PEDAL_MODES:
+            return False
+        if mode != self.pedal_mode:
+            self.pedal_mode = mode
+            self.emit({"type": "input", "message": "pedals: phone (Arduino on standby)" if mode == "phone"
+                       else "pedals: Arduino first, phone as fallback"})
+        return True
+
     def handle_event(self, command: str, phase: str) -> str | None:
+        if command in PEDAL_COMMANDS:
+            if phase != "up":
+                self.set_pedal_mode(PEDAL_COMMANDS[command])
+            return None
         if command in COACH_COMMANDS:
             if phase != "up":
                 name = COACH_COMMANDS[command]
@@ -419,7 +438,7 @@ class InputHub:
             phone = now - self.t_phone <= STALE_S
             ard = now - self.t_ard <= STALE_S
             steer = self.steer if phone else 0.0
-            if ard:
+            if ard and self.pedal_mode != "phone":
                 gas, brake, src = self.a_gas, self.a_brake, "arduino"
             elif phone:
                 gas, brake, src = self.p_gas, self.p_brake, "phone"
@@ -437,7 +456,7 @@ class InputHub:
         gas, brake = gas ** self.gas_gamma, brake ** self.brake_gamma
         prev = self.out
         self.out = {"steer": steer, "gas": gas, "brake": brake, "pedal_source": src,
-                    "phone_live": phone, "arduino_live": ard}
+                    "phone_live": phone, "arduino_live": ard, "pedal_mode": self.pedal_mode}
         if prev["pedal_source"] != src:
             self.emit({"type": "input", "message": f"pedals now from {src}"})
         self.pad.set_axes(steer, gas, brake)
@@ -450,8 +469,10 @@ class InputHub:
     def status(self) -> dict:
         o = self.out
         return {"pedal_source": o["pedal_source"], "phone": "live" if o["phone_live"] else "silent",
-                "arduino": "live" if o["arduino_live"] else ("off" if self.arduino == "off"
-                                                               and not self.arduino_udp_port else "silent"),
+                "arduino": ("standby" if self.pedal_mode == "phone" else
+                            "live" if o["arduino_live"] else ("off" if self.arduino == "off"
+                                                              and not self.arduino_udp_port else "silent")),
+                "pedal_mode": self.pedal_mode,
                 "serial_port": self.serial_port, "serial_error": self.serial_error,
                 "pad": type(self.pad).__name__, "pairing": self.pairing_status()}
 

@@ -315,7 +315,9 @@ class RevModel:
             rows.append(("go" if inp.get("phone") == "live" else "muted",
                          "Phone connected" if inp.get("phone") == "live" else "Phone not connected"))
             rows.append(("go" if inp.get("arduino") == "live" else "muted",
-                         "Pedals connected" if inp.get("arduino") == "live" else "Pedals: phone or off"))
+                         "Pedals connected" if inp.get("arduino") == "live" else
+                         "Pedals: phone (Arduino on standby)" if inp.get("arduino") == "standby" else
+                         "Pedals: phone or off"))
         return {"title": f"{track} · try {self.tries} of {self.max_tries}" if self.tries else track,
                 "tries": self.tries, "max": self.max_tries, "rows": rows[:5]}
 
