@@ -353,7 +353,6 @@ npm run typecheck
 ```
 
 The tests use disposable local identities and test servers; ordinary unit tests must not require
-your Maincloud account. The [implementation plan](plans/2026-11-08-spacetimedb-history.md) describes
-the failure and durability contracts. [SpacetimeDB's HTTP API](https://spacetimedb.com/docs/http/database/)
+your Maincloud account. [SpacetimeDB's HTTP API](https://spacetimedb.com/docs/http/database/)
 is used for low-volume results/history; this implementation does not send high-frequency telemetry
 through the database.
