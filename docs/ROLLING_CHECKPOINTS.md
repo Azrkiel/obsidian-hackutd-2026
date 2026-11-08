@@ -14,6 +14,9 @@ cue and a 5-second opt-in to rewind and retry that corner, from the phone (Next)
 | Overlapping errors | **Newest replaces** the open offer. Older ones stay retryable from a ~60 s history while their checkpoint is held. |
 | Retry loop | **Keep today's loop:** auto-rewind until the coach says fixed or 5 retries, then return to where Retry was pressed. Resume ends it any time. |
 | Scope | **Every corner at Monza.** Every error triggers an event and an offer. |
+| Corners | **7 units**, each chicane one corner: Rettifilo, Curva Grande, Roggia, Lesmo 1, Lesmo 2, Ascari, Parabolica. |
+| Curva Grande | Flat out, so **major errors only** (wheels off, spin, big speed loss). Its anchor counts back from turn-in. |
+| Track data | Built against a **synthetic Monza line** (`scripts/synth_track.py`) until the game PC's `fast_lane.ai` is copied in; then regenerate `fixtures/tracks/monza.json` and hand-check the corners. |
 | Reference | **AI racing line or personal best**, chosen **globally** (no per-corner override). |
 | Personal best | **Saved on disk**, with a **reset** button. |
 | Settings | **Dashboard `/settings` page now**, Pit Pal panel later (same API). Settings: reference, error sensitivity, countdown length, retry lead time, voice on/off. |

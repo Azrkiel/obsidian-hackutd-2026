@@ -209,6 +209,128 @@ def find_chicane(points: list[LanePoint], window: tuple[float, float],
     return Chicane(brake_m, turn_in, apex1_m, points[a2].dist_m, exit_m, slow.dist_m, fallback)
 
 
+# --- every corner on the lap (docs/ROLLING_CHECKPOINTS.md, D) --------------------
+
+TRACK_CORNER_RADIUS_M = 450.0           # tighter than this is part of a corner (Curva Grande ~ 380 m)
+MERGE_GAP_M = 100.0                     # turns closer than this are one corner (a chicane)
+ENTRY_BEFORE_M = 150.0                  # entry gate this far before the brake point (or turn-in)
+EXIT_FULL_GAS = 0.95                    # exit once the AI is back to (nearly) full throttle ...
+EXIT_MAX_AFTER_M = 150.0                # ... but no more than this after the last turn
+EXIT_PAD_M = 30.0
+APEX_PAD_M = 10.0
+PROFILE_STEP_M = 10.0
+
+
+def _segments(points: list[LanePoint]) -> list[tuple[int, int]]:
+    segs, start = [], None
+    for i, p in enumerate(points):
+        tight = 0 < abs(p.radius) < TRACK_CORNER_RADIUS_M
+        if tight and start is None:
+            start = i
+        elif not tight and start is not None:
+            segs.append((start, i - 1))
+            start = None
+    if start is not None:
+        segs.append((start, len(points) - 1))
+    return segs
+
+
+def _section_s(points: list[LanePoint], a: float, b: float) -> float:
+    sel = [p for p in points if a <= p.dist_m <= b]
+    t = 0.0
+    for p0, p1 in zip(sel, sel[1:]):
+        v0 = max(p0.speed_kmh / SPEED_TO_KMH, MIN_SPEED_MS)
+        v1 = max(p1.speed_kmh / SPEED_TO_KMH, MIN_SPEED_MS)
+        t += (p1.dist_m - p0.dist_m) * 0.5 * (1 / v0 + 1 / v1)
+    return t
+
+
+def find_corners(points: list[LanePoint], names: list[str] | None = None) -> list[dict]:
+    """Split the lap into corners from the AI line: turn = radius under TRACK_CORNER_RADIUS_M,
+    turns within MERGE_GAP_M are one corner. A corner with no AI braking before it is "flat"."""
+    groups: list[list[tuple[int, int]]] = []
+    for seg in _segments(points):
+        if groups and points[seg[0]].dist_m - points[groups[-1][-1][1]].dist_m < MERGE_GAP_M:
+            groups[-1].append(seg)
+        else:
+            groups.append([seg])
+    if names and len(names) != len(groups):
+        raise AiFormatError(f"{len(names)} names for {len(groups)} corners found")
+    corners, prev_exit = [], 0.0
+    for n, group in enumerate(groups):
+        first, last = group[0][0], group[-1][1]
+        # braking: the AI brake run nearest before turn-in (it may carry on past it), not reaching
+        # back into the previous corner
+        lo = max(points[first].dist_m - BRAKE_SEARCH_M, prev_exit)
+        start = next((i for i in range(first, len(points)) if points[i].dist_m >= points[first].dist_m + 20.0), first)
+        run_end = next((i for i in range(start, -1, -1)
+                        if points[i].dist_m >= lo and points[i].brake > BRAKE_THRESHOLD), None)
+        if run_end is not None and points[run_end].dist_m < lo:
+            run_end = None
+        brake_m = None
+        if run_end is not None:
+            k = run_end
+            while k > 0 and points[k - 1].brake > BRAKE_THRESHOLD and points[k - 1].dist_m >= lo:
+                k -= 1
+            brake_m = points[k].dist_m
+        apexes = []
+        for a, b in group:
+            mid = (a + b) / 2
+            if brake_m is not None:   # slowest point of each turn
+                key = lambda k: (round(points[k].speed_kmh, 1), _rad(points[k]), abs(k - mid))  # noqa: E731
+            else:                     # flat out: speed says nothing, take the tightest point
+                key = lambda k: (_rad(points[k]), abs(k - mid))  # noqa: E731
+            apexes.append(min(range(a, b + 1), key=key))
+        k, end_m = last, points[last].dist_m
+        while k < len(points) - 1 and points[k].gas < EXIT_FULL_GAS and points[k].dist_m < end_m + EXIT_MAX_AFTER_M:
+            k += 1
+        exit_m = points[k].dist_m + EXIT_PAD_M
+        entry_m = max((brake_m if brake_m is not None else points[first].dist_m) - ENTRY_BEFORE_M,
+                      prev_exit + 2.0)
+        prev_exit = exit_m
+        window = [points[apexes[0]].dist_m - APEX_PAD_M, points[apexes[-1]].dist_m + APEX_PAD_M]
+        in_win = [p for p in points if window[0] <= p.dist_m <= window[1]]
+        slowest = min(in_win, key=lambda p: p.speed_kmh)
+        pickup = next((p.dist_m for p in points if slowest.dist_m < p.dist_m <= exit_m
+                       and p.gas > GAS_PICKUP_THRESHOLD), exit_m)
+        corners.append({
+            "id": f"c{n + 1}", "name": names[n] if names else f"T{n + 1}",
+            "kind": "brake" if brake_m is not None else "flat",
+            "entry_m": _r(entry_m), "brake_m": None if brake_m is None else _r(brake_m),
+            "turn_in_m": _r(points[first].dist_m), "apex_m": [_r(points[i].dist_m) for i in apexes],
+            "apex_window_m": [_r(window[0]), _r(window[1])], "exit_m": _r(exit_m),
+            "ai": {"entry_kmh": _r(_interp(points, entry_m, "speed_kmh")), "min_kmh": _r(slowest.speed_kmh),
+                   "min_pos_m": _r(slowest.dist_m), "exit_kmh": _r(_interp(points, exit_m, "speed_kmh")),
+                   "throttle_pickup_m": _r(pickup), "segment_s": round(_section_s(points, entry_m, exit_m), 3)},
+        })
+    return corners
+
+
+def build_track(points: list[LanePoint], name: str, names: list[str] | None = None,
+                source: str = "fast_lane.ai v7") -> dict:
+    L = lap_length(points)
+    n = int(L // PROFILE_STEP_M)
+    profile = [[_r(i * PROFILE_STEP_M), _r(_interp(points, i * PROFILE_STEP_M, "speed_kmh")),
+                round(_interp(points, i * PROFILE_STEP_M, "gas"), 2),
+                round(_interp(points, i * PROFILE_STEP_M, "brake"), 2)] for i in range(n)]
+    return {"_source": source, "name": name, "length_m": _r(L), "corners": find_corners(points, names),
+            "profile": profile}
+
+
+def track_json(track: dict) -> str:
+    """Readable: one corner per block, one profile row per line."""
+    head = {k: v for k, v in track.items() if k not in ("corners", "profile")}
+    lines = ["{"] + [f"  {json.dumps(k)}: {json.dumps(v)}," for k, v in head.items()]
+    lines.append('  "corners": [')
+    lines.append(",\n".join("    " + json.dumps(c) for c in track["corners"]))
+    lines.append("  ],")
+    lines.append('  "profile": [')
+    lines.append(",\n".join("    " + json.dumps(r) for r in track["profile"]))
+    lines.append("  ]")
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
 # --- outputs -------------------------------------------------------------------
 
 def _r(v: float) -> float:
@@ -324,7 +446,27 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--ref-out", help="write AI reference attempt + trace JSON here")
     ap.add_argument("--window", nargs=2, type=float, default=[0.0, 1200.0], metavar=("START_M", "END_M"))
     ap.add_argument("--dump", help="write all points to this CSV")
+    ap.add_argument("--track-out", help="write the whole-lap track model (every corner) here")
+    ap.add_argument("--track-name", default="Monza")
+    ap.add_argument("--names", help="corner names in lap order, comma separated")
     args = ap.parse_args(argv)
+
+    if args.track_out:
+        try:
+            points = parse_file(resolve_ai_path(Path(args.track)))
+            names = [n.strip() for n in args.names.split(",")] if args.names else None
+            track = build_track(points, args.track_name, names)
+        except (OSError, AiFormatError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        Path(args.track_out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.track_out).write_text(track_json(track), encoding="utf-8")
+        for c in track["corners"]:
+            print(f"{c['id']:4} {c['name']:14} {c['kind']:5} entry {c['entry_m']:7.1f}  brake "
+                  f"{c['brake_m'] if c['brake_m'] is not None else '-':>7}  apex {c['apex_m']}  exit "
+                  f"{c['exit_m']:7.1f}  AI min {c['ai']['min_kmh']:5.1f} km/h  {c['ai']['segment_s']:.2f} s")
+        print(f"wrote {args.track_out} ({len(track['corners'])} corners, lap {track['length_m']} m)")
+        return 0
 
     try:
         path = resolve_ai_path(Path(args.track))
