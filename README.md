@@ -1,6 +1,9 @@
 <div align="center">
 
-<img src="coach/static/pitpal/logo-long-on-dark.png" alt="Pit Pal logo: a tach roundel and the PIT PAL wordmark" width="420">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/logo-stacked-racing-on-dark.png">
+  <img src="docs/img/logo-stacked-racing-on-light.png" alt="Pit Pal logo: Rev in his racing helmet above the PIT PAL wordmark, sim racing coach" width="320">
+</picture>
 
 ### Drive better together.
 
@@ -14,7 +17,9 @@ the car so you can try it again. Coaching is written live by **NVIDIA Nemotron**
 
 **HackUTD 2026**
 
-[How it works](#how-it-works) · [Meet Rev](#meet-rev) · [The rig](#the-rig) · [Quick start](#quick-start) · [Full reference](docs/REFERENCE.md)
+[How it works](#how-it-works) · [Meet Rev](#meet-rev) · [The rig](#the-rig) · [Quick start](#quick-start) · [Setup](PC_SETUP.md) · [Full reference](docs/REFERENCE.md)
+
+![MIT License](https://img.shields.io/badge/license-MIT-d92b1f) ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-1c1f2a) ![NVIDIA Nemotron](https://img.shields.io/badge/AI-NVIDIA%20Nemotron-3fd17a) ![Assetto Corsa](https://img.shields.io/badge/sim-Assetto%20Corsa-616b83)
 
 </div>
 
@@ -117,11 +122,12 @@ Internal names such as `nomadsim_reset` and `nomadsim-engine` are historical and
 | **Dhanush Koyi** | game PC, bridge, CSP rewind app, pedal tuning, Rev overlay |
 | **Will Yang** | Arduino pedals |
 
-## Credits
+## License and credits
 
-Assetto Corsa belongs to Kunos Simulazioni; NVIDIA, Nemotron, Apple and iPhone belong to their owners. This project
-is not affiliated with or endorsed by them. Barlow is licensed under the SIL Open Font License 1.1; the QR encoder in
-`coach/qrcodegen.py` is Project Nayuki's (MIT). Rev, the Pit Pal logos and the app icon are the team's brand assets.
+Code: [MIT](LICENSE). Rev, the Pit Pal logos, wordmark and app icon are the team's brand assets and are not licensed
+for reuse. Assetto Corsa belongs to Kunos Simulazioni; NVIDIA, Nemotron, Apple and iPhone belong to their owners; this
+project is not affiliated with or endorsed by them. Fonts, the QR encoder and other third parties: [NOTICE.md](NOTICE.md).
+Security and secrets: [SECURITY.md](SECURITY.md); every setting the code reads: [.env.example](.env.example).
 
 <div align="center">
 
