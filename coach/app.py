@@ -32,7 +32,7 @@ from .telemetry import Recorder, Sample, SimSource
 
 COMMANDS = {"accept", "retry", "save_checkpoint", "set_reference", "new_session",
             "toggle_cue_next", "retry_reset", "toggle_mute", "mark_board", "resume",
-            "new_pairing", "select_corner", "accept_offer"}
+            "new_pairing", "select_corner", "accept_offer", "settings", "reset_personal_best"}
 LAP_TOTAL_DEADLINE_S = 8.0  # lap mode: slower than this and the rules sentence is spoken instead
 ACTIVITY_TYPES = {"run", "decision", "reset_request", "reset_confirmed", "reset_failed",
                   "checkpoint", "reference", "session", "input", "resume_point", "resumed", "corner"}
@@ -122,7 +122,7 @@ class CoachApp:
                            lap_mode=mode == "lap",
                            agent=AgentSession(corner, reference, self.reference_trace) if agent else None)
         # whole-lap mode: every error on the lap gets a cue and a retry offer (coach.lap_coach)
-        self.store, self.lap_coach = store, None
+        self.store, self.lap_coach, self.settings = store, None, None
         if whole_lap:
             if track is None or references is None:
                 raise ValueError("whole-lap mode needs a track and references")
@@ -130,6 +130,11 @@ class CoachApp:
             self.auto_retry = True   # an accepted offer runs the retry loop and resumes at the end
             self.reset.store = store
             self.lap_coach = LapCoach(self, store=store, max_retries=max_retries)
+            from .settings import Settings, SettingsStore
+            # a saved settings file (the settings page) wins over the command-line defaults
+            self.settings = SettingsStore(self.data_dir / "settings.json",
+                                          Settings(reference=references.mode, lead_time_s=lead_time_s))
+            self._apply_settings(self.settings.value.to_dict())
 
     # -- broadcast --
     def subscribe(self, cb: Callable[[dict], None]) -> Callable[[], None]:
@@ -392,6 +397,7 @@ class CoachApp:
             "tools": [e for e in self.events if e["type"] == "tool_call"][-40:],
             "offers": self.lap_coach.offers.snapshot() if self.lap_coach else None,
             "references": self.references.summary() if self.references else None,
+            "settings": self.settings.value.to_dict() if self.settings else None,
         }
 
     async def _health_loop(self) -> None:
@@ -436,6 +442,13 @@ class CoachApp:
             self.set_reference()
         elif kind == "select_corner":
             self.select_corner(str(msg.get("corner_id", "")))
+        elif kind == "settings":
+            try:
+                await self.update_settings(msg.get("changes") or {})
+            except ValueError as e:
+                self._note(f"settings: {e}")
+        elif kind == "reset_personal_best":
+            self.reset_personal_best()
         elif kind == "new_session":
             c.reset_session()
             self.reset.clear_resume_point()
@@ -517,6 +530,40 @@ class CoachApp:
             anchor = self.track.anchor_m(c, self.lead_time_s)
             self.reset.set_checkpoint(anchor, self.track.ai_kmh(anchor))
         self.broadcast({"type": "corner", "corner_id": corner_id, "name": c.name, "kind": c.kind})
+        return True
+
+    # -- whole-lap settings (coach.settings) --
+    def _apply_settings(self, v: dict) -> None:
+        lc = self.lap_coach
+        if "reference" in v:
+            self.references.mode = v["reference"]
+        if "sensitivity_s" in v:
+            lc.detector.th.time_lost_s = v["sensitivity_s"]
+        if "countdown_s" in v:
+            lc.offers.countdown_s = v["countdown_s"]          # from the next offer on
+        if "lead_time_s" in v:
+            self.lead_time_s = lc.picker.lead_s = v["lead_time_s"]
+        if "voice" in v and self.announcer is not None:
+            self.announcer.set_muted(not v["voice"])
+
+    async def update_settings(self, changes: dict) -> dict:
+        """Validate, save and apply a partial update (raises SettingsError). Returns what changed."""
+        if self.settings is None:
+            raise ValueError("settings need whole-lap mode")
+        changed = self.settings.update(changes)
+        if changed:
+            self._apply_settings(changed)
+            if "lead_time_s" in changed and self.store is not None and self.store._transport is not None:
+                await self.store.configure(anchors=self.track.anchor_splines(self.lead_time_s))
+            self.broadcast({"type": "settings", "changed": sorted(changed), **self.settings.value.to_dict()})
+        return changed
+
+    def reset_personal_best(self) -> bool:
+        if self.references is None:
+            self._note("no personal bests outside whole-lap mode")
+            return False
+        self.references.reset()
+        self.broadcast({"type": "references", **self.references.summary()})
         return True
 
     def mark_board(self, board_m: Any = None) -> dict | None:

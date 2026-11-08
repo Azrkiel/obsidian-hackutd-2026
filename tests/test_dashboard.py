@@ -52,3 +52,41 @@ async def test_ws_snapshot_and_accept_reaches_app(corner, ref, tmp_path):
     finally:
         await app.stop()
         await client.close()
+
+
+async def test_settings_api(tmp_path):
+    from coach.lap_sim import LapSim
+    from coach.reference import References
+    from coach.track import Track
+    from engine.config import load_corner
+    track = Track.load()
+    refs = References(track, tmp_path / "pb.json")
+    base = load_corner("fixtures/corner_monza_t1.json")
+    app = CoachApp(base, refs.get("c1").as_attempt(), LapSim(track), [], reset_mode="sim",
+                   data_dir=tmp_path / "d", trace_dir=tmp_path / "t", sound=False, countdown=0,
+                   persist_checkpoint=False, track=track, references=refs, whole_lap=True)
+    client = TestClient(TestServer(make_web_app(app)))
+    await client.start_server()
+    try:
+        got = await (await client.get("/settings")).json()
+        assert got["settings"]["countdown_s"] == 5.0 and got["limits"]["countdown_s"] == [3.0, 10.0]
+        r = await client.post("/settings", json={"countdown_s": 6, "voice": False})
+        assert r.status == 200 and (await r.json())["changed"] == ["countdown_s", "voice"]
+        assert app.lap_coach.offers.countdown_s == 6
+        r = await client.post("/settings", json={"countdown_s": 60})
+        assert r.status == 400 and "between" in (await r.json())["error"]
+        r = await client.post("/settings", data="not json")
+        assert r.status == 400
+        r = await client.post("/personal_best/reset")
+        assert r.status == 200 and (await r.json())["personal_bests"] == {}
+    finally:
+        await client.close()
+
+
+async def test_settings_need_whole_lap(corner, ref, tmp_path):
+    app, client = await make(corner, ref, tmp_path)
+    try:
+        assert (await client.get("/settings")).status == 404
+        assert (await client.post("/personal_best/reset")).status == 404
+    finally:
+        await client.close()

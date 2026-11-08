@@ -1,4 +1,5 @@
-"""aiohttp dashboard: GET / (page), GET /ws (events out, commands in), GET /state (snapshot)."""
+"""aiohttp dashboard: GET / (page), GET /ws (events out, commands in), GET /state (snapshot).
+Whole-lap mode: GET/POST /settings, POST /personal_best/reset."""
 from __future__ import annotations
 
 import asyncio
@@ -57,7 +58,33 @@ def make_web_app(app: CoachApp) -> web.Application:
             await asyncio.gather(wtask, return_exceptions=True)
         return ws
 
+    async def get_settings(_: web.Request) -> web.StreamResponse:
+        if app.settings is None:
+            raise web.HTTPNotFound(text="settings need --whole-lap")
+        from .settings import LIMITS
+        return web.json_response({"settings": app.settings.value.to_dict(),
+                                  "limits": {k: list(v) for k, v in LIMITS.items()},
+                                  "references": app.references.summary()})
+
+    async def post_settings(request: web.Request) -> web.StreamResponse:
+        if app.settings is None:
+            raise web.HTTPNotFound(text="settings need --whole-lap")
+        try:
+            changes = await request.json()
+            changed = await app.update_settings(changes)
+        except ValueError as e:   # bad JSON or a value out of range (SettingsError)
+            return web.json_response({"error": str(e)}, status=400)
+        return web.json_response({"settings": app.settings.value.to_dict(), "changed": sorted(changed)})
+
+    async def reset_pb(_: web.Request) -> web.StreamResponse:
+        if not app.reset_personal_best():
+            raise web.HTTPNotFound(text="personal bests need --whole-lap")
+        return web.json_response(app.references.summary())
+
     web_app.router.add_get("/", index)
+    web_app.router.add_get("/settings", get_settings)
+    web_app.router.add_post("/settings", post_settings)
+    web_app.router.add_post("/personal_best/reset", reset_pb)
     web_app.router.add_get("/state", state)
     web_app.router.add_get("/pair.svg", pair_svg)
     web_app.router.add_get("/ws", ws_handler)
