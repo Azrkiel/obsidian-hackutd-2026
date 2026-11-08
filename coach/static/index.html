@@ -36,13 +36,14 @@ a{color:var(--signal-blue)}
 .d44{font-size:44px}.d88{font-size:88px}.d264{font-size:264px}
 .pp-label{font:600 12px/16px var(--font-sans);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-muted)}
 .small{font:500 14px/20px var(--font-sans);color:var(--ink-muted)}
-code{font:500 13px/18px ui-monospace,Consolas,monospace;color:var(--ink);background:var(--hairline);padding:1px 5px}
+code{font:600 13px/18px var(--font-sans);font-variant-ligatures:none;font-feature-settings:"liga" 0,"calt" 0;letter-spacing:.04em;color:var(--ink);background:var(--hairline);padding:1px 6px}
 
 /* header */
 .top{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-4) var(--space-6);padding:var(--space-4) var(--space-8) var(--space-3)}
 .brand{display:flex;align-items:flex-end;gap:var(--space-3);margin-right:auto}
 .brand .pp-label{padding-bottom:4px}
-.pills{display:flex;flex-wrap:wrap;gap:var(--space-2)}
+.race{display:flex;align-items:center;gap:var(--space-3)}
+.race .pp-label{padding-top:6px}
 .checker{height:24px;background:url(/pitpal/pattern-checker.svg) left top/auto 24px repeat-x;image-rendering:pixelated}
 
 /* status pill */
@@ -58,6 +59,8 @@ code{font:500 13px/18px ui-monospace,Consolas,monospace;color:var(--ink);backgro
 .panel{--c3:var(--outline-strong);margin:3px;padding:var(--space-4) var(--space-6) var(--space-6);background:var(--surface);box-shadow:0 -3px 0 0 var(--c3),0 3px 0 0 var(--c3),-3px 0 0 0 var(--c3),3px 0 0 0 var(--c3)}
 .phead{display:flex;align-items:baseline;justify-content:space-between;gap:var(--space-4);margin-bottom:var(--space-4)}
 .phead .small{text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.phead--end{justify-content:flex-end}
+.ptitle{margin:0;font:600 20px/26px var(--font-sans);color:var(--ink)}
 
 /* 01 live */
 .gauges{display:flex;flex-wrap:wrap;align-items:flex-end;gap:var(--space-6) var(--space-8)}
@@ -81,6 +84,8 @@ code{font:500 13px/18px ui-monospace,Consolas,monospace;color:var(--ink);backgro
 .steer-row{display:flex;align-items:baseline;gap:var(--space-3)}
 .steer-row b{font:700 20px/26px var(--font-sans)}
 .lapbar{margin-top:var(--space-6)}
+#l-map{display:block;width:100%;height:auto;max-height:280px}
+#l-map text{font:600 26px var(--font-sans)}
 .strip{position:relative;height:24px;margin:var(--space-2) 3px;background:var(--raised);box-shadow:0 0 0 1px var(--hairline)}
 .strip .zone{position:absolute;top:0;bottom:0;background:var(--outline-strong)}
 .strip .zone.focus{background:var(--brand)}
@@ -160,7 +165,7 @@ summary:focus-visible{outline:3px solid var(--ink);outline-offset:4px}
 /* laps (whole lap) */
 #laps td.lost{color:var(--accent)}#laps td.gain{color:var(--go)}#laps td.focus{box-shadow:inset 0 0 0 2px var(--brand)}
 
-/* 04 log + 05 history drawers */
+/* log + history drawers */
 .drawer>summary{width:100%;justify-content:flex-start;color:var(--ink)}
 .drawer>summary .pp-label{color:var(--ink-muted)}
 .log-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--space-6);margin-top:var(--space-4)}
@@ -171,9 +176,10 @@ summary:focus-visible{outline:3px solid var(--ink);outline-offset:4px}
 #tools li b{color:var(--signal-blue);font-weight:600}#tools .ms{float:right;color:var(--ink-muted)}
 #tools .res{display:block;color:var(--ink-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #voice li.reminder{color:var(--signal-blue)}#voice li.dropped{color:var(--ink-faint);text-decoration:line-through}
-#thinking{margin-top:var(--space-2);font:400 14px/20px ui-monospace,Consolas,monospace;color:var(--ink-muted);white-space:pre-wrap;max-height:240px;overflow:auto}
-#tools:empty::before{content:"No tool calls yet. Nemotron's read tools show here in agent mode.";color:var(--ink-muted)}
-#thinking:empty::before{content:"Nemotron's reasoning streams here while it decides.";color:var(--ink-muted);font-family:var(--font-sans)}
+#thinking{margin-top:var(--space-2);font:400 14px/20px var(--font-sans);color:var(--ink-muted);white-space:pre-wrap;max-height:240px;overflow:auto}
+#tools:empty::before,#thinking:empty::before{display:block;padding:6px 0;font:400 14px/20px var(--font-sans);color:var(--ink-muted)}
+#tools:empty::before{content:"No tool calls yet. Nemotron's read tools show here in agent mode."}
+#thinking:empty::before{content:"Nemotron's reasoning streams here while it decides."}
 #history-live{width:100%;height:850px;border:0;margin-top:var(--space-4)}
 
 /* footer controls */
@@ -199,20 +205,17 @@ summary:focus-visible{outline:3px solid var(--ink);outline-offset:4px}
 <body>
 <header class="top">
   <div class="brand"><span class="pp-display d44">Pit Pal</span><span class="pp-label">Sim racing coach</span></div>
-  <div class="pills" role="status" aria-live="polite">
-    <span class="pp-pill" id="p-state">Waiting</span>
-    <span class="pp-pill" id="p-ai">Nemotron</span>
-    <span class="pp-pill" id="p-tel">No telemetry</span>
-    <span class="pp-pill" id="p-inp">Inputs off</span>
-    <span class="pp-pill" id="p-vox">Voice off</span>
+  <div class="race" role="status" aria-live="polite">
+    <span class="pp-label">Race</span><span class="pp-display d44 tab" id="race-n">--</span>
+    <span class="pp-pill" id="race-sync">History off</span>
   </div>
 </header>
 <div class="checker" aria-hidden="true"></div>
 
 <div class="wrap">
 <div class="grid">
-  <section class="panel pp-enter" aria-labelledby="h-live">
-    <div class="phead"><h2 class="pp-label" id="h-live" style="margin:0">01 Live telemetry</h2><span class="small" id="l-src">Waiting for Assetto Corsa</span></div>
+  <section class="panel pp-enter" aria-label="Live telemetry">
+    <div class="phead phead--end"><span class="small" id="l-src">Waiting for Assetto Corsa</span></div>
     <div class="gauges">
       <div class="readout"><div class="pp-display d88 tab" id="l-speed">0</div><span class="pp-label">km/h</span></div>
       <div class="readout" style="align-items:center"><div class="gearbox"><div class="pp-display d88" id="l-gear">N</div></div><span class="pp-label" id="l-gear-label">Gear</span></div>
@@ -228,14 +231,14 @@ summary:focus-visible{outline:3px solid var(--ink);outline-offset:4px}
       <div class="pad throttle"><div class="well"><div class="fill" id="l-gas-fill"></div></div><b class="tab" id="l-gas">0%</b><span class="pp-label">Throttle</span></div>
     </div>
     <div class="lapbar">
-      <span class="pp-label">Lap position</span>
-      <div class="strip" id="l-strip" aria-hidden="true"><span class="car" id="l-car" style="left:0"></span></div>
+      <svg id="l-map" role="img" aria-label="Track map with the car's position"></svg>
+      <div class="strip hidden" id="l-strip" aria-hidden="true"><span class="car" id="l-car" style="left:0"></span></div>
       <div class="where"><b id="l-corner">On the straight</b><span class="small tab" id="l-pos">0 m</span></div>
     </div>
   </section>
 
-  <section class="panel pp-enter" aria-labelledby="h-coach">
-    <div class="phead"><h2 class="pp-label" id="h-coach" style="margin:0">02 Coach</h2><span class="small" id="c-src">Nemotron insights</span></div>
+  <section class="panel pp-enter" aria-label="Coach">
+    <div class="phead phead--end"><span class="small" id="c-src">Nemotron insights</span></div>
     <div class="coach-row">
       <img class="mascot pp-bob" id="c-mascot" src="/pitpal/stealth-racer.png" alt="Pit Pal">
       <div class="pp-bubble" id="c-bubble" aria-live="polite">
@@ -260,32 +263,32 @@ summary:focus-visible{outline:3px solid var(--ink);outline-offset:4px}
   </section>
 </div>
 
-<section class="panel pp-enter" aria-labelledby="h-corner">
-  <div class="phead"><h2 class="pp-label" id="h-corner" style="margin:0">03 Corner</h2><span class="small" id="metrics-title">-</span></div>
+<section class="panel pp-enter" aria-labelledby="metrics-title">
+  <div class="phead"><h2 class="ptitle" id="metrics-title">Brake pedal through the corner</h2><span class="small">How hard you pressed the brake (0 to 100%) at each metre of the corner</span></div>
   <div class="corner-grid">
     <div>
-      <canvas id="cv" width="900" height="240" role="img" aria-label="Brake pressure against track position"></canvas>
+      <canvas id="cv" width="900" height="240" role="img" aria-label="Brake pedal against distance into the lap"></canvas>
       <div class="legend">
-        <span><i style="--k:var(--ink-muted)"></i>Reference</span><span><i style="--k:var(--caution)"></i>Baseline</span>
-        <span><i style="--k:var(--go)"></i>Retry</span><span><i class="dash" style="--k:var(--signal-blue)"></i>Target</span>
+        <span><i style="--k:var(--ink-muted)"></i>Reference lap (the goal)</span><span><i style="--k:var(--caution)"></i>Your first run</span>
+        <span><i style="--k:var(--go)"></i>Your retry</span><span><i class="dash" style="--k:var(--signal-blue)"></i>Where to start braking</span>
       </div>
     </div>
     <div>
-      <table id="metrics-key"><thead><tr><th></th><th>Ref</th><th>Base</th><th>Retry</th></tr></thead><tbody></tbody></table>
+      <table id="metrics-key"><thead><tr><th></th><th>Reference</th><th>First run</th><th>Retry</th></tr></thead><tbody></tbody></table>
       <details><summary>All metrics</summary>
-        <table id="metrics"><thead><tr><th></th><th>Ref</th><th>Base</th><th>Retry</th></tr></thead><tbody></tbody></table>
+        <table id="metrics"><thead><tr><th></th><th>Reference</th><th>First run</th><th>Retry</th></tr></thead><tbody></tbody></table>
       </details>
     </div>
   </div>
 </section>
 
 <section class="panel hidden" id="p-laps" aria-labelledby="laps-title">
-  <div class="phead"><h2 class="pp-label" id="laps-title" style="margin:0">Laps</h2><span class="small">Seconds lost per corner vs reference</span></div>
+  <div class="phead"><h2 class="ptitle" id="laps-title">Laps</h2><span class="small">Seconds lost per corner vs reference</span></div>
   <div style="overflow:auto"><table id="laps"><thead></thead><tbody></tbody></table></div>
 </section>
 
 <section class="panel">
-  <details class="drawer" id="d-log"><summary><span class="pp-label">04 Nemotron log</span><span class="small" id="log-sum">tool calls, reasoning, voice and activity</span></summary>
+  <details class="drawer" id="d-log"><summary><span class="pp-label">Nemotron log</span><span class="small" id="log-sum">tool calls, reasoning, voice and activity</span></summary>
     <div class="log-grid">
       <div><span class="pp-label">Tool calls</span><ul id="tools"></ul></div>
       <div><span class="pp-label">Reasoning</span><div id="thinking"></div></div>
@@ -296,7 +299,7 @@ summary:focus-visible{outline:3px solid var(--ink);outline-offset:4px}
 </section>
 
 <section class="panel">
-  <details class="drawer"><summary><span class="pp-label">05 Race history</span><span class="small" id="history-summary">Loading saved history</span></summary>
+  <details class="drawer"><summary><span class="pp-label">Race history</span><span class="small" id="history-summary">Loading saved history</span></summary>
     <p style="margin:var(--space-3) 0"><a href="/history-viewer/">Open history and live leaderboard</a></p>
     <div id="history-local" style="overflow:auto"><table><thead><tr><th>Session</th><th>Pass</th><th>Role</th><th>Section s</th><th>Brake board m</th></tr></thead><tbody id="history-laps"></tbody></table></div>
     <iframe id="history-live" title="Live race history" src="/history-viewer/?embedded=1" hidden></iframe>
@@ -323,7 +326,7 @@ const $ = id => document.getElementById(id);
 const CSS = getComputedStyle(document.documentElement), tok = n => CSS.getPropertyValue("--"+n).trim();
 const S = {state: "IDLE", corner: null, ref: null, refTrace: [], base: null, retry: null, offer: null,
            decision: null, health: null, tries: 0, thinking: "", plan: null, tools: [], ghost: [],
-           track: null, laps: [], focusId: null, live: null};
+           track: null, laps: [], focusId: null, live: null, map: null, src: "", inputs: ""};
 let ws, tToast;
 
 function send(o){ if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
@@ -351,11 +354,45 @@ const DIAL=(()=>{ // tach-style steering dial: 240 degree sweep, a tick every 7.
       t.l.setAttribute("stroke",on?tok("brand"):t.major?tok("ink-muted"):tok("ink-faint")); } };
 })();
 DIAL(0);
-function renderStrip(){
+function trackLen(){ return S.track?S.track.length_m:(S.corner&&S.corner.track_length_m); }
+function mapCorners(){ return S.track?S.track.corners:(S.corner?[S.corner]:[]); }
+function mapXY(lap_m){ // a point on the map polyline at this lap distance (map metres)
+  const P=S.map.points, L=S.map.length_m, u=((lap_m%L)+L)%L, step=P[1][0]-P[0][0];
+  const i=Math.min(P.length-2,Math.floor(u/step)), t=(u-P[i][0])/((P[i+1][0]-P[i][0])||1);
+  return [P[i][1]+t*(P[i+1][1]-P[i][1]), P[i][2]+t*(P[i+1][2]-P[i][2])];
+}
+function renderMap(){
+  const svg=$("l-map"), len=trackLen(), have=!!(S.map&&S.map.points&&len);
+  svg.classList.toggle("hidden",!have); $("l-strip").classList.toggle("hidden",have);
+  if(!have){ renderStrip(); return; }
+  const k=S.map.length_m/len, pad=40, W=S.map.width, H=S.map.height;
+  svg.setAttribute("viewBox",(-pad)+" "+(-pad)+" "+(W+2*pad)+" "+(H+2*pad));
+  const seg=(a,b)=>{ let d="", n=Math.max(2,Math.ceil((b-a)/10));
+    for(let j=0;j<=n;j++){ const [x,y]=mapXY((a+(b-a)*j/n)*k); d+=(j?"L":"M")+x.toFixed(1)+" "+y.toFixed(1); } return d; };
+  const full=S.map.points.map((p,i)=>(i?"L":"M")+p[1]+" "+p[2]).join("")+"Z";
+  let m='<path d="'+full+'" fill="none" stroke="'+tok("pixel-outline")+'" stroke-width="22" stroke-linejoin="round"/>'
+       +'<path d="'+full+'" fill="none" stroke="'+tok("raised")+'" stroke-width="12" stroke-linejoin="round"/>';
+  let label="";
+  for(const c of mapCorners()){ const focus=S.track?c.id===S.focusId:true;
+    m+='<path d="'+seg(c.start_gate_m,c.exit_gate_m)+'" fill="none" stroke="'+(focus?tok("brand"):tok("outline-strong"))+'" stroke-width="12"/>';
+    if(focus){ const [x,y]=mapXY((c.apex_window_m[0]+c.apex_window_m[1])/2*k);
+      label='<text x="'+(x+22).toFixed(0)+'" y="'+(y-18).toFixed(0)+'" fill="'+tok("ink")+'">'+c.name.replace(/[<&]/g,"")+'</text>'; } }
+  const [sx,sy]=mapXY(0);
+  m+='<rect x="'+(sx-9)+'" y="'+(sy-9)+'" width="18" height="18" fill="'+tok("ink")+'" stroke="'+tok("pixel-outline")+'" stroke-width="4"/>'
+    +'<text x="'+(sx+18)+'" y="'+(sy+38)+'" fill="'+tok("ink-muted")+'">Start</text>'+label
+    +'<rect id="l-mapcar" x="-14" y="-14" width="28" height="28" fill="'+tok("accent")+'" stroke="'+tok("pixel-outline")+'" stroke-width="6"/>';
+  svg.innerHTML=m; if(S.live) moveCar(S.live.pos_m);
+}
+function moveCar(pos_m){
+  const len=trackLen(); if(!len) return;
+  const car=document.getElementById("l-mapcar");
+  if(car&&S.map){ const [x,y]=mapXY(pos_m*S.map.length_m/len); car.setAttribute("transform","translate("+x.toFixed(1)+" "+y.toFixed(1)+")"); }
+  $("l-car").style.left=Math.max(0,Math.min(100,pos_m/len*100))+"%";
+}
+function renderStrip(){ // fallback when the track has no map file
   const strip=$("l-strip"); strip.querySelectorAll(".zone").forEach(z=>z.remove());
-  const len=S.track?S.track.length_m:(S.corner&&S.corner.track_length_m); if(!len) return;
-  const corners=S.track?S.track.corners:(S.corner?[S.corner]:[]);
-  for(const c of corners){ const z=document.createElement("span"); z.className="zone"+((S.track?c.id===S.focusId:true)?" focus":"");
+  const len=trackLen(); if(!len) return;
+  for(const c of mapCorners()){ const z=document.createElement("span"); z.className="zone"+((S.track?c.id===S.focusId:true)?" focus":"");
     z.style.left=(c.start_gate_m/len*100)+"%"; z.style.width=Math.max(.4,(c.exit_gate_m-c.start_gate_m)/len*100)+"%"; z.title=c.name;
     strip.insertBefore(z,$("l-car")); }
 }
@@ -373,11 +410,11 @@ function renderLive(e){
   [...led.children].forEach((c,i)=>c.className=i<lit?LED_KIND[i]:"");
   $("l-rpm").textContent=e.rpm==null?"-":e.rpm.toLocaleString();
   $("l-rpm-label").textContent=e.rpm==null?"rpm (Assetto Corsa only)":"rpm";
-  const len=S.track?S.track.length_m:(S.corner&&S.corner.track_length_m);
-  if(len) $("l-car").style.left=Math.max(0,Math.min(100,e.pos_m/len*100))+"%";
+  moveCar(e.pos_m);
   $("l-corner").textContent=e.corner||"On the straight";
   $("l-pos").textContent=Math.round(e.pos_m).toLocaleString()+" m"+(e.lap!=null?(e.lap>0?" · lap "+e.lap:" · out lap"):"");
-  $("l-src").textContent=[{ac:"Assetto Corsa",replay:"Replay"}[e.source]||"Simulator",e.track,e.car].filter(Boolean).join(" · ");
+  S.src=[{ac:"Assetto Corsa",replay:"Replay"}[e.source]||"Simulator",e.track,e.car].filter(Boolean).join(" · ");
+  $("l-src").textContent=S.src+S.inputs;
 }
 
 /* ---------- 02 coach (Nemotron insights) ---------- */
@@ -388,19 +425,16 @@ function targetOnset(){
   const d=S.drills&&S.drills[o.drill_id];
   return d ? {key:d.metric, pos:o.target[d.target_key]} : null;
 }
-const STATE={IDLE:["Waiting for a run",""],DECIDING:["Thinking","caution"],OFFERED:["Drill offered","brand"],
-  AWAIT_RESET:["Rewinding","info"],RETRY:["Your try","go"],DONE:["Done","go"]};
+const SYNC={live:["Synced to SpacetimeDB","go"],offline:["SpacetimeDB offline, saved on this PC","caution"],
+  local:["Saved on this PC (SpacetimeDB not set up)",""],off:["History off",""]};
 function renderTop(){
-  const st=STATE[S.state]||[S.state,""]; pill($("p-state"),st[0],st[1]);
   const h=S.health; if(!h) return;
-  pill($("p-ai"),S.state==="DECIDING"?"Nemotron thinking":h.ai.mode==="rules"?"Rules fallback":h.ai.label,
-       S.state==="DECIDING"?"caution":h.ai.mode==="rules"?"brand":"go");
-  const t=h.telemetry; pill($("p-tel"),t.state==="live"?"Telemetry live":t.state==="paused"?"Game paused":"No telemetry",
-       t.state==="live"?"go":t.state==="paused"?"caution":"brand");
-  if(t.state!=="live"&&t.error) $("l-src").textContent=t.error;
-  const i=h.inputs; if(i) pill($("p-inp"),"Pedals: "+i.pedal_source,i.pedal_source==="arduino"?"go":i.pedal_source==="phone"?"caution":"brand");
-  else pill($("p-inp"),"Inputs off","");
-  const v=h.voice; pill($("p-vox"),!v?"Voice off":v.muted?"Voice muted":"Voice on",!v?"":v.muted?"caution":"go");
+  const rc=h.race||{}, sy=SYNC[rc.sync]||SYNC.off;
+  $("race-n").textContent=rc.number?String(rc.number).padStart(2,"0"):"--";
+  pill($("race-sync"),sy[0]+(rc.sync==="live"&&rc.database?" · "+rc.database:""),sy[1]);
+  const t=h.telemetry, i=h.inputs, v=h.voice;
+  S.inputs=i?" · pedals: "+i.pedal_source:"";
+  if(t.state!=="live") $("l-src").textContent=(t.state==="paused"?"Game paused":"No telemetry"+(t.error?": "+t.error:""))+S.inputs;
   const r=h.reset, lap=h.mode==="lap";
   $("b-accept").disabled=S.state!=="OFFERED";
   $("b-retry_reset").classList.toggle("hidden",!(S.state==="AWAIT_RESET"||r.status==="failed"));
@@ -409,27 +443,29 @@ function renderTop(){
   $("b-toggle_mute").textContent=v&&v.muted?"Unmute (M)":"Mute (M)"; $("b-toggle_mute").disabled=!v;
   $("p-voice").classList.toggle("hidden",!v);
   for(const k of ["accept","retry","save_checkpoint"]) $("b-"+k).classList.toggle("hidden",lap);
-  $("c-src").textContent=(lap?"Lap mode: keep driving":"Drill mode")+(h.agent?" · agent":"");
+  $("c-src").textContent=(lap?"Lap mode: keep driving":"Drill mode")+(h.agent?" · agent":"")+(v?(v.muted?" · voice muted":" · voice on"):"");
 }
 function renderCue(){
   const d=S.decision, lap=S.health&&S.health.mode==="lap", thinking=S.state==="DECIDING";
   const after=S.track?"after "+S.track.corners[S.track.corners.length-1].name:"after the corner";
   $("c-think").classList.toggle("hidden",!thinking);
   $("cue").textContent=thinking?"Reading your run.":d?(d.cue||d.summary||""):(lap?"Keep driving. I talk "+after+".":"Drive a baseline run through the corner.");
-  $("cue-sub").textContent=!thinking&&d&&d.action==="end_drill"?"Drill finished: "+(d.end_reason||"done")+".":"";
+  $("cue-sub").textContent=!thinking&&d&&d.action==="end_drill"?"Drill finished: "+(d.end_reason||"done").replace(/_/g," ")+".":"";
   $("c-mascot").src=S.state==="RETRY"||S.state==="AWAIT_RESET"||lap?"/pitpal/mascot-helmet.png":"/pitpal/stealth-racer.png";
   $("c-mascot").style.width=$("c-mascot").src.endsWith("mascot-helmet.png")?"156px":"132px";
   // insight rows: what Nemotron decided and on which numbers
   const a=S.retry&&S.retry.attempt||S.base&&S.base.attempt, ref=S.ref;
-  $("i-why").textContent=d?(d.summary&&d.summary!==d.cue?d.summary:d.verdict?"Verdict: "+d.verdict+".":"One change at a time, from the latest run."):"Nemotron reads your run and picks one change at a time.";
-  $("i-data").textContent=a&&ref?"Braked "+fmt(a.brake_onset_m,0)+" m (ref "+fmt(ref.brake_onset_m,0)+"), throttle "+fmt(a.throttle_pickup_m,0)+" m (ref "+fmt(ref.throttle_pickup_m,0)+"), section "+fmt(a.section_s,2)+" s":"No scored run yet.";
+  const said=$("cue").textContent;
+  $("i-why").textContent=d?(d.summary&&d.summary!==said?d.summary:d.verdict==="repeat"?"Same change again: you are closer but not there yet.":d.verdict==="adjust"?"Adjusted the target after your last try.":"One change at a time, from your latest run."):"Nemotron reads your run and picks one change at a time.";
+  $("i-data").textContent=a&&ref?"You braked at "+fmt(a.brake_onset_m,0)+" m (reference "+fmt(ref.brake_onset_m,0)+" m), back on throttle at "+fmt(a.throttle_pickup_m,0)+" m (reference "+fmt(ref.throttle_pickup_m,0)+" m), corner in "+fmt(a.section_s,2)+" s.":"No scored run yet.";
   const tools=$("i-tools"); tools.replaceChildren();
   const calls=d&&d.tool_calls||[];
   if(calls.length){ const w=document.createElement("span"); w.className="chips";
     calls.forEach(c=>{ const s=document.createElement("span"); s.className="chip"; s.textContent=c.name||c.tool||"tool"; w.appendChild(s); });
     tools.appendChild(w); }
   else { const s=document.createElement("span"); s.className="small"; s.textContent=d?(d.mode==="rules"?"Rules coach, no tools":"No tool calls this turn"):"-"; tools.appendChild(s); }
-  $("i-model").textContent=d?(d.mode==="rules"?"Rules fallback":[d.model||"Nemotron",d.mode,d.provider].filter(Boolean).join(" · "))+(d.latency_ms?" · "+(d.latency_ms/1000).toFixed(1)+" s":""):"-";
+  const h=S.health;
+  $("i-model").textContent=d?(d.mode==="rules"?"Rules fallback (Nemotron not reachable)":[d.model||"Nemotron",d.mode,d.provider].filter(Boolean).join(" · "))+(d.latency_ms?" · "+(d.latency_ms/1000).toFixed(1)+" s":""):h?(h.ai.mode==="rules"?"Rules fallback (Nemotron not reachable)":h.ai.label):"-";
 }
 function renderPlan(){
   const p=S.plan, ul=$("plan"); $("p-plan").classList.toggle("hidden",!p); ul.replaceChildren(); if(!p) return;
@@ -478,7 +514,7 @@ function metricRow(label,k,d){
 function renderMetrics(){
   const key=document.querySelector("#metrics-key tbody"), all=document.querySelector("#metrics tbody");
   key.replaceChildren(); all.replaceChildren(); if(!S.corner) return;
-  $("metrics-title").textContent=S.corner.name+(S.track?" · coached corner":"");
+  $("metrics-title").textContent="Brake pedal through "+S.corner.name+(S.track?" (coached corner)":"");
   const t=targetOnset(), keys=new Set(KEY_ROWS); if(t) keys.add(t.key);
   for(const [label,k,d] of ROWS){ all.appendChild(metricRow(label,k,d)); if(keys.has(k)) key.appendChild(metricRow(label,k,d)); }
 }
@@ -490,7 +526,8 @@ function draw(){
   g.font="500 13px Barlow, sans-serif"; g.lineWidth=1;
   for(const b of [0,.5,1]){ g.strokeStyle=tok("hairline"); g.beginPath(); g.moveTo(44,py(b)); g.lineTo(W-12,py(b)); g.stroke();
     g.fillStyle=tok("ink-muted"); g.fillText(Math.round(b*100)+"%",6,py(b)+4); }
-  g.fillText(Math.round(x0)+" m",44,H-8); g.fillText(Math.round(x1)+" m",W-62,H-8);
+  g.fillText(Math.round(x0)+" m",44,H-8); g.textAlign="center"; g.fillText("distance into the lap",(W+44)/2,H-8);
+  g.textAlign="right"; g.fillText(Math.round(x1)+" m",W-12,H-8); g.textAlign="left";
   g.fillStyle=tok("raised"); g.fillRect(px(c.apex_window_m[0]),12,px(c.apex_window_m[1])-px(c.apex_window_m[0]),H-40);
   g.fillStyle=tok("ink-muted"); g.fillText("apex",px(c.apex_window_m[0])+4,24);
   const line=(tr,col,w)=>{ if(!tr||!tr.length) return; g.strokeStyle=col; g.lineWidth=w; g.lineJoin="miter"; g.beginPath();
@@ -536,7 +573,7 @@ function addTool(e){
 
 function applyFocus(f){ if(!f) return; S.focusId=f.corner_id; S.corner=f.corner; S.ref=f.reference.attempt;
   S.refTrace=f.reference.trace||[]; S.base=f.baseline; S.retry=f.retry; }
-function renderAll(){ renderTop(); renderCue(); renderMetrics(); renderPlan(); renderLaps(); renderStrip(); draw(); }
+function renderAll(){ renderTop(); renderCue(); renderMetrics(); renderPlan(); renderLaps(); renderMap(); draw(); }
 
 function onEvent(e){
   if(e.type==="live"){ renderLive(e); return; }
@@ -548,7 +585,7 @@ function onEvent(e){
     S.base=e.baseline; S.retry=e.retry; S.decision=e.decision; S.offer=e.offer; S.health=e.health; S.tries=e.tries;
     S.plan=e.plan||null; $("activity").replaceChildren(); (e.activity||[]).forEach(addActivity);
     $("voice").replaceChildren(); (e.voice||[]).forEach(addVoice); $("tools").replaceChildren(); (e.tools||[]).forEach(addTool);
-    S.track=e.track||null; S.laps=e.track_laps||[]; applyFocus(e.focus); break;
+    S.track=e.track||null; S.laps=e.track_laps||[]; S.map=e.map||null; applyFocus(e.focus); break;
   case "focus": applyFocus(e); break;
   case "track_lap": S.laps.push(e); S.laps=S.laps.slice(-20); break;
   case "voice": addVoice(e); break;
@@ -574,7 +611,7 @@ function onEvent(e){
 function connect(){
   ws=new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.host+"/ws");
   ws.onmessage=m=>onEvent(JSON.parse(m.data));
-  ws.onclose=()=>{ pill($("p-tel"),"Dashboard disconnected","brand"); setTimeout(connect,1000); };
+  ws.onclose=()=>{ $("l-src").textContent="Dashboard disconnected from the coach. Reconnecting."; setTimeout(connect,1000); };
 }
 window.addEventListener("message",e=>{if(e.origin===location.origin&&e.source===$("history-live").contentWindow&&e.data.type==="history-ghost"&&Array.isArray(e.data.rows)){S.ghost=e.data.rows;draw();}});
 async function loadHistory(){

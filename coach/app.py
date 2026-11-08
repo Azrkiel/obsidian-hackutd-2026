@@ -78,7 +78,8 @@ class CoachApp:
                  muted: bool = False, announcer_kwargs: dict | None = None, agent: bool = False,
                  inputs: InputHub | None = None, auto_retry: bool = False, max_retries: int = 5,
                  history: bool = False, driver_name: str | None = None, driver_id: str | None = None,
-                 track: Track | None = None, track_references: dict | None = None):
+                 track: Track | None = None, track_references: dict | None = None,
+                 track_map: dict | None = None):
         if mode not in ("drill", "lap"):
             raise ValueError(f"mode must be drill or lap, not {mode!r}")
         if track is not None:
@@ -90,6 +91,7 @@ class CoachApp:
             corner = track.corners[0]
             reference, reference_trace = track_references[corner.id]
         self.mode, self.track = mode, track
+        self.track_map = track_map  # dashboard map: {"points": [[lap_m, x, y], ...], ...}
         self.track_laps: deque[dict] = deque(maxlen=20)
         self.last_lap_runs: dict | None = None
         self._lap_events: dict[str, dict] = {}
@@ -489,8 +491,16 @@ class CoachApp:
             mode, prov = ("ready", None) if avail else ("rules", None)
         label = {"think": "Nemotron · thinking", "fast": "Nemotron · fast",
                  "ready": "Nemotron · ready"}.get(mode, "Rules (AI unavailable)")
+        if self.history is None:
+            race = {"number": None, "sync": "off"}
+        else:
+            sync = ("local" if self.history_sync is None else
+                    "offline" if self.history_sync.error else "live")
+            race = {"number": self.history.stats().get("race"), "sync": sync,
+                    "database": os.getenv("SPACETIME_DB", "") if self.history_sync else ""}
         return {
             "type": "health",
+            "race": race,
             "ai": {"mode": mode, "provider": prov, "label": label},
             "telemetry": tel,
             "reset": {"status": self.reset.status, "mode": self.reset.mode,
@@ -526,6 +536,7 @@ class CoachApp:
             "tools": [e for e in self.events if e["type"] == "tool_call"][-40:],
             "track": self.track_info(), "track_laps": list(self.track_laps),
             "focus": self._focus_event() if self.track is not None else None,
+            "map": self.track_map,
         }
 
     async def _health_loop(self) -> None:

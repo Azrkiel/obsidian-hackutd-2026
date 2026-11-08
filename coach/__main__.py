@@ -82,6 +82,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="sim: first-run brake release time in s (0.15 = snaps off: triggers brake_release)")
     ap.add_argument("--lap-gap", type=float, default=12.0,
                     help="sim lap mode: seconds between corner passes")
+    ap.add_argument("--map", default="auto", metavar="FILE|auto|off",
+                    help="dashboard track map (default: fixtures/track_<track>_map.json if it exists)")
     t = ap.add_argument_group("whole lap (lap mode over every corner of a track)")
     t.add_argument("--track", default=None, metavar="FILE",
                    help="track JSON (e.g. fixtures/track_monza.json): score and coach every corner; implies --mode lap")
@@ -122,6 +124,19 @@ def track_reference_path(args: argparse.Namespace, track_path: Path) -> Path:
     return track_path.parent / ref
 
 
+def load_map(args: argparse.Namespace, track_name: str) -> dict | None:
+    """--map: a JSON polyline for the dashboard. auto = fixtures/track_<first word of the track>_map.json."""
+    if args.map == "off":
+        return None
+    path = (ROOT / "fixtures" / f"track_{track_name.split()[0].lower()}_map.json" if args.map == "auto"
+            else Path(args.map))
+    if not path.is_file():
+        if args.map != "auto":
+            raise SystemExit(f"--map: no such file {path}")
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def build_track_app(args: argparse.Namespace) -> CoachApp:
     tpath = Path(args.track)
     track = load_track(tpath)
@@ -158,7 +173,7 @@ def build_track_app(args: argparse.Namespace) -> CoachApp:
                     sound=args.sound, countdown=args.countdown, persist_checkpoint=kind != "sim",
                     mode="lap", speaker=speaker, muted=args.mute, agent=args.agent,
                     inputs=build_inputs(args), auto_retry=False, max_retries=args.max_retries,
-                    track=track, track_references=refs)
+                    track=track, track_references=refs, track_map=load_map(args, track.name))
 
 
 def build_inputs(args: argparse.Namespace) -> InputHub | None:
@@ -219,7 +234,8 @@ def build_app(args: argparse.Namespace) -> CoachApp:
                     persist_checkpoint=kind != "sim", mode=args.mode, speaker=speaker,
                     muted=args.mute, agent=args.agent, inputs=build_inputs(args),
                     auto_retry=args.auto_retry, max_retries=args.max_retries,
-                    history=args.history, driver_name=args.driver_name, driver_id=args.driver_id)
+                    history=args.history, driver_name=args.driver_name, driver_id=args.driver_id,
+                    track_map=load_map(args, corner.name))
 
 
 async def amain(args: argparse.Namespace) -> None:

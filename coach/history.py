@@ -97,7 +97,7 @@ class HistoryRecorder:
         self.session_id: str | None = None
         self.driver_id: str | None = None
         self._memory = {"sessions": []}
-        self._stats = {"last_s": None, "best_today_s": None, "lap_id": None}
+        self._stats = {"race": None, "last_s": None, "best_today_s": None, "lap_id": None}
 
     def start(self, metadata: dict) -> None:
         self._metadata = dict(metadata)
@@ -386,7 +386,9 @@ class HistoryRecorder:
             if r["valid"] and r["section_s"] > 0 and r["at"] >= midnight
         ]
         last = rows[0] if rows else None
+        race = db.execute("SELECT count(*) FROM session WHERE driver_id=?", (self.driver_id,)).fetchone()[0]
         self._stats = {
+            "race": race,  # this driver's session count: the dashboard's race number
             "lap_id": last["lap_id"] if last else None,
             "last_s": last["section_s"] if last and last["valid"] else None,
             "last_valid": bool(last["valid"]) if last else None,
