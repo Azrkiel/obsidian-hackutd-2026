@@ -549,7 +549,7 @@ class InputHub:
     def _advertise(self) -> None:
         dns_sd = shutil.which("dns-sd")
         if dns_sd:
-            name = f"NomadSim - {socket.gethostname().split('.')[0]}"
+            name = f"Pit Pal - {socket.gethostname().split('.')[0]}"
             self._dns = subprocess.Popen([dns_sd, "-R", name, SERVICE_TYPE, "local.", str(self.phone_port)],
                                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 

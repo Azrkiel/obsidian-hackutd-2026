@@ -117,7 +117,7 @@ class Pairing:
                  hosts: list[str] | None = None):
         self.path = Path(path) if path else None
         self.port = port
-        self.name = _NAME.sub("", name or socket.gethostname().split(".")[0])[:32] or "NomadSim"
+        self.name = _NAME.sub("", name or socket.gethostname().split(".")[0])[:32] or "PitPal"
         self._hosts = hosts
         self._hosts_cache: tuple[float, list[str]] | None = None
         self._seen_hellos: deque[bytes] = deque(maxlen=256)  # replayed hellos are refused
@@ -250,7 +250,7 @@ def parse_uri(uri: str) -> dict:
     u = urlsplit(uri)
     q = {k: v[0] for k, v in parse_qs(u.query).items()}
     if u.scheme != SCHEME or u.netloc != "pair" or q.get("v") != str(VERSION):
-        raise ValueError("not a NomadSim pairing code")
+        raise ValueError("not a Pit Pal pairing code")
     key = _b64d(q["k"])
     if len(key) != 16:
         raise ValueError("bad pairing key")

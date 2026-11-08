@@ -274,8 +274,8 @@ async def test_drill_mode_unchanged_without_voice(corner, ref, tmp_path):
     assert app.events[-1]["message"].startswith("ignored: voice is off")
 
 
-@pytest.mark.skipif(sys.platform != "win32" or not os.environ.get("NOMADSIM_SAPI_TEST"),
-                    reason="set NOMADSIM_SAPI_TEST=1 on Windows to start the real voice")
+@pytest.mark.skipif(sys.platform != "win32" or not os.environ.get("PITPAL_SAPI_TEST"),
+                    reason="set PITPAL_SAPI_TEST=1 on Windows to start the real voice")
 def test_sapi_speaker_null_output():
     from engine.voice import SapiSpeaker
     s = SapiSpeaker(null_output=True)

@@ -18,7 +18,7 @@ IMAGE=vllm/vllm-openai:v0.28.0
 MODEL=nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4
 CACHE=/home/ubuntu/workspace/hf
 
-log() { echo "[nomadsim-startup] $*"; }
+log() { echo "[pitpal-startup] $*"; }
 
 if ! command -v docker >/dev/null 2>&1; then
   log "docker not found; install it (curl -fsSL https://get.docker.com | sh) and the NVIDIA container toolkit, then rerun"

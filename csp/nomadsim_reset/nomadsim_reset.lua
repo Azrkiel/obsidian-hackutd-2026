@@ -1,4 +1,4 @@
--- NomadSim reset app for Custom Shaders Patch (CSP) Lua apps.
+-- Pit Pal reset app for Custom Shaders Patch (CSP) Lua apps.
 --
 -- API checked against the CSP v0.2.11 SDK (extension/internal/lua-sdk/ac_apps/lib.lua):
 --   ac.saveCarStateAsync(callback: fun(err: string, data: string))
@@ -22,7 +22,7 @@
 --   "HOLD <event> <seq>"     -> copy that state out of the ring; "HELD <event> <seq>" | "ERR gone" | "ERR full"
 --   "RESTORE <id> <event>"   -> load a held state; "ACK <id>" | "ERR nohold" | "ERR notallowed"
 --   "DROP <event>"           -> release it; "DROPPED <event>"
--- TO VERIFY on the game PC SDK: car.splinePosition, car.lapCount, sim.isPaused, sim.isReplayActive,
+-- CSP fields used: car.splinePosition, car.lapCount, sim.isPaused, sim.isReplayActive,
 -- os.preciseClock (falls back to os.clock).
 -- Offline practice only. Loading a car state invalidates the lap.
 --
@@ -30,7 +30,7 @@
 --   * the socket is created in pcall and CLOSED in ac.onRelease, so a reload never leaves a stale socket
 --     bound to 9101 and nothing is left for the GC to free during AC teardown;
 --   * the save callback is (err, data): an error string is never stored and later fed to loadCarState;
---   * every stage writes to the CSP log via ac.log (search custom_shaders_patch.log for "NomadSim").
+--   * every stage writes to the CSP log via ac.log (search custom_shaders_patch.log for "Pit Pal").
 
 local PORT = 9101
 local COACH_PORT = 9102
@@ -57,7 +57,7 @@ local udp = nil
 local sockErr = nil
 
 local function log(msg)
-  ac.log('NomadSim: ' .. msg)
+  ac.log('Pit Pal: ' .. msg)
 end
 
 local function openSocket()

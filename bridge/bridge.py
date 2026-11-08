@@ -1,4 +1,4 @@
-﻿"""NomadSim PC bridge: phone tilt (UDP) + Arduino pedals (serial) -> one virtual Xbox 360 pad.
+﻿"""Pit Pal PC bridge: phone tilt (UDP) + Arduino pedals (serial) -> one virtual Xbox 360 pad.
 
 Run ONLY this bridge (not hardware/bridge.py at the same time): two bridges = two virtual pads in AC.
 

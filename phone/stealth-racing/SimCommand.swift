@@ -2,7 +2,7 @@ import Foundation
 
 /// Discrete actions the phone can request.
 ///
-/// The NomadSim coach (`python -m coach --inputs`) presses the matching virtual Xbox
+/// The Pit Pal coach (`python -m coach --inputs`) presses the matching virtual Xbox
 /// pad button (bind each one in Assetto Corsa's Controls). The two coach commands
 /// drive the coaching loop instead: Next accepts the offered drill (or rewinds for a
 /// retry) and Resume ends the drill and puts the car back where it started.

@@ -4,7 +4,7 @@ try:
 except ImportError:
     pass
 def get(url):
-    req = urllib.request.Request(url, headers={"User-Agent": "nomadsim-research"})
+    req = urllib.request.Request(url, headers={"User-Agent": "pitpal-research"})
     with urllib.request.urlopen(req, timeout=60) as r:
         return json.loads(r.read())
 out = {}

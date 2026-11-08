@@ -1,1 +1,1 @@
-"""NomadSim thinking engine."""
+"""Pit Pal thinking engine."""
