@@ -105,6 +105,10 @@ class ResetManager:
         self.pos_tol_m, self.speed_tol_kmh, self.run_wait_s = pos_tol_m, speed_tol_kmh, run_wait_s
         self.checkpoint: dict | None = None
         self.resume_point: dict | None = None
+        # whole-lap mode: the checkpoint is a state held in the Lua app's rolling buffer
+        # (coach.checkpoints.CheckpointStore) and loaded with RESTORE instead of RESET
+        self.store: Any = None
+        self.held_event: str | None = None
         self.last: Sample | None = None
         self.last_decision_id: str | None = None
         self.last_slot = "checkpoint"
@@ -186,10 +190,13 @@ class ResetManager:
         if self.mode == "sim":
             self.sim.teleport_to(target["pos_m"], target["speed_kmh"])
         elif self.mode == "udp":
-            verb = "RESUME" if slot == "resume" else "RESET"
-            ack = await udp_roundtrip(self.udp_addr, f"{verb} {decision_id}", f"ACK {decision_id}",
-                                      self.udp_ack_s)
-            if ack is None:  # telemetry is the source of truth; keep waiting for it
+            if slot == "checkpoint" and self.held_event and self.store is not None:
+                ack = await self.store.restore(decision_id, self.held_event)
+            else:
+                verb = "RESUME" if slot == "resume" else "RESET"
+                ack = await udp_roundtrip(self.udp_addr, f"{verb} {decision_id}", f"ACK {decision_id}",
+                                          self.udp_ack_s)
+            if not ack:  # telemetry is the source of truth; keep waiting for it
                 self.emit({"type": "status", "message": "no ACK from the Lua app; waiting on telemetry"})
         elif self.mode == "hotkey":
             await asyncio.to_thread(press_key, self.load_key)

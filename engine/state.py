@@ -54,6 +54,7 @@ class Coach:
         self.drill: DrillState | None = None
         self.offer: Decision | None = None
         self.last_decision: Decision | None = None
+        self.last_packet: dict | None = None   # evidence behind last_decision (whole-lap: deeper analysis)
         self._skip_cue_once = False
 
     # -- helpers --
@@ -77,6 +78,17 @@ class Coach:
         if self.agent is None or self.agent.plan is None:
             return None
         return self.agent.plan.to_dict(self.corner.tolerance)
+
+    def set_corner(self, corner: CornerConfig, reference: Attempt) -> bool:
+        """Coach another corner (whole-lap mode). Only between drills: a drill belongs to one corner."""
+        if self.state not in (IDLE, DONE):
+            self._ignored(f"cannot change corner in {self.state}")
+            return False
+        self.corner, self.reference = corner, reference
+        if self.live_cue:
+            self.live_cue.corner = corner
+        self.reset_session()
+        return True
 
     def reset_session(self) -> None:
         if self.agent is not None:
@@ -135,7 +147,7 @@ class Coach:
                              "mode": decision.mode})
         decision = self._annotate(decision, packet)
         self.previous = attempt
-        self.last_decision = decision
+        self.last_decision, self.last_packet = decision, packet
         if self.trace:
             self.trace.write(decision, packet, rungs)
         self.emit({"type": "decision", **decision.to_dict(), "rungs": rungs})
@@ -156,6 +168,15 @@ class Coach:
         else:
             self.offer = None
             self._set(DONE)
+
+    def restore_offer(self, decision: Decision) -> bool:
+        """Re-open an earlier offer_drill (whole-lap: retry an error from the history)."""
+        if self.state not in (IDLE, DONE) or decision.action != "offer_drill":
+            return False
+        self.drill = DrillState(decision.drill_id, dict(decision.target or {}), 0)
+        self.offer = self.last_decision = decision
+        self._set(OFFERED)
+        return True
 
     async def on_accept(self, decision_id: str) -> None:
         if self.state != OFFERED or self.offer is None or self.offer.decision_id != decision_id:

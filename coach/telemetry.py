@@ -38,6 +38,7 @@ class Sample:
     slip_r: float = 0.0     # max wheelSlip of the two rears
     load_f: float = 0.0     # wheelLoad fronts, N
     load_r: float = 0.0     # wheelLoad rears, N
+    tyres_out: int = 0      # numberOfTyresOut: wheels off the track surface (0..4)
 
 
 # --- Assetto Corsa (original, NOT ACC) shared memory --------------------------------------------
@@ -119,7 +120,8 @@ def parse_sample(phys: SPageFilePhysics, gfx: SPageFileGraphic, track_len_m: flo
                   g_lat=float(phys.accG[0]), g_lon=float(phys.accG[2]),
                   yaw_rate=float(phys.localAngularVel[1]),
                   slip_f=max(float(ws[0]), float(ws[1])), slip_r=max(float(ws[2]), float(ws[3])),
-                  load_f=float(wl[0]) + float(wl[1]), load_r=float(wl[2]) + float(wl[3]))
+                  load_f=float(wl[0]) + float(wl[1]), load_r=float(wl[2]) + float(wl[3]),
+                  tyres_out=int(phys.numberOfTyresOut))
 
 
 class ACSharedMemory:
@@ -492,6 +494,10 @@ class TrackSimSource:
             k = self.knobs[cid]
             k["release_s"] += self.skill * (tgt - k["release_s"])
         self._build()
+
+    def teleport_to(self, pos_m: float, speed_kmh: float) -> None:
+        """A checkpoint load (retry offers in whole-lap mode): the car is put back at pos_m."""
+        self.pos = float(pos_m) % self.length
 
     async def samples(self) -> AsyncIterator[Sample]:
         loop = asyncio.get_running_loop()
