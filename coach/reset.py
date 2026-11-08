@@ -163,7 +163,7 @@ class ResetManager:
     def can_resume(self) -> bool:
         return self.mode in ("udp", "sim")
 
-    async def save_resume_point(self) -> bool:
+    async def save_resume_point(self, *, timeout_s: float | None = None) -> bool:
         """Remember where the driver was before the drill so `resume` can put them back."""
         if not self.can_resume:
             self.emit({"type": "status", "message": f"resume is not available in {self.mode} reset mode"})
@@ -173,7 +173,11 @@ class ResetManager:
             return False
         s = self.last
         if self.mode == "udp":
-            reply = await udp_roundtrip(self.udp_addr, "SAVE resume", "SAVED", self.udp_ack_s)
+            try:
+                reply = await udp_roundtrip(self.udp_addr, "SAVE resume", "SAVED",
+                                            self.udp_ack_s if timeout_s is None else timeout_s)
+            except OSError:
+                reply = None
             if reply is None:
                 self.emit({"type": "status", "message": "resume point: no SAVED reply from the Lua app"})
                 return False
@@ -221,7 +225,8 @@ class ResetManager:
             return False
         return await self.reset(decision_id, abort_run=True, slot="resume")
 
-    async def reset(self, decision_id: str, abort_run: bool = False, slot: str = "checkpoint") -> bool:
+    async def reset(self, decision_id: str, abort_run: bool = False, slot: str = "checkpoint", *,
+                    countdown: int | None = None, resume_save_timeout_s: float | None = None) -> bool:
         if self.busy:
             self.emit({"type": "status", "message": "ignored: reset already in progress"})
             return False
@@ -240,8 +245,11 @@ class ResetManager:
             self._target = self.resume_point if slot == "resume" else self.checkpoint
             if not self._target:
                 return self._fail("no resume point saved" if slot == "resume" else "no checkpoint saved")
+            if resume_save_timeout_s is not None and self.can_resume:
+                self.clear_resume_point()
+                await self.save_resume_point(timeout_s=resume_save_timeout_s)
             self._status("countdown")
-            for n in range(self.countdown, 0, -1):
+            for n in range(self.countdown if countdown is None else countdown, 0, -1):
                 self.emit({"type": "countdown", "n": n})
                 await asyncio.sleep(self.tick_s)
             self.emit({"type": "countdown", "n": 0})

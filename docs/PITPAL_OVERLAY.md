@@ -20,7 +20,7 @@ Pit Pal is the platform (app, pedals, coach, overlay, website); **Rev** is the m
 2. **Pairing.** If a phone has not connected, Rev shows **SCAN ME** with the pairing QR (drawn from `/pair.json`). A phone that paired before reconnects by itself within a couple of seconds, and then no QR shows. Right-click Rev, *Show pairing code* / *New pairing code* for a fresh one.
 3. **Connected.** "Connected." Rev goes idle: "Ready when you are".
 4. **Racing.** When the car moves, Rev puts the helmet on and the idle bubble disappears. He reacts to the driving and speaks the coach's cues (bubble = the first sentence, at most 9 words).
-5. **Offer, rewind, retry.** The cue appears with a 10-cell countdown and "Press Next to retry" (the phone's Next button does the same as Accept). 3-2-1 before a rewind. "Clean." or "Not yet." after each retry.
+5. **Offer, rewind, retry.** Accept the timed offer to rewind once to the corner checkpoint. Rev shows “Rewinding…” while the coach confirms the restore, then “Clean.” or “Not yet.” after the corner. The driver continues from there or explicitly chooses Resume if a resume point was saved.
 
 Rev never takes focus from the game and has no taskbar entry; the see-through parts pass clicks to the game. Hover him for Accept / Resume / Mute, click for the details card, right-click for the menu.
 
@@ -42,7 +42,7 @@ An outfit never changes while Rev is talking. Rev moves only in whole art pixels
 | `health` | pairing / phone / pedal / AI state, mute, Nemotron badge |
 | `telemetry` (new, 10 Hz) | racing detection and instant reactions (lock-up, wheels off, slide) |
 | `voice` (`speaking` / `spoken`) | talking animation and the bubble text, in sync with the speech |
-| `offer`, `countdown`, `retry_judged`, `retry_finished`, `reset_failed` | offer bubble, 3-2-1, outcome |
+| `offer`, `retry_started`, `reset_confirmed`, `retry_judged`, `retry_finished`, `reset_failed` | offer bubble, rewind feedback, outcome |
 | `corner_event`, `thinking`, `status` (DECIDING) | the "Reading Turn 1…" thinking state |
 | `rev_line` (new) | Rev's own line, below |
 

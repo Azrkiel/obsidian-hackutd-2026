@@ -222,6 +222,12 @@ class RevModel:
 
     def _on_retry_started(self, e: dict, now: float) -> None:
         self.tries = 0
+        if e.get("single_retry"):
+            self._show(Moment("Rewinding…", dur=2.0, key="rewind"), now)
+
+    def _on_reset_confirmed(self, e: dict, now: float) -> None:
+        if self.moment is not None and self.moment[0].key == "rewind":
+            self.moment = None
 
     def _on_retry_judged(self, e: dict, now: float) -> None:
         self.tries = int(e.get("try") or self.tries + 1)
@@ -231,7 +237,8 @@ class RevModel:
             self._show(Moment("Not yet.", "", "text", "idle", 1.8, "judged"), now)
 
     def _on_retry_finished(self, e: dict, now: float) -> None:
-        self._show(Moment("Back on track.", "", "text", "idle", 1.6, "judged"), now)
+        if e.get("resumed", True):
+            self._show(Moment("Back on track.", "", "text", "idle", 1.6, "judged"), now)
 
     def _on_reset_failed(self, e: dict, now: float) -> None:
         self._show(Moment("Rewind failed.", "", "warn", "warn", 3.0, "reset"), now)

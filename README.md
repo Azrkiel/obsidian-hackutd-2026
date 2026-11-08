@@ -244,8 +244,9 @@ Corner positions in `fixtures/corner_monza_t1.json` are placeholders; replace af
 ### Whole lap: every error gets a retry (`--whole-lap`)
 
 Plan and decisions: `docs/ROLLING_CHECKPOINTS.md`. Every corner of `--track` is scored; each error
-gets a cue and a 5 s retry offer (dashboard Retry, or phone Next). Accepting rewinds to a state held
-before that corner, runs the retry loop, then puts the car back where Retry was pressed.
+gets a cue and a 5 s retry offer (dashboard Retry, or phone Next). In the combined demo, accepting
+rewinds once to the held checkpoint before the corner. The coach scores one attempt after telemetry
+confirms the rewind, then the driver keeps going. Resume returns to the saved position when available.
 
 **The demo runs both coaches together**: the lap coach's per-lap voice cue (above) plus a retry
 offer for every error. Retries are judged by the error detector (fixed = the corner is clean),

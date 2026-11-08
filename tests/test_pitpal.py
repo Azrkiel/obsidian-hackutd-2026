@@ -91,6 +91,17 @@ def test_offer_countdown_and_rewind():
     assert m.view(8.4).bubble["bold"] == "Clean." and m.tries == 2
 
 
+def test_single_retry_shows_rewind_then_keeps_the_verdict():
+    m = RevModel()
+    m.feed({"type": "_conn", "online": True}, 0.0)
+    m.feed({"type": "retry_started", "single_retry": True}, 1.0)
+    assert m.view(1.1).bubble["bold"] == "Rewinding…"
+    m.feed({"type": "reset_confirmed", "slot": "checkpoint"}, 1.2)
+    m.feed({"type": "retry_judged", "try": 1, "fixed": False}, 5.0)
+    m.feed({"type": "retry_finished", "resumed": False}, 5.0)
+    assert m.view(5.1).bubble["bold"] == "Not yet."
+
+
 def test_expired_offer_is_dropped():
     m = RevModel()
     m.feed({"type": "_conn", "online": True}, 0.0)
