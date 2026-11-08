@@ -30,7 +30,7 @@ async def _run(args: argparse.Namespace) -> None:
     baseline = load_attempt(args.attempt)
     providers = default_providers(transport=args.transport)
     if not any(p.available for p in providers):
-        print("No NVIDIA_API_KEY / OPENROUTER_API_KEY set: falling back to rules.")
+        print("No provider configured (NEMOTRON_BASE_URL / NVIDIA_API_KEY / OPENROUTER_API_KEY): falling back to rules.")
 
     def on_reasoning(t: str) -> None:
         sys.stdout.write(t)
