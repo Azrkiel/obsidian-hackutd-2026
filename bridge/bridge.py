@@ -32,6 +32,10 @@ ap.add_argument("--com", default="auto", help="COM port, or 'auto' to find the A
 ap.add_argument("--port", type=int, default=5005)
 ap.add_argument("--rel", type=float, default=120, help="old B,mm format: released distance mm")
 ap.add_argument("--full", type=float, default=40, help="old B,mm format: fully pressed distance mm")
+ap.add_argument("--gas-gamma", type=float, default=1.8,
+                help="throttle curve: out = in^gamma. 1 = linear; higher = gentler start "
+                     "(1.8: half pedal = 29%% throttle)")
+ap.add_argument("--brake-gamma", type=float, default=1.0, help="brake curve, same as --gas-gamma")
 ap.add_argument("--no-arduino", action="store_true")
 ap.add_argument("--debug", action="store_true")
 a = ap.parse_args()
@@ -47,9 +51,22 @@ def find_port():
     return None
 
 
-def phone():
+def bind_phone_socket():
+    """Bind UDP :port exclusively (Windows), BEFORE creating the virtual pad. If another receiver
+    (coach --inputs, hardware/bridge.py, phone/bridge) has the port, exit instead of sharing it."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.bind(("0.0.0.0", a.port))
+    if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+    try:
+        s.bind(("0.0.0.0", a.port))
+    except OSError as e:
+        raise SystemExit(f"UDP {a.port} is already in use ({e}). Another receiver is running "
+                         f"(coach --inputs, hardware/bridge.py or phone/bridge). Stop it first: "
+                         f"only one program may create the virtual pad.")
+    return s
+
+
+def phone(s):
     while True:
         d, _ = s.recvfrom(256)
         try:
@@ -84,7 +101,11 @@ def ard():
             time.sleep(1)
             continue
         try:
-            ser = serial.Serial(port, 115200, timeout=0.1)
+            try:
+                ser = serial.Serial(port, 115200, timeout=0.1)
+            except serial.SerialException as e:
+                print(f"cannot open {port} ({e}); is a serial monitor or another bridge using it? retrying")
+                raise
             S["com"] = port
             last_mm = None
             while True:
@@ -107,8 +128,9 @@ def ard():
             time.sleep(1)                                # unplugged: failsafe kicks in, retry
 
 
+phone_sock = bind_phone_socket()
 pad = vg.VX360Gamepad()
-threading.Thread(target=phone, daemon=True).start()
+threading.Thread(target=phone, args=(phone_sock,), daemon=True).start()
 if not a.no_arduino:
     threading.Thread(target=ard, daemon=True).start()
 print(f"virtual pad ready; phone UDP :{a.port}; arduino {'off' if a.no_arduino else a.com}")
@@ -124,6 +146,8 @@ while True:
         gas, brake, valid = S["agas"], S["abrk"], True
     else:
         gas, brake, valid = 0., 0., False                # pedals lost -> neutral + run invalid
+    raw_gas = gas
+    gas, brake = gas ** a.gas_gamma, brake ** a.brake_gamma   # response curves (0 and 1 unchanged)
     pad.left_joystick_float(S["steer"] if ph else 0., 0.)
     pad.right_trigger_float(gas)
     pad.left_trigger_float(brake)
@@ -131,5 +155,5 @@ while True:
     time.sleep(0.005)
     n += 1
     if a.debug and n % 100 == 0:
-        print(f"steer {S['steer']:+.2f} gas {gas:.2f} brk {brake:.2f} phone {ph} "
+        print(f"steer {S['steer']:+.2f} gas {gas:.2f} (pedal {raw_gas:.2f}) brk {brake:.2f} phone {ph} "
               f"arduino {ar} ({S['com']}){'' if valid else '  INVALID: pedals lost'}")
