@@ -20,7 +20,7 @@ struct ControlsView: View {
                         VStack(alignment: .leading, spacing: 10) {
                             PPLabel("Pedals")
                             PixelToggle(title: "On-screen pedals", isOn: $session.onScreenPedals)
-                            Text("Backup throttle and brake for when the Arduino pedals stop responding. When off the phone sends 0.")
+                            Text("Touch pedals provide backup throttle and brake if the Arduino stops responding. Turn them off to switch to the Arduino cockpit layout.")
                                 .font(PPFont.barlow(13))
                                 .foregroundStyle(Theme.inkMuted)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -71,7 +71,7 @@ struct ControlsView: View {
                                 }
                             }
                         }
-                        Text("Next accepts the coach’s offer (a drill, or a retry of a corner). Resume ends it and puts the car back where you were.")
+                        Text("Tap the steering dial when its retry countdown appears. Next also accepts an open retry. In drill mode, Next starts the offered drill or resets to your saved checkpoint. Resume ends the retry and returns you to where you left off.")
                             .font(PPFont.barlow(12))
                             .foregroundStyle(Theme.inkMuted)
                             .fixedSize(horizontal: false, vertical: true)

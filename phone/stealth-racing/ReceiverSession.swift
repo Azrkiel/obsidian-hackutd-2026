@@ -35,15 +35,16 @@ final class ReceiverSession {
     private(set) var canRecenter = false
     var throttle = 0.0
     var brake = 0.0
-    /// The coach's open retry offer (whole-lap mode); Next accepts it.
+    /// The coach's open retry offer, shown on the steering dial.
     private(set) var offer: RetryOffer?
     /// Bumped when a new offer appears (one haptic tap).
     private(set) var offersShown = 0
+    @ObservationIgnored private var lastAnnouncedOfferID: String?
 
     // Settings
     /// Fallback throttle/brake for when the Arduino pedals fail. When off, the
     /// phone sends 0 for both and the receiver relies on the Arduino.
-    var onScreenPedals = UserDefaults.standard.object(forKey: "onScreenPedals") as? Bool ?? true {
+    var onScreenPedals = UserDefaults.standard.object(forKey: "onScreenPedals") as? Bool ?? false {
         didSet {
             UserDefaults.standard.set(onScreenPedals, forKey: "onScreenPedals")
             if !onScreenPedals { releasePedals() }
@@ -193,6 +194,7 @@ final class ReceiverSession {
         handshake = nil
         code = nil
         offer = nil
+        lastAnnouncedOfferID = nil
         rehellos = 0
     }
 
@@ -376,6 +378,7 @@ final class ReceiverSession {
                 return
             }
             rehellos += 1
+            lastAnnouncedOfferID = nil
             let hs = PairingHandshake(key: code.key)
             handshake = hs
             signed = nil
@@ -403,12 +406,15 @@ final class ReceiverSession {
     /// `ofr,<offer id>,<corner>,<ms left>` (~4/s while the offer is open).
     private func handleOffer(_ packet: String) {
         let parts = packet.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
-        guard parts.count >= 4, let ms = Int(parts[parts.count - 1]) else { return }
+        guard parts.count >= 4, let ms = Int(parts[parts.count - 1]), ms > 0 else { return }
         let id = parts[1]
         let corner = parts[2..<(parts.count - 1)].joined(separator: ",")
         let now = ContinuousClock.now
         let next = RetryOffer(id: id, corner: corner, deadline: now + .milliseconds(ms), lastHeard: now)
-        if offer?.id != id { offersShown += 1 }
+        if lastAnnouncedOfferID != id {
+            lastAnnouncedOfferID = id
+            offersShown += 1
+        }
         offer = next
     }
 
@@ -471,10 +477,6 @@ struct RetryOffer: Equatable {
 
     func secondsLeft(at now: ContinuousClock.Instant = .now) -> Int {
         max(0, Int((now.duration(to: deadline) / .seconds(1)).rounded(.up)))
-    }
-
-    func fraction(at now: ContinuousClock.Instant = .now, total: Double = 5) -> Double {
-        min(1, max(0, (now.duration(to: deadline) / .seconds(1)) / total))
     }
 }
 

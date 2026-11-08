@@ -89,6 +89,9 @@ def test_lap_coach_pushes_at_4_per_second_then_closes(monkeypatch):
         lc._push_phone()
     ofr = [d for d, _ in sent if d.startswith(b"ofr,")]
     assert len(ofr) == 4 and ofr[0] == b"ofr,e7,Lesmo 1,5000" and ofr[-1].endswith(b",4250")
-    offers.accept()
+    unavailable = dataclasses.replace(ev, id="e8")
+    offers.new(unavailable, None)
+    offers.cue_delivered("e8", "cue", "rules")
+    clock.t += 0.25
     lc._push_phone()
-    assert [d for d, _ in sent[-3:]] == [b"ofx,e7"] * 3
+    assert [d for d, _ in sent[4:]] == [b"ofx,e7"] * 3

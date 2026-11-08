@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// 6 · Cockpit: shift tiles on the top corners, brake and throttle pads underneath, the tach
-/// roundel with the helmeted Pit Pal in the middle, and the Assetto Corsa buttons along the bottom.
-/// A coach retry offer lights Next with a countdown; tapping Next accepts it.
+/// 6 · Cockpit: shift tiles at the sides, the steering dial in the middle, and the
+/// Assetto Corsa buttons along the bottom. Touch pedals sit below the shifters when enabled.
+/// A coach retry offer highlights the steering dial with a tappable countdown.
 struct CockpitView: View {
     @Bindable var session: ReceiverSession
     let leave: () -> Void
@@ -17,13 +17,17 @@ struct CockpitView: View {
 
     var body: some View {
         PPScreen {
+            let columnWidth: CGFloat = session.onScreenPedals ? 138 : 104
+            let shiftHeight: CGFloat? = session.onScreenPedals ? 92 : nil
             HStack(spacing: 14) {
                 VStack(spacing: 10) {
-                    ShiftTile(command: .shiftDown, action: shift).frame(height: 92)
-                    PedalTile(title: "Brake", value: $session.brake, onScreen: session.onScreenPedals,
-                              fill: Theme.brand, ink: .white, fallback: "Arduino brake")
+                    ShiftTile(command: .shiftDown, action: shift)
+                        .frame(height: shiftHeight)
+                    if session.onScreenPedals {
+                        PedalTile(title: "Brake", value: $session.brake, fill: Theme.brand, ink: .white)
+                    }
                 }
-                .frame(width: 138)
+                .frame(width: columnWidth)
                 .disabled(!isLive)
 
                 VStack(spacing: 8) {
@@ -34,11 +38,13 @@ struct CockpitView: View {
                 .frame(maxWidth: .infinity)
 
                 VStack(spacing: 10) {
-                    ShiftTile(command: .shiftUp, action: shift).frame(height: 92)
-                    PedalTile(title: "Throttle", value: $session.throttle, onScreen: session.onScreenPedals,
-                              fill: Theme.ink, ink: Theme.bg, fallback: "Arduino throttle")
+                    ShiftTile(command: .shiftUp, action: shift)
+                        .frame(height: shiftHeight)
+                    if session.onScreenPedals {
+                        PedalTile(title: "Throttle", value: $session.throttle, fill: Theme.ink, ink: Theme.bg)
+                    }
                 }
-                .frame(width: 138)
+                .frame(width: columnWidth)
                 .disabled(!isLive)
             }
             .padding(.vertical, 10)
@@ -60,6 +66,16 @@ struct CockpitView: View {
         HStack(spacing: 8) {
             StatusPill(verbatim: "\(session.receiverName)  ·  \(String(localized: session.status.title))", tone: statusTone)
             Spacer(minLength: 0)
+            Button {
+                session.onScreenPedals.toggle()
+            } label: {
+                Label(session.onScreenPedals ? "Touch pedals" : "Arduino", systemImage: "arrow.left.arrow.right")
+            }
+            .buttonStyle(.pixel(.quiet, compact: true))
+            .fixedSize()
+            .accessibilityLabel("Pedal layout")
+            .accessibilityValue(session.onScreenPedals ? "Touch pedals" : "Arduino")
+            .accessibilityHint("Switches to the other pedal layout.")
             PixelIconButton(title: "Controls", systemImage: "slider.horizontal.3") { showsControls = true }
             PixelIconButton(title: "Disconnect", systemImage: "xmark", tint: Theme.accent) { confirmsLeave = true }
         }
@@ -98,6 +114,15 @@ struct CockpitView: View {
                     }
                 }
                 .frame(width: d, height: d)
+                .overlay {
+                    if isLive, let offer = session.offer {
+                        SteeringRetryPrompt(offer: offer) {
+                            guard let current = session.offer, current.id == offer.id,
+                                  current.secondsLeft() > 0 else { return }
+                            session.send(.coachNext)
+                        }
+                    }
+                }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             HStack(spacing: 12) {
@@ -131,14 +156,8 @@ struct CockpitView: View {
             ForEach(rows.indices, id: \.self) { i in
                 HStack(spacing: 6) {
                     ForEach(rows[i]) { command in
-                        if command == .coachNext {
-                            NextTile(offer: session.offer, compact: session.showsAssistButtons) { phase in
-                                session.send(command, phase: phase)
-                            }
-                        } else {
-                            CommandTile(command: command, compact: session.showsAssistButtons) { phase in
-                                session.send(command, phase: phase)
-                            }
+                        CommandTile(command: command, compact: session.showsAssistButtons) { phase in
+                            session.send(command, phase: phase)
                         }
                     }
                 }
@@ -228,14 +247,12 @@ struct ShiftTile: View {
     }
 }
 
-/// Spring-loaded pedal pad: slide up for more, lift to release. Off = the Arduino pedals drive.
+/// Spring-loaded pedal pad: slide up for more, lift to release.
 struct PedalTile: View {
     let title: LocalizedStringResource
     @Binding var value: Double
-    let onScreen: Bool
     let fill: Color
     let ink: Color
-    let fallback: LocalizedStringResource
 
     @Environment(\.isEnabled) private var isEnabled
     @GestureState private var touching = false
@@ -245,18 +262,15 @@ struct PedalTile: View {
             let h = proxy.size.height
             ZStack(alignment: .bottom) {
                 Theme.surface
-                if onScreen { fill.frame(height: h * value) }
+                fill.frame(height: h * value)
                 labels(color: .white)
-                if onScreen {
-                    labels(color: ink).mask(alignment: .bottom) { Rectangle().frame(height: h * value) }
-                }
+                labels(color: ink).mask(alignment: .bottom) { Rectangle().frame(height: h * value) }
             }
             .contentShape(Rectangle())
             .simultaneousGesture(
                 DragGesture(minimumDistance: 0)
                     .updating($touching) { _, t, _ in t = true }
                     .onChanged { drag in
-                        guard onScreen else { return }
                         value = min(1, max(0, (h - drag.location.y) / (h * 0.85)))  // top 15% = full travel
                     }
                     .onEnded { _ in value = 0 }
@@ -268,9 +282,8 @@ struct PedalTile: View {
         .onChange(of: isEnabled) { _, e in if !e { value = 0 } }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(title))
-        .accessibilityValue(onScreen ? Text(value, format: .percent.precision(.fractionLength(0))) : Text(fallback))
+        .accessibilityValue(Text(value, format: .percent.precision(.fractionLength(0))))
         .accessibilityAdjustableAction { direction in
-            guard onScreen else { return }
             switch direction {
             case .increment: value = min(1, value + 0.1)
             case .decrement: value = max(0, value - 0.1)
@@ -286,10 +299,10 @@ struct PedalTile: View {
                 .tracking(1.5)
                 .textCase(.uppercase)
             Spacer()
-            Text(onScreen ? "Backup pedal" : fallback)
+            Text("Backup pedal")
                 .font(PPFont.barlow(12, .medium))
         }
-        .foregroundStyle(onScreen ? color : Theme.inkMuted)
+        .foregroundStyle(color)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -351,78 +364,7 @@ struct CommandTile: View {
     }
 }
 
-/// Next, which doubles as the retry-offer button: while the coach offers a retry it lights up with a
-/// countdown ring (caution LEDs around the tile) and "RETRY · <s>" under the corner name.
-struct NextTile: View {
-    let offer: RetryOffer?
-    var compact = false
-    let send: (SimCommand.Phase) -> Void
-
-    var body: some View {
-        if let offer {
-            TimelineView(.periodic(from: .now, by: 0.25)) { context in
-                let now = ContinuousClock.now
-                let _ = context.date
-                OfferFace(offer: offer, seconds: offer.secondsLeft(at: now), fraction: offer.fraction(at: now),
-                          compact: compact, send: send)
-            }
-        } else {
-            CommandTile(command: .coachNext, compact: compact, send: send)
-        }
-    }
-
-    private struct OfferFace: View {
-        let offer: RetryOffer
-        let seconds: Int
-        let fraction: Double
-        let compact: Bool
-        let send: (SimCommand.Phase) -> Void
-        @GestureState private var pressed = false
-
-        var body: some View {
-            VStack(spacing: 1) {
-                Text(verbatim: offer.corner)
-                    .font(PPFont.barlow(10, .bold))
-                    .tracking(0.5)
-                    .textCase(.uppercase)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                Text("Retry · \(seconds)")
-                    .font(PPFont.barlow(compact ? 12 : 14, .bold))
-                    .tracking(0.5)
-                    .textCase(.uppercase)
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-            }
-            .foregroundStyle(Theme.bg)
-            .padding(.horizontal, 4)
-            .frame(maxWidth: .infinity, minHeight: compact ? 40 : 52)
-            .background(Theme.caution)
-            .overlay {   // countdown ring: the tile's edge drains clockwise from the top
-                Rectangle()
-                    .trim(from: 0, to: fraction)
-                    .stroke(Theme.led, style: StrokeStyle(lineWidth: 4, lineCap: .butt))
-                    .shadow(color: Theme.led.opacity(0.55), radius: 6)
-                    .rotationEffect(.degrees(-90))
-                    .scaleEffect(x: 1, y: -1)
-            }
-            .pixelPanel(fill: Theme.caution, outline: Theme.pixelOutline)
-            .offset(y: pressed ? 3 : 0)
-            .contentShape(Rectangle())
-            .simultaneousGesture(DragGesture(minimumDistance: 0).updating($pressed) { _, p, _ in p = true })
-            .onChange(of: pressed) { _, isPressed in if isPressed { send(.tap) } }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text("Retry \(offer.corner)"))
-            .accessibilityValue(Text("\(seconds) seconds left"))
-            .accessibilityHint(Text("Rewinds to just before the corner."))
-            .accessibilityAddTraits(.isButton)
-            .accessibilityAction { send(.tap) }
-        }
-    }
-}
-
-#Preview("Cockpit", traits: .landscapeLeft) {
+#Preview("Cockpit · touch pedals", traits: .landscapeLeft) {
     CockpitView(session: .preview(status: .confirmed, steering: 0.35), leave: {})
 }
 
@@ -430,6 +372,6 @@ struct NextTile: View {
     CockpitView(session: .preview(status: .confirmed, steering: -0.2, offer: ("Lesmo 1", 4)), leave: {})
 }
 
-#Preview("Cockpit · assists, Arduino pedals", traits: .landscapeLeft) {
-    CockpitView(session: .preview(status: .unconfirmed, steering: -0.6, assists: true, onScreenPedals: false), leave: {})
+#Preview("Cockpit · Arduino pedals", traits: .landscapeLeft) {
+    CockpitView(session: .preview(status: .confirmed, steering: -0.6, assists: true, onScreenPedals: false), leave: {})
 }
