@@ -1,0 +1,4 @@
+# Bridge deps live in their own venv (D:\bridge-venv), NOT the uv-managed repo .venv
+# (uv sync deletes anything not in pyproject.toml).
+pyserial
+vgamepad
