@@ -26,6 +26,33 @@ def make_web_app(app: CoachApp) -> web.Application:
     async def state(_: web.Request) -> web.StreamResponse:
         return web.json_response(app.snapshot())
 
+    async def history(request: web.Request) -> web.StreamResponse:
+        try:
+            limit = int(request.query.get("limit", "100"))
+        except ValueError:
+            raise web.HTTPBadRequest(text="limit must be an integer")
+        if not app.history:
+            return web.json_response({"enabled": False, "drivers": [], "sessions": [], "laps": [], "decisions": []})
+        try:
+            data = await asyncio.to_thread(app.history.read, limit, request.query.get("driver_id"))
+            return web.json_response(data)
+        except Exception:
+            return web.json_response({"enabled": True, "error": "History unavailable"}, status=503)
+
+    async def history_config(_: web.Request) -> web.StreamResponse:
+        return web.json_response(app.history_config())
+
+    async def trace(request: web.Request) -> web.StreamResponse:
+        if not app.history or not app.history.path.is_file():
+            raise web.HTTPNotFound()
+        try:
+            rows = await asyncio.to_thread(app.history.trace, request.match_info["lap_id"])
+        except Exception:
+            raise web.HTTPServiceUnavailable(text="History unavailable")
+        if rows is None:
+            raise web.HTTPNotFound()
+        return web.json_response({"rows": rows})
+
     async def pair_svg(_: web.Request) -> web.StreamResponse:
         """The phone pairing QR code (only with --inputs). The dashboard listens on 127.0.0.1 by
         default; with --host 0.0.0.0 anyone on the LAN could fetch the code, so keep it local."""
@@ -103,19 +130,28 @@ def make_web_app(app: CoachApp) -> web.Application:
     web_app.router.add_post("/settings", post_settings)
     web_app.router.add_post("/personal_best/reset", reset_pb)
     web_app.router.add_get("/state", state)
+    web_app.router.add_get("/history", history)
+    web_app.router.add_get("/history/config", history_config)
+    web_app.router.add_get("/history/trace/{lap_id}", trace)
+    async def viewer(_: web.Request) -> web.StreamResponse:
+        return web.FileResponse(STATIC / "history" / "index.html")
+    web_app.router.add_get("/history-viewer/", viewer)
+    web_app.router.add_static("/history-viewer/assets/", STATIC / "history" / "assets")
     web_app.router.add_get("/pair.svg", pair_svg)
     web_app.router.add_get("/pair.json", pair_json)
     web_app.router.add_get("/track", track)
     web_app.router.add_static("/pitpal/", STATIC / "pitpal")  # Pit Pal fonts and art
     web_app.router.add_get("/ws", ws_handler)
-    history = getattr(app, "cloud_history", None) or HistoryService(data_dir=app.data_dir)
-    app.cloud_history = history
-    add_history_routes(web_app, history)
+    # Shared cloud history (SpacetimeDB, per-device enrollment) lives under /cloud-history*;
+    # /history* above is the local SQLite race history (--history).
+    cloud = getattr(app, "cloud_history", None) or HistoryService(data_dir=app.data_dir)
+    app.cloud_history = cloud
+    add_history_routes(web_app, cloud)
     if getattr(app, "cloud_runtime", None) is None:
         async def history_lifecycle(_):
-            await history.start()
+            await cloud.start()
             yield
-            await history.close()
+            await cloud.close()
         web_app.cleanup_ctx.append(history_lifecycle)
     return web_app
 

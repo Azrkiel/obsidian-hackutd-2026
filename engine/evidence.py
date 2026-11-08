@@ -3,13 +3,12 @@ from __future__ import annotations
 
 from .models import Attempt, CornerConfig, DrillState
 
-# drill -> (attempt metric it moves, target key the driver is given)
-DRILL_METRIC = {"brake_point": "brake_onset_m", "throttle_pickup": "throttle_pickup_m",
-                "brake_release": "release_s"}
-DRILL_TARGET = {"brake_point": "marker_m", "throttle_pickup": "marker_m",
-                "brake_release": "release_s"}
-EXTRAS = (("release_s", 2), ("trail_brake_share", 2), ("lockup_s", 2), ("wheelspin_s", 2),
-          ("min_kmh", 1), ("min_pos_m", 1))
+from .drills import DRILLS, DRILL_METRIC, DRILL_TARGET, finite
+
+EXTRAS = tuple((k, 2 if not k.endswith(("_m", "_kmh")) else 1)
+               for k in dict.fromkeys(["release_s", "trail_brake_share", "lockup_s", "wheelspin_s",
+                                      "min_kmh", "min_pos_m"] + list(DRILL_METRIC.values()))
+               if k not in ("brake_onset_m", "throttle_pickup_m"))
 
 
 def _side(a: Attempt, corner: CornerConfig) -> dict:
@@ -26,7 +25,7 @@ def _side(a: Attempt, corner: CornerConfig) -> dict:
     }
     for k, nd in EXTRAS:
         v = getattr(a, k, None)
-        if v is not None:
+        if finite(v):
             out[k] = round(v, nd)
     return out
 
@@ -50,6 +49,13 @@ def suggested_markers(reference: Attempt, corner: CornerConfig) -> dict:
     rel = al.get("brake_release", {}).get("release_s")
     if rel and reference.release_s is not None:
         out["brake_release"] = round(_clamp(reference.release_s, *rel), 1)
+    for name, drill in DRILLS.items():
+        if name in out or name not in al:
+            continue
+        value = getattr(reference, drill.metric, None)
+        bounds = al[name].get(drill.target_key)
+        if finite(value) and bounds:
+            out[name] = round(_clamp(value, *bounds), 2)
     return out
 
 
@@ -59,12 +65,15 @@ def target_onset(drill_id: str, target: dict, corner: CornerConfig) -> tuple[str
         return "brake_onset_m", corner.board_zero_m - target["marker_m"]
     if drill_id == "brake_release":
         return "release_s", float(target["release_s"])
-    return "throttle_pickup_m", corner.apex_window_m[1] + target["marker_m"]
+    if drill_id == "throttle_pickup":
+        return "throttle_pickup_m", corner.apex_window_m[1] + target["marker_m"]
+    drill = DRILLS[drill_id]
+    return drill.metric, float(target[drill.target_key])
 
 
 def _diff(a: Attempt, b: Attempt, key: str, nd: int) -> float | None:
     x, y = getattr(a, key, None), getattr(b, key, None)
-    return None if x is None or y is None else round(x - y, nd)
+    return None if not finite(x) or not finite(y) else round(x - y, nd)
 
 
 def build_packet(attempt: Attempt, reference: Attempt, baseline: Attempt | None,
@@ -81,6 +90,10 @@ def build_packet(attempt: Attempt, reference: Attempt, baseline: Attempt | None,
         "throttle_pickup_m": round(attempt.throttle_pickup_m - reference.throttle_pickup_m, 1),
         "section_s": round(attempt.section_s - reference.section_s, 2),
     }
+    for key, nd in EXTRAS:
+        value = _diff(attempt, reference, key, nd)
+        if value is not None:
+            delta[key] = value
     rd = _diff(attempt, reference, "release_s", 2)
     if rd is not None:
         delta["release_s"] = rd
@@ -97,17 +110,24 @@ def build_packet(attempt: Attempt, reference: Attempt, baseline: Attempt | None,
                 "brake_onset_m": round(baseline.brake_onset_m - reference.brake_onset_m, 1),
                 "throttle_pickup_m": round(baseline.throttle_pickup_m - reference.throttle_pickup_m, 1),
             }
+            for k, nd in EXTRAS:
+                value = _diff(baseline, reference, k, nd)
+                if value is not None:
+                    drill["baseline_delta"][k] = value
             bd = _diff(baseline, reference, "release_s", 2)
             if bd is not None:
                 drill["baseline_delta"]["release_s"] = bd
         key, pos = target_onset(drill_state.drill_id, drill_state.target, corner)
         val = getattr(attempt, key, None)
-        nd = 2 if key == "release_s" else 1
-        target_gap = {key: round((val if val is not None else pos) - pos, nd)}
-        if drill_state.drill_id == "brake_release":
+        nd = 1 if key.endswith(("_m", "_kmh")) else 2
+        target_gap = {key: round(val - pos, nd)} if finite(val) else {}
+        if drill_state.drill_id not in ("brake_point", "throttle_pickup", "brake_release"):
+            # Keep the reference target stable for non-marker drills.
+            suggested["adjusted_target"] = dict(drill_state.target)
+        elif drill_state.drill_id == "brake_release":
             lo, hi = corner.allowed["brake_release"]["release_s"]
             t = float(drill_state.target["release_s"])
-            step = 0.1 if target_gap[key] > 0 else -0.1
+            step = 0.1 if target_gap.get(key, 0) > 0 else -0.1
             suggested["adjusted_target"] = {"release_s": round(_clamp(t + step, lo, hi), 1)}
         else:
             m = drill_state.target["marker_m"]
@@ -116,7 +136,7 @@ def build_packet(attempt: Attempt, reference: Attempt, baseline: Attempt | None,
                 toward = 1 if att["brake_board_m"] > m else -1
             else:
                 lo, hi = corner.allowed["throttle_pickup"]["marker_m"]
-                toward = 1 if target_gap[key] > 0 else -1
+                toward = 1 if target_gap.get(key, 0) > 0 else -1
             suggested["adjusted_marker_m"] = int(_clamp(m + 10 * toward, lo, hi))
             suggested["adjusted_target"] = {"marker_m": suggested["adjusted_marker_m"]}
     if previous_attempt is not None:
@@ -125,6 +145,10 @@ def build_packet(attempt: Attempt, reference: Attempt, baseline: Attempt | None,
             "throttle_pickup_m": round(attempt.throttle_pickup_m - previous_attempt.throttle_pickup_m, 1),
             "section_s": round(attempt.section_s - previous_attempt.section_s, 2),
         }
+        for k, nd in EXTRAS:
+            value = _diff(attempt, previous_attempt, k, nd)
+            if value is not None:
+                vs_prev[k] = value
         pd = _diff(attempt, previous_attempt, "release_s", 2)
         if pd is not None:
             vs_prev["release_s"] = pd
@@ -143,6 +167,7 @@ def build_packet(attempt: Attempt, reference: Attempt, baseline: Attempt | None,
         "suggested": suggested,
         "tolerance": dict(corner.tolerance),
         "allowed": corner.allowed,
+        "telemetry_verified": dict(corner.telemetry_verified),
     }
     if voice:
         packet["voice"] = dict(voice)

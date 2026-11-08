@@ -14,3 +14,7 @@ CLAUDE.md
 .claude/
 .brev-hold
 data/
+node_modules/
+spacetime/dist/
+history-viewer/test-results/
+history-viewer/playwright-report/

@@ -103,6 +103,8 @@ class LapCoach:
         if hub is None:
             return
         o, now = self.offers.open_offer(), self.offers.clock()
+        if o is not None and not o.retryable:
+            o = None
         if self._pushed is not None and (o is None or o.id != self._pushed):
             for _ in range(3):
                 hub.send_phone(f"ofx,{self._pushed}")

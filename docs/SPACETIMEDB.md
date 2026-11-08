@@ -1,5 +1,9 @@
 # Shared history with SpacetimeDB
 
+> Two history systems exist in this repo. This one (per-PC enrollment, module in `spacetime-cloud/`,
+> pages at `/cloud-history-view`, viewer `python -m coach.cloud_viewer`) is separate from the
+> `--history` race history in [HISTORY.md](../HISTORY.md) (module in `spacetime/`).
+
 Use this runbook to store racing history in **your SpacetimeDB Maincloud account** and read it
 from another PC. The Python coach, game connection and Rev overlay stay on the Windows game PC.
 Nemotron continues to run on Brev. Publishing the database does not publish a public website.
@@ -28,7 +32,7 @@ continues running the existing local coach.
 | Windows game PC | Existing Assetto Corsa/PitPal setup, Git, uv, the `cloud` extra, and its own registered writer identity |
 | Windows history-only PC | Git, uv, the `cloud` extra, and its own registered viewer identity; no game, virtual controller or Brev tunnel |
 
-The module is pinned to SpacetimeDB SDK 2.14.1 in `spacetime/package.json` and the npm lockfile.
+The module is pinned to SpacetimeDB SDK 2.14.1 in `spacetime-cloud/package.json` and the npm lockfile.
 Use the same CLI version when building/publishing it. Follow the [official CLI installation
 instructions](https://spacetimedb.com/install) if `spacetime` is missing. A runtime PC does not need
 publisher CLI credentials; only the owner workstation performs publication and registration.
@@ -71,7 +75,7 @@ spacetime --version
 Build and test the module, then complete the browser login:
 
 ```powershell
-cd spacetime
+cd spacetime-cloud
 npm ci
 npm test
 npm run typecheck
@@ -194,7 +198,7 @@ On the second PC:
 
 ```powershell
 uv run --system-certs --extra cloud python scripts/spacetime_device.py status
-uv run --system-certs --extra cloud python -m coach.history
+uv run --system-certs --extra cloud python -m coach.cloud_viewer
 ```
 
 Open `http://127.0.0.1:8020` **on that second PC** and refresh History. Its local Python server fetches
@@ -202,7 +206,7 @@ records from Maincloud. The history-only launcher starts no game reader, control
 client or model warm-up. If port 8020 is already in use, stop the other local server or choose:
 
 ```powershell
-uv run --system-certs --extra cloud python -m coach.history --port 8021
+uv run --system-certs --extra cloud python -m coach.cloud_viewer --port 8021
 ```
 
 Then open `http://127.0.0.1:8021`. A viewer cannot upload records or modify device permissions.
@@ -320,7 +324,7 @@ If environment overrides are set, clear them from that launching shell too. Pend
 available for a later recovery. This does not stop the Brev rental or delete cloud records.
 
 Before updating the module, export a backup and record the current source commit. Run `npm ci`,
-`npm test` and `npm run typecheck` under `spacetime/`, then republish using the same name and owner
+`npm test` and `npm run typecheck` under `spacetime-cloud/`, then republish using the same name and owner
 login. Prefer additive migrations. If a migration is rejected, stop and plan it; do not solve it by
 adding a data-deletion flag. Roll back the local app with cloud disabled when necessary; a code
 rollback alone does not undo a schema migration.
@@ -342,7 +346,7 @@ must be completed using your account; local module tests do not create a deploym
 
 ```powershell
 uv run --system-certs --extra cloud pytest -q
-cd spacetime
+cd spacetime-cloud
 npm ci
 npm test
 npm run typecheck

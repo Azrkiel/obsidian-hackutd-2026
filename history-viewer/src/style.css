@@ -1,0 +1,259 @@
+:root {
+  color-scheme: dark;
+  --bg: #0e1116;
+  --panel: #171c24;
+  --ink: #e8edf3;
+  --dim: #a3afbe;
+  --good: #3ddc84;
+  --line: #303b49;
+  --blue: #69b7ff;
+  font:
+    16px/1.5 system-ui,
+    Segoe UI,
+    sans-serif;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+}
+main {
+  max-width: 1300px;
+  margin: auto;
+  padding: 28px;
+}
+header,
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+h1 {
+  font-size: clamp(26px, 4vw, 42px);
+  letter-spacing: -0.035em;
+  margin: 4px 0 20px;
+}
+h2,
+.eyebrow {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--dim);
+  margin: 0 0 10px;
+}
+.eyebrow {
+  color: var(--good);
+}
+p,
+small,
+footer {
+  color: var(--dim);
+}
+p {
+  margin: 6px 0 14px;
+  font-size: 14px;
+}
+button,
+input,
+select {
+  font: inherit;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  background: #222a35;
+  border-radius: 8px;
+  padding: 10px 14px;
+  min-height: 44px;
+}
+button {
+  cursor: pointer;
+  font-weight: 600;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+button[aria-pressed="true"] {
+  background: var(--good);
+  color: #06210f;
+  border-color: var(--good);
+}
+a {
+  color: var(--blue);
+  overflow-wrap: anywhere;
+}
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+  outline: 3px solid var(--blue);
+  outline-offset: 3px;
+}
+nav {
+  display: flex;
+  gap: 10px;
+  margin: 6px 0 20px;
+}
+.filters,
+.settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 18px 0;
+}
+label {
+  display: grid;
+  gap: 6px;
+  color: var(--dim);
+  font-size: 13px;
+}
+select {
+  max-width: 380px;
+}
+input {
+  min-width: 240px;
+}
+summary {
+  cursor: pointer;
+  width: fit-content;
+  color: var(--dim);
+}
+.settings {
+  align-items: end;
+}
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.stats article,
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 22px;
+}
+.stats strong {
+  display: block;
+  font-size: 38px;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+.stats small {
+  display: block;
+  font-size: 12px;
+}
+.panel {
+  margin: 18px 0;
+}
+.table-scroll {
+  overflow: auto;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+th,
+td {
+  padding: 12px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: right;
+}
+th {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--dim);
+}
+th:first-child,
+td:first-child,
+th:last-child,
+td:last-child {
+  text-align: left;
+}
+tr.invalid {
+  color: #ffb49e;
+}
+.leader-grid {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  gap: 18px;
+}
+.leader-grid aside {
+  text-align: center;
+}
+.leader-grid img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 18px auto;
+  background: white;
+  border-radius: 8px;
+}
+#trend {
+  width: 100%;
+  height: 150px;
+  display: block;
+}
+#connection {
+  font-size: 13px;
+  color: var(--dim);
+  max-width: 35ch;
+}
+footer {
+  font-size: 12px;
+  margin-top: 24px;
+}
+[hidden] {
+  display: none !important;
+}
+body.embedded main {
+  padding: 0;
+}
+body.embedded h1,
+body.embedded footer,
+body.embedded #cloud-settings {
+  display: none;
+}
+body.embedded header {
+  margin-bottom: 14px;
+}
+@media (max-width: 700px) {
+  main {
+    padding: 18px;
+  }
+  .stats {
+    grid-template-columns: 1fr;
+  }
+  .stats article {
+    padding: 16px;
+  }
+  .stats strong {
+    font-size: 30px;
+  }
+  .leader-grid {
+    grid-template-columns: 1fr;
+  }
+  .section-heading,
+  header {
+    align-items: start;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .filters label,
+  .filters select {
+    width: 100%;
+    max-width: none;
+  }
+  .filters {
+    display: block;
+  }
+  .filters label {
+    margin: 10px 0;
+  }
+}

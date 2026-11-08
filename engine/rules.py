@@ -6,7 +6,9 @@ import uuid
 from .evidence import DRILL_METRIC, DRILL_TARGET
 from .models import Decision
 
-BASELINE_ORDER = ("brake_point", "brake_release", "throttle_pickup")
+from .drills import DRILLS, eligible, target_hit
+
+BASELINE_ORDER = tuple(DRILLS)
 
 
 def new_decision_id() -> str:
@@ -31,6 +33,8 @@ def _fmt(x: float) -> str:
 
 def reminder_for(drill_id: str, gap: float | None) -> str:
     """Up to 4 spoken words for the approach. gap = attempt minus target (or reference)."""
+    if drill_id not in ("brake_point", "brake_release", "throttle_pickup"):
+        return DRILLS[drill_id].reminder
     late = gap is None or gap > 0
     if drill_id == "brake_point":
         return "Brake earlier." if late else "Brake later."
@@ -41,6 +45,9 @@ def reminder_for(drill_id: str, gap: float | None) -> str:
 
 def _baseline_cue(packet: dict, drill: str) -> tuple[dict, str]:
     d, sug = packet["delta"], packet["suggested"]
+    if drill not in ("brake_point", "brake_release", "throttle_pickup"):
+        spec = DRILLS[drill]
+        return {spec.target_key: sug[drill]}, spec.cue
     if packet.get("voice"):  # spoken: one short sentence, the action first
         if drill == "brake_point":
             m, x = sug["brake_point"], d["brake_onset_m"]
@@ -90,17 +97,18 @@ def rule_decide(packet: dict) -> Decision:
     if not retry:
         for drill in BASELINE_ORDER:
             key = DRILL_METRIC[drill]
-            if drill in allowed and drill in packet["suggested"] and key in d and key in tol \
-                    and abs(d[key]) > tol[key]:
+            if eligible(packet, drill):
                 target, cue = _baseline_cue(packet, drill)
                 return _offer(packet, drill, target, cue, reminder=reminder_for(drill, d[key]))
         return _end(packet, "no_coaching_needed",
                     "Clean corner. Keep it up." if voice else "Everything is inside tolerance.")
     # retry
     dr = packet["drill"]
+    if not packet.get("target_gap"):
+        return _end(packet, "invalid_run", "Missing telemetry; that retry cannot be judged.")
     key, gap = next(iter(packet["target_gap"].items()))
     tol_v = tol[key]
-    if abs(gap) <= tol_v:
+    if target_hit(dr["id"], gap, tol_v):
         return _end(packet, "drill_complete",
                     "On target. Keep that." if voice else "Target hit within tolerance.")
     tries = dr["tries"]
@@ -117,6 +125,9 @@ def rule_decide(packet: dict) -> Decision:
             return _end(packet, "no_progress",
                         "No change there. We will leave that one." if voice
                         else "Two tries and no progress toward the target.")
+    if dr["id"] not in ("brake_point", "brake_release", "throttle_pickup"):
+        return _offer(packet, dr["id"], dr["target"], DRILLS[dr["id"]].cue,
+                      "repeat", reminder_for(dr["id"], gap))
     base = dr.get("baseline_delta", {}).get(key)
     tkey = DRILL_TARGET[dr["id"]]
     if base and abs(gap) > 2 * tol_v and (gap > 0) != (base > 0):

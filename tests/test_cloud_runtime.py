@@ -116,3 +116,15 @@ async def test_late_async_decision_keeps_origin_session_after_rotation(corner, r
     release.set()
     await task
     assert events[-1]["_history_session_id"] == "history-session-a"
+
+
+def test_history_metadata_names_a_track_sim_track():
+    """TrackSimSource.track is a Track object; /history/config must still serialize."""
+    import json
+    from types import SimpleNamespace
+    from coach.app import CoachApp
+    fake = SimpleNamespace(_driver_name=None, _driver_id=None, source=SimpleNamespace(track=SimpleNamespace(name="Monza")),
+                           corner=SimpleNamespace(name="Monza T1"), mode="lap", coach=SimpleNamespace(agent=None), recorder=None)
+    meta = CoachApp._history_metadata(fake)
+    assert meta["track"] == "Monza"
+    json.dumps(meta)

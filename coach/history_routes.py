@@ -51,21 +51,21 @@ def add_history_routes(app: web.Application, service: HistoryService, *, root=Fa
     async def html(_):
         headers = {**_HEADERS, "Content-Security-Policy": "default-src 'self'; script-src 'self'; "
                    "style-src 'self' 'unsafe-inline'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"}
-        return web.Response(text=(STATIC / "history.html").read_text(encoding="utf-8"),
+        return web.Response(text=(STATIC / "cloud-history.html").read_text(encoding="utf-8"),
                             content_type="text/html", headers=headers)
 
     async def script(_):
-        return web.Response(text=(STATIC / "history.js").read_text(encoding="utf-8"),
+        return web.Response(text=(STATIC / "cloud-history.js").read_text(encoding="utf-8"),
                             content_type="application/javascript", headers=_HEADERS)
 
     if root:
         app.router.add_get("/", html)
-    app.router.add_get("/history-view", html)
-    app.router.add_get("/history.js", script)
-    app.router.add_get("/history", page)
-    app.router.add_get("/history/status", status)
-    app.router.add_post("/history/refresh", refresh)
-    app.router.add_get("/history/{session_id}", page)
+    app.router.add_get("/cloud-history-view", html)
+    app.router.add_get("/cloud-history.js", script)
+    app.router.add_get("/cloud-history", page)
+    app.router.add_get("/cloud-history/status", status)
+    app.router.add_post("/cloud-history/refresh", refresh)
+    app.router.add_get("/cloud-history/{session_id}", page)
 
 
 def make_history_app(service: HistoryService) -> web.Application:
