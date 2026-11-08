@@ -171,3 +171,181 @@ def test_cli_unknown_version_fails_cleanly(tmp_path, capsys):
     bad = make_file(tmp_path / "fast_lane.ai", version=9)
     assert ate.main([str(bad)]) == 1
     assert "version 9" in capsys.readouterr().err
+
+
+# --- whole lap -------------------------------------------------------------------
+
+from engine.config import load_track, load_track_reference  # noqa: E402
+
+WL_LAP = 3000.0
+WL_BRAKES = [(540.0, 640.0), (1350.0, 1480.0), (2250.0, 2380.0)]   # chicane, single, single
+WL_PICKUPS = [710.0, 1520.0, 2420.0]
+WL_SPEED = [(0, 80), (540, 80), (650, 20), (675, 18), (700, 20), (800, 80), (1350, 80), (1500, 20),
+            (1600, 60), (1700, 80), (2250, 80), (2400, 20), (2500, 60), (2600, 80), (WL_LAP, 80)]
+
+
+def _wl_radius(s):
+    rs = [40 + 0.5 * (s - 650) ** 2, 35 + 0.5 * (s - 700) ** 2,
+          40 + 0.5 * (s - 1500) ** 2, 40 + 0.5 * (s - 2400) ** 2]
+    return min([5000.0] + rs)
+
+
+def _wl_speed(s):
+    for (s0, v0), (s1, v1) in zip(WL_SPEED, WL_SPEED[1:]):
+        if s0 <= s <= s1:
+            return v0 + (v1 - v0) * (s - s0) / (s1 - s0)
+    return WL_SPEED[-1][1]
+
+
+def make_lap_file(path, brake=True):
+    n = int(WL_LAP / STEP) + 1
+    rr = (WL_LAP + STEP) / (2 * math.pi)
+    out = struct.pack("<4i", 7, n, 0, 0)
+    for i in range(n):
+        s = i * STEP
+        ang = 2 * math.pi * s / (WL_LAP + STEP)
+        out += struct.pack("<4fi", rr * math.cos(ang), rr * math.sin(ang), 0.0, s, i)
+    out += struct.pack("<i", n)
+    for i in range(n):
+        s = i * STEP
+        braking = any(a <= s <= b for a, b in WL_BRAKES)
+        coast = any(a <= s < p for (a, _), p in zip(WL_BRAKES, WL_PICKUPS))
+        out += struct.pack("<18f", _wl_speed(s), 0.0 if coast else 1.0, 0.9 if braking and brake else 0.0,
+                           0.0, _wl_radius(s), 6.0, 7.0, 0.01, 0.0, 0.0, 1.0, 0.0, STEP,
+                           1.0, 0.0, 0.0, 0.0, 0.02)
+    out += struct.pack("<i", 0)
+    path.write_bytes(out)
+    return path
+
+
+@pytest.fixture
+def wl_points(tmp_path):
+    return ate.parse_file(make_lap_file(tmp_path / "fast_lane.ai"))
+
+
+WL_BASE = {
+    "name": "Testring", "length_m": 3000,
+    "defaults": {"wheelbase_m": 2.5, "comparable_entry_kmh": 7,
+                 "tolerance": {"brake_onset_m": 5}, "allowed": {"drills": ["brake_point"]}},
+    "corners": [
+        {"id": "first", "name": "First Chicane", "start_gate_m": 200, "board_zero_m": 555,
+         "apex_window_m": [640, 710], "exit_gate_m": 760},
+        {"id": "hairpin", "name": "The Hairpin", "start_gate_m": 1000, "board_zero_m": 1400,
+         "apex_window_m": [1490, 1510], "exit_gate_m": 1560},
+        {"id": "far", "name": "Far Away", "start_gate_m": 1700, "board_zero_m": 1800,
+         "apex_window_m": [1850, 1870], "exit_gate_m": 1900},
+    ],
+}
+
+
+def _wl_track(points, base=WL_BASE):
+    zones = ate.find_braking_zones(points)
+    return ate.build_track(base, ate.build_zone_corners(points, zones, ate.lap_length(points)),
+                           ate.lap_length(points))
+
+
+def test_find_braking_zones(wl_points):
+    zones = ate.find_braking_zones(wl_points)
+    assert [z.brake_m for z in zones] == pytest.approx([540, 1350, 2250], abs=5)
+    assert [z.slowest_m for z in zones] == pytest.approx([675, 1500, 2400], abs=5)
+    assert not any(z.fallback for z in zones)
+
+
+def test_merge_close_brake_runs(wl_points):
+    assert len(ate.find_braking_zones(wl_points, min_gap_m=1000.0)) == 1
+
+
+def test_zero_brake_fallback(tmp_path):
+    pts = ate.parse_file(make_lap_file(tmp_path / "nobrake.ai", brake=False))
+    zones = ate.find_braking_zones(pts)
+    assert all(z.fallback for z in zones)
+    assert [z.brake_m for z in zones] == pytest.approx([540, 1350, 2250], abs=5)
+    assert [z.slowest_m for z in zones] == pytest.approx([675, 1500, 2400], abs=5)
+    corners = ate.build_zone_corners(pts, zones, ate.lap_length(pts))
+    assert all(c["_fallback"] for c in corners)
+
+
+def test_zone_corners_chicane_and_single_apex(wl_points):
+    zones = ate.find_braking_zones(wl_points)
+    c1, c2, c3 = ate.build_zone_corners(wl_points, zones, ate.lap_length(wl_points))
+    assert c1["apex_window_m"] == pytest.approx([650, 700], abs=2)       # chicane: apex1..apex2
+    assert c2["apex_window_m"] == pytest.approx([1490, 1510], abs=2)     # single apex +-10
+    assert c3["apex_window_m"] == pytest.approx([2390, 2410], abs=2)
+    assert c2["start_gate_m"] == pytest.approx(1350 - 250, abs=5)
+    assert c2["gates"]["brake_m"] == pytest.approx(1350, abs=5)
+    assert c2["gates"]["turn_in_m"] < c2["gates"]["apex1_m"] < c2["gates"]["apex2_m"] < c2["exit_gate_m"]
+
+
+def test_start_gate_clamped_after_previous_exit(wl_points):
+    zones = [ate.BrakingZone(540.0, 675.0, False), ate.BrakingZone(760.0, 800.0, False)]
+    c1, c2 = ate.build_zone_corners(wl_points, zones, ate.lap_length(wl_points))
+    assert c2["start_gate_m"] == c1["exit_gate_m"] + 10
+
+
+def test_build_track_reuses_base_ids(wl_points):
+    t = _wl_track(wl_points)
+    assert [c["id"] for c in t["corners"]] == ["first", "hairpin", "c3"]
+    assert t["corners"][0]["name"] == "First Chicane" and t["corners"][0]["board_zero_m"] == 555
+    assert t["corners"][2]["board_zero_m"] == pytest.approx(2250 + 100, abs=5)
+    assert t["name"] == "Testring" and t["defaults"] == WL_BASE["defaults"]
+    assert t["length_m"] == pytest.approx(3002, abs=3)
+
+
+def test_build_track_without_base(wl_points):
+    t = _wl_track(wl_points, None)
+    assert [c["id"] for c in t["corners"]] == ["c1", "c2", "c3"]
+    assert t["corners"][0]["board_zero_m"] == pytest.approx(640, abs=5)
+    assert t["defaults"]["tolerance"] and t["defaults"]["allowed"]
+
+
+def test_track_loads_without_overlap_and_talk_zones_wrap(tmp_path, wl_points):
+    t = _wl_track(wl_points)
+    f = tmp_path / "track.json"
+    f.write_text(json.dumps(t))
+    track = load_track(f)
+    cs = track.corners
+    assert all(a.exit_gate_m < b.start_gate_m for a, b in zip(cs, cs[1:]))
+    assert len(track.talk_zones) == 3
+    a, b = track.talk_zones[-1]
+    assert a > b and a == pytest.approx(cs[-1].exit_gate_m + 20, abs=0.2)   # wraps the lap line
+    assert b == pytest.approx(cs[0].start_gate_m - 20, abs=0.2)
+    assert track.talk_zones[0][0] == pytest.approx(cs[0].exit_gate_m + 20, abs=0.2)
+    assert track.talk_zones[0][1] == pytest.approx(cs[1].start_gate_m - 20, abs=0.2)
+    for prev, c in zip(cs, cs[1:]):
+        assert c.reminder_m == pytest.approx(max(prev.exit_gate_m + 20, c.start_gate_m - 200), abs=0.2)
+    assert track.corner("hairpin").wheelbase_m == 2.5   # base defaults merged
+
+
+def test_track_reference_loads(tmp_path, wl_points):
+    t = _wl_track(wl_points)
+    ref = ate.build_track_reference(wl_points, t)
+    assert ref["source"] == "fast_lane.ai v7"
+    assert 40 < ref["lap_time_s"] < 90
+    f = tmp_path / "ref.json"
+    f.write_text(json.dumps(ref))
+    loaded = load_track_reference(f)
+    assert set(loaded) == {"first", "hairpin", "c3"}
+    att, trace = loaded["hairpin"]
+    assert att.apex_kmh == pytest.approx(20 * 3.6, abs=1) and trace
+
+
+def test_cli_track_end_to_end(tmp_path, capsys):
+    make_lap_file(tmp_path / "fast_lane.ai")
+    base = tmp_path / "base.json"
+    base.write_text(json.dumps(WL_BASE))
+    out, ref = tmp_path / "track.json", tmp_path / "track_ref.json"
+    rc = ate.main([str(tmp_path), "--track", str(base), "--track-out", str(out), "--track-ref-out", str(ref)])
+    assert rc == 0
+    text = capsys.readouterr().out
+    assert "first: brake_m=540" in text and "c3: brake_m=2250" in text
+    track = load_track(out)
+    assert track.ids == ["first", "hairpin", "c3"]
+    assert set(load_track_reference(ref)) == set(track.ids)
+
+
+def test_cli_track_fallback_warns(tmp_path, capsys):
+    make_lap_file(tmp_path / "fast_lane.ai", brake=False)
+    out = tmp_path / "track.json"
+    assert ate.main([str(tmp_path), "--track-out", str(out)]) == 0
+    assert "speed minimum" in capsys.readouterr().err
+    assert len(load_track(out).corners) == 3

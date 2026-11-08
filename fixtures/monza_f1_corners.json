@@ -1,0 +1,117 @@
+{
+ "corner_markers_m": {
+  "1": 885.1922370857491,
+  "2": 942.2170757231196,
+  "3": 1459.0610366744543,
+  "4": 2108.9628561072564,
+  "5": 2161.0093570687395,
+  "6": 2522.6191977319554,
+  "7": 2843.4969267891197,
+  "8": 3918.822552348609,
+  "9": 4010.2434347973335,
+  "10": 4112.525630331896,
+  "11": 5205.502600260328
+ },
+ "corners": {
+  "t1": {
+   "name": "Rettifilo",
+   "markers_m": [
+    885.2,
+    942.2
+   ],
+   "brake_onset_m": 769.5,
+   "brake_onset_iqr": 17.3,
+   "slowest_m": 947.1,
+   "slowest_kmh": 73.0,
+   "slowest_iqr": 13.0,
+   "throttle20_m": 951.1,
+   "full_throttle_m": 1000.5,
+   "entry_kmh": 348.0,
+   "brake_samples": 241,
+   "n": 20
+  },
+  "roggia": {
+   "name": "Roggia",
+   "markers_m": [
+    2109.0,
+    2161.0
+   ],
+   "brake_onset_m": 1991.1,
+   "brake_onset_iqr": 13.5,
+   "slowest_m": 2123.0,
+   "slowest_kmh": 110.5,
+   "slowest_iqr": 14.8,
+   "throttle20_m": 2123.7,
+   "full_throttle_m": 2192.9,
+   "entry_kmh": 326.0,
+   "brake_samples": 168,
+   "n": 20
+  },
+  "lesmo1": {
+   "name": "Lesmo 1",
+   "markers_m": [
+    2522.6
+   ],
+   "brake_onset_m": 2433.5,
+   "brake_onset_iqr": 22.9,
+   "slowest_m": 2533.4,
+   "slowest_kmh": 206.0,
+   "slowest_iqr": 11.0,
+   "throttle20_m": 2533.4,
+   "full_throttle_m": 2563.8,
+   "entry_kmh": 264.5,
+   "brake_samples": 155,
+   "n": 20
+  },
+  "lesmo2": {
+   "name": "Lesmo 2",
+   "markers_m": [
+    2843.5
+   ],
+   "brake_onset_m": 2766.3,
+   "brake_onset_iqr": 16.2,
+   "slowest_m": 2855.4,
+   "slowest_kmh": 189.0,
+   "slowest_iqr": 19.0,
+   "throttle20_m": 2856.4,
+   "full_throttle_m": 2890.1,
+   "entry_kmh": 270.0,
+   "brake_samples": 158,
+   "n": 20
+  },
+  "ascari": {
+   "name": "Ascari",
+   "markers_m": [
+    3918.8,
+    4010.2,
+    4112.5
+   ],
+   "brake_onset_m": 3818.7,
+   "brake_onset_iqr": 21.4,
+   "slowest_m": 3936.7,
+   "slowest_kmh": 192.0,
+   "slowest_iqr": 11.6,
+   "throttle20_m": 3936.7,
+   "full_throttle_m": 3967.5,
+   "entry_kmh": 341.0,
+   "brake_samples": 97,
+   "n": 20
+  },
+  "parabolica": {
+   "name": "Parabolica",
+   "markers_m": [
+    5205.5
+   ],
+   "brake_onset_m": 5027.4,
+   "brake_onset_iqr": 19.9,
+   "slowest_m": 5159.7,
+   "slowest_kmh": 214.0,
+   "slowest_iqr": 16.4,
+   "throttle20_m": 5159.7,
+   "full_throttle_m": 5199.5,
+   "entry_kmh": 331.5,
+   "brake_samples": 106,
+   "n": 20
+  }
+ }
+}

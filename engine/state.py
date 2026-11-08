@@ -133,6 +133,7 @@ class Coach:
                              "verdict": decision.verdict, "end_reason": decision.end_reason,
                              "said": decision.cue if decision.action == "offer_drill" else decision.summary,
                              "mode": decision.mode})
+        decision = self._annotate(decision, packet)
         self.previous = attempt
         self.last_decision = decision
         if self.trace:
@@ -187,6 +188,13 @@ class Coach:
         gap = (packet.get("target_gap") or {}).get(key, packet["delta"].get(key))
         return reminder_for(drill_id, gap)
 
+    # -- hooks (whole-lap mode overrides them: engine.track_coach) --
+    def _annotate(self, decision: Decision, packet: dict) -> Decision:
+        return decision
+
+    def _rule_goals(self, packet: dict) -> list[dict]:
+        return rule_plan(packet)
+
     # -- agent mode --
     def _agent_turn(self, attempt: Attempt, trace: list | None, packet: dict, retry: bool):
         ag = self.agent
@@ -229,7 +237,7 @@ class Coach:
                 goals = (d.plan or {}).get("goals") or []
             elif d.action == "offer_drill":
                 one = [{"drill_id": d.drill_id, "target": d.target, "cue": d.cue, "reminder": d.reminder}]
-                goals = (rule_plan(packet) or one) if d.mode == "rules" else one
+                goals = (self._rule_goals(packet) or one) if d.mode == "rules" else one
             else:
                 ag.plan, d.plan = None, None
                 return d

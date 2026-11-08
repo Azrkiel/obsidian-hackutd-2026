@@ -46,6 +46,8 @@ button:disabled{opacity:.35;cursor:not-allowed}
 #tools li{padding:4px 0;border-bottom:1px solid var(--line)}#tools li b{color:var(--blue)}#tools li .ms{color:var(--dim);float:right}
 #tools li .res{color:#b8c4d3;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .hidden{display:none}
+#laps td.lost{color:var(--bad)}#laps td.gain{color:var(--good)}#laps td.focus{outline:2px solid var(--blue);outline-offset:-2px}
+#laps{font-size:18px}#laps th{font-size:15px;color:var(--dim);font-weight:600}
 </style>
 </head>
 <body>
@@ -61,7 +63,9 @@ button:disabled{opacity:.35;cursor:not-allowed}
 <main>
   <div>
     <div class="panel"><h2>Cue</h2><div id="cue">Drive a baseline run through the corner.</div><div id="evidence"></div></div>
-    <div class="panel" style="margin-top:16px"><h2>Metrics</h2>
+    <div class="panel hidden" id="p-laps" style="margin-top:16px"><h2 id="laps-title">Laps</h2>
+      <table id="laps"><thead></thead><tbody></tbody></table></div>
+    <div class="panel" style="margin-top:16px"><h2 id="metrics-title">Metrics</h2>
       <table id="metrics"><thead><tr><th></th><th>Reference</th><th>Baseline</th><th>Latest retry</th></tr></thead><tbody></tbody></table>
     </div>
     <div class="panel" style="margin-top:16px"><h2>Brake trace</h2><canvas id="cv" width="900" height="260"></canvas>
@@ -92,7 +96,8 @@ button:disabled{opacity:.35;cursor:not-allowed}
 "use strict";
 const $ = id => document.getElementById(id);
 const S = {state: "IDLE", corner: null, ref: null, refTrace: [], base: null, retry: null, offer: null,
-           decision: null, health: null, tries: 0, thinking: "", plan: null, tools: []};
+           decision: null, health: null, tries: 0, thinking: "", plan: null, tools: [],
+           track: null, laps: [], focusId: null};
 let ws, tToast;
 
 function send(o){ if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
@@ -190,7 +195,8 @@ function addTool(e){
 function renderCue(){
   const d=S.decision;
   const lap=S.health&&S.health.mode==="lap";
-  $("cue").textContent=d?(d.cue||d.summary||""):(lap?"Keep driving. The coach talks after the corner.":"Drive a baseline run through the corner.");
+  const after=S.track?"after "+S.track.corners[S.track.corners.length-1].name:"after the corner";
+  $("cue").textContent=d?(d.cue||d.summary||""):(lap?"Keep driving. The coach talks "+after+".":"Drive a baseline run through the corner.");
   const a=S.retry&&S.retry.attempt||S.base&&S.base.attempt, ref=S.ref;
   let ev=""; if(d&&a&&ref){
     ev="Measured: braked "+fmt(a.brake_onset_m,0)+" m (reference "+fmt(ref.brake_onset_m,0)+" m), throttle "+fmt(a.throttle_pickup_m,0)+" m (reference "+fmt(ref.throttle_pickup_m,0)+" m)"
@@ -211,7 +217,26 @@ function draw(){
   line(S.refTrace,"#8793a3",2); line(S.base&&S.base.trace,"#ffc233",2); line(S.retry&&S.retry.trace,"#3ddc84",3);
   const t=targetOnset(); if(t){ g.strokeStyle="#4aa8ff"; g.lineWidth=2; g.setLineDash([6,4]); g.beginPath(); g.moveTo(px(t.pos),10); g.lineTo(px(t.pos),H-24); g.stroke(); g.setLineDash([]); }
 }
-function renderAll(){ renderTop(); renderCue(); renderMetrics(); renderPlan(); draw(); }
+function renderLaps(){
+  const t=S.track; $("p-laps").classList.toggle("hidden",!t); if(!t) return;
+  $("laps-title").textContent="Laps: "+t.name+" (seconds lost per corner vs reference)";
+  $("metrics-title").textContent="Metrics"+(S.corner?": "+S.corner.name:"");
+  const head=$("laps").tHead, tb=$("laps").tBodies[0];
+  head.innerHTML="<tr><th>Lap</th><th>Time</th><th>Corners</th>"+t.corners.map(c=>"<th>"+c.name+"</th>").join("")+"</tr>";
+  tb.innerHTML="";
+  for(const l of S.laps.slice(-8).reverse()){
+    const tr=document.createElement("tr"), by={}; (l.corners||[]).forEach(c=>by[c.corner_id]=c);
+    tr.innerHTML="<td>"+l.lap+"</td><td>"+(l.lap_time_s?l.lap_time_s.toFixed(2):"-")+"</td><td>"+(l.delta_s>=0?"+":"")+fmt(l.delta_s,2)+"</td>";
+    for(const c of t.corners){ const td=document.createElement("td"), x=by[c.id];
+      if(!x){ td.textContent="-"; } else if(!x.valid){ td.textContent="inv"; td.className="inc"; }
+      else { const d=x.delta_s; td.textContent=(d>=0?"+":"")+fmt(d,2); td.className=d>0.02?"lost":d<-0.02?"gain":""; }
+      if(c.id===S.focusId) td.classList.add("focus"); tr.appendChild(td); }
+    tb.appendChild(tr);
+  }
+}
+function applyFocus(f){ if(!f) return; S.focusId=f.corner_id; S.corner=f.corner; S.ref=f.reference.attempt;
+  S.refTrace=f.reference.trace||[]; S.base=f.baseline; S.retry=f.retry; }
+function renderAll(){ renderTop(); renderCue(); renderMetrics(); renderPlan(); renderLaps(); draw(); }
 
 function onEvent(e){
   if(e.type==="voice"){ if(e.text_log) addActivity({ts:e.ts,text:e.text_log}); }
@@ -221,7 +246,10 @@ function onEvent(e){
     S.state=e.state; S.corner=e.corner; S.ref=e.reference.attempt; S.refTrace=e.reference.trace||[];
     S.base=e.baseline; S.retry=e.retry; S.decision=e.decision; S.offer=e.offer; S.health=e.health; S.tries=e.tries;
     S.plan=e.plan||null; $("activity").innerHTML=""; (e.activity||[]).forEach(addActivity);
-    $("voice").innerHTML=""; (e.voice||[]).forEach(addVoice); $("tools").innerHTML=""; (e.tools||[]).forEach(addTool); break;
+    $("voice").innerHTML=""; (e.voice||[]).forEach(addVoice); $("tools").innerHTML=""; (e.tools||[]).forEach(addTool);
+    S.track=e.track||null; S.laps=e.track_laps||[]; applyFocus(e.focus); break;
+  case "focus": applyFocus(e); break;
+  case "track_lap": S.laps.push(e); S.laps=S.laps.slice(-20); break;
   case "voice": addVoice(e); break;
   case "plan": S.plan=e.plan; break;
   case "tool_call": addTool(e); break;
@@ -232,9 +260,10 @@ function onEvent(e){
   case "thinking": S.thinking+=e.text; $("thinking").textContent=S.thinking; $("thinking").scrollTop=1e9; break;
   case "run":
     S.thinking=""; $("thinking").innerHTML="&nbsp;";
+    if(e.corner_id&&(!S.corner||e.corner_id!==S.corner.id)) break; // whole lap: only the coached corner is charted
     if(e.role==="baseline"){ S.base=e; S.retry=null; } else if(e.role==="retry") S.retry=e; break;
   case "decision": S.decision=e; S.offer=e.action==="offer_drill"?e:null; if(e.plan) S.plan=e.plan; break;
-  case "reference": S.ref=e.attempt; S.refTrace=e.trace||[]; break;
+  case "reference": if(!e.corners){ S.ref=e.attempt; S.refTrace=e.trace||[]; } break;
   case "session": S.base=S.retry=S.decision=S.offer=S.plan=null; S.thinking=""; $("thinking").innerHTML="&nbsp;"; $("tools").innerHTML=""; break;
   case "reset_failed": toast("Reset failed: "+e.reason); break;
   }
