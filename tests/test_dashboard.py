@@ -21,7 +21,7 @@ async def test_index_and_state(corner, ref, tmp_path):
     try:
         r = await client.get("/")
         text = await r.text()
-        assert r.status == 200 and "text/html" in r.headers["Content-Type"] and "NomadSim" in text
+        assert r.status == 200 and "text/html" in r.headers["Content-Type"] and "Pit Pal" in text
         assert "http://" not in text and "https://" not in text.replace('"https:"', "")  # no CDN
         snap = await (await client.get("/state")).json()
         assert snap["type"] == "snapshot" and snap["state"] == "IDLE"

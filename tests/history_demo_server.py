@@ -12,7 +12,7 @@ from engine.config import load_attempt, load_corner
 
 async def main():
     root = Path(__file__).resolve().parent.parent
-    data = Path(tempfile.mkdtemp(prefix="nomadsim-history-ui-"))
+    data = Path(tempfile.mkdtemp(prefix="pitpal-history-ui-"))
     corner = load_corner(root / "fixtures/corner_monza_t1.json")
     app = CoachApp(
         corner,

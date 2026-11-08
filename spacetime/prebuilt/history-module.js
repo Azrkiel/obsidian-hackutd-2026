@@ -3,7 +3,7 @@ import * as _syscalls2_0 from "spacetime:sys@2.0";
 import { moduleHooks } from "spacetime:sys@2.0";
 import * as _syscalls2_1 from "spacetime:sys@2.1";
 
-//#region C:/Users/jiang/AppData/Local/Temp/nomadsim-review/spacetime/node_modules/headers-polyfill/lib/index.mjs
+//#region node_modules/headers-polyfill/lib/index.mjs
 var __create$1 = Object.create;
 var __defProp$1 = Object.defineProperty;
 var __getOwnPropDesc$1 = Object.getOwnPropertyDescriptor;
@@ -302,7 +302,7 @@ var Headers = class _Headers {
 };
 
 //#endregion
-//#region C:/Users/jiang/AppData/Local/Temp/nomadsim-review/spacetime/node_modules/spacetimedb/dist/server/index.mjs
+//#region node_modules/spacetimedb/dist/server/index.mjs
 typeof globalThis !== "undefined" && (globalThis.global = globalThis.global || globalThis, globalThis.window = globalThis.window || globalThis);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -7136,7 +7136,7 @@ var console2 = {
 globalThis.console = console2;
 
 //#endregion
-//#region C:/Users/jiang/AppData/Local/Temp/nomadsim-review/spacetime/src/index.ts
+//#region src/index.ts
 const db = schema({
 	driver: table({ public: true }, {
 		driver_id: t.string().primaryKey(),

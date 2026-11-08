@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 import Security
 
-/// QR pairing with the NomadSim receiver (`docs/PAIRING.md`, `coach/pairing.py`).
+/// QR pairing with the Pit Pal receiver (`docs/PAIRING.md`, `coach/pairing.py`).
 ///
 /// The PC shows `nomadsim://pair?v=1&h=<ipv4>[,…]&p=<port>&k=<key>&n=<name>&id=<id>`. The phone says
 /// hello with a fresh nonce, the receiver answers with a signed welcome, and both derive a session

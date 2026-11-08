@@ -1,7 +1,7 @@
 [project]
-name = "nomadsim-engine"
+name = "pit-pal"
 version = "0.1.0"
-description = "NomadSim thinking engine: one-corner practice coach"
+description = "Pit Pal: AI racing coach for Assetto Corsa, powered by NVIDIA Nemotron"
 requires-python = ">=3.11"
 dependencies = [
     "aiohttp>=3.14.5",
