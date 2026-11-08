@@ -134,19 +134,19 @@ async def test_local_routes_are_cached_validate_queries_and_reject_cross_origin_
     client = TestClient(TestServer(make_history_app(service)))
     await client.start_server()
     try:
-        response = await client.post("/history/refresh", json={})
+        response = await client.post("/cloud-history/refresh", json={})
         assert response.status == 202
         await idle(service)
-        assert (await (await client.get("/history")).json())["items"]
-        assert (await client.get("/history/status")).status == 200
-        assert (await client.get("/history?limit=10000")).status == 400
-        assert (await client.get("/history/session-a?kind=secrets")).status == 400
-        assert (await client.post("/history/refresh", json={}, headers={"Origin": "https://evil.example"})).status == 403
-        assert (await client.post("/history/refresh", data="invalid json")).status == 400
+        assert (await (await client.get("/cloud-history")).json())["items"]
+        assert (await client.get("/cloud-history/status")).status == 200
+        assert (await client.get("/cloud-history?limit=10000")).status == 400
+        assert (await client.get("/cloud-history/session-a?kind=secrets")).status == 400
+        assert (await client.post("/cloud-history/refresh", json={}, headers={"Origin": "https://evil.example"})).status == 403
+        assert (await client.post("/cloud-history/refresh", data="invalid json")).status == 400
         html = await (await client.get("/")).text()
         assert "Session history" in html
         assert "private-test-token" not in html
-        script = await (await client.get("/history.js")).text()
+        script = await (await client.get("/cloud-history.js")).text()
         assert "innerHTML" not in script
     finally:
         await client.close()
@@ -168,7 +168,7 @@ async def test_detail_results_are_paginated_and_not_implicitly_labeled_as_lap_da
 
 
 async def test_history_viewer_needs_no_game_or_model_initialization(tmp_path, monkeypatch):
-    from coach.history import build_app
+    from coach.cloud_viewer import build_app
     import sys
     monkeypatch.setitem(sys.modules, "coach.app", None)
     monkeypatch.setitem(sys.modules, "engine.nemotron", None)
@@ -177,7 +177,7 @@ async def test_history_viewer_needs_no_game_or_model_initialization(tmp_path, mo
     await client.start_server()
     try:
         assert (await client.get("/")).status == 200
-        assert (await (await client.get("/history/status")).json())["state"] == "disabled"
+        assert (await (await client.get("/cloud-history/status")).json())["state"] == "disabled"
     finally:
         await client.close()
 
@@ -192,10 +192,10 @@ async def test_full_coach_mounts_history_and_keeps_it_out_of_game_commands(corne
     client = TestClient(TestServer(make_web_app(app)))
     await client.start_server()
     try:
-        assert (await client.get("/history-view")).status == 200
-        assert (await (await client.get("/history")).json())["status"]["state"] == "disabled"
+        assert (await client.get("/cloud-history-view")).status == 200
+        assert (await (await client.get("/cloud-history")).json())["status"]["state"] == "disabled"
         html = await (await client.get("/")).text()
-        assert 'href="/history-view"' in html
-        assert (await client.post("/history/refresh", json={"command": "accept"})).status == 400
+        assert 'href="/cloud-history-view"' in html
+        assert (await client.post("/cloud-history/refresh", json={"command": "accept"})).status == 400
     finally:
         await client.close()

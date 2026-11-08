@@ -13,6 +13,7 @@ from typing import Any, Callable
 from . import tools as base_tools
 from .analysis import compare_runs, driving_profile, splits
 from .evidence import DRILL_METRIC
+from .drills import prompt_drills, TARGET_PROPERTIES, target_hit
 from .models import Attempt, CornerConfig, ToolCall
 from .plan import MAX_GOALS, Plan
 
@@ -23,8 +24,7 @@ _fn = base_tools._fn
 
 _GOAL = {"type": "object", "properties": {
     "drill_id": {"type": "string", "enum": base_tools.DRILLS},
-    "target": {"type": "object", "properties": {"marker_m": {"type": "number"},
-                                                "release_s": {"type": "number"}}},
+    "target": {"type": "object", "properties": TARGET_PROPERTIES},
     "cue": {"type": "string", "description": "What the driver is told for this goal (short, spoken)."},
     "reminder": {"type": "string", "description": "At most 4 words for the approach (spoken mode)."},
     "title": {"type": "string"},
@@ -44,6 +44,8 @@ READ_TOOLS: list[dict] = [
     _fn("compare_runs", "Metric-by-metric differences between two laps (a minus b).",
         {"a": {"type": "string"}, "b": {"type": "string"}}, ["a", "b"]),
     _fn("get_session_history", "Laps so far, drills given, outcomes, and the plan.", {}, []),
+    _fn("get_driver_history", "Previous sessions for this driver on the same track, car and corner: "
+        "measured lap metrics, drills, verdicts and saved plans. Works offline. Empty means no past evidence.", {}, []),
     _fn("get_corner_info", "Brake boards, gates, apex window, tolerances and allowed drill ranges.", {}, []),
 ]
 ACTION_TOOLS: list[dict] = [
@@ -71,14 +73,17 @@ _ALL_ACTIONS = {**_BASE_ACTIONS, **{t["function"]["name"]: t for t in ACTION_TOO
 READ_NAMES = {t["function"]["name"] for t in READ_TOOLS} | {"get_attempt_evidence"}
 
 AGENT_PROMPT = """You are a racing coach running a practice session on one corner of a track in a simulator. The car is a Mazda 787B: very fast, heavy downforce, an analog brake. Each turn:
+- On the first plan turn, read get_driver_history. If there are past sessions, open your cue or summary with one relevant measured number and use the past drill outcomes to choose a starting point. Never invent history or infer improvement from an invalid lap. packet.driver_history is the offline snapshot; empty history means a new driver.
 - You may call read tools (get_driving_profile, get_splits, compare_runs, get_session_history, get_corner_info) for up to 3 rounds; their results come back to you.
 - Then call exactly one action tool. Never answer in plain text.
 Plan turn (packet.turn = "plan", after the baseline lap): look at the profile and the splits against the reference, then set_plan with 1 to 3 ordered goals, the biggest time loss first. Each goal is one drill with a target taken from packet.suggested, a cue, a reminder and in_a_row (1, or 2 for "twice in a row"). Only plan drills whose delta is over tolerance. If nothing is over tolerance, or the lap is invalid or not comparable, call end_drill.
 Evaluate turn (packet.turn = "evaluate", after a retry of packet.plan.active_goal): compare the retry with the goal's target (packet.target_gap vs packet.tolerance; packet.plan.active_goal.streak counts hits in a row including this lap, tries counts retries on this goal). One action: offer_drill for the same drill (verdict repeat if it improved but missed, adjust if the target is wrong for this driver), advance_plan (met when inside tolerance and the streak reaches in_a_row; skipped after 2 or more tries with no progress), revise_plan if the plan was wrong, or end_session.
-Drills: brake_point (target marker_m = brake board), brake_release (target release_s = seconds from peak brake to off; the 787B needs a progressive release as downforce fades or the fronts lock), throttle_pickup (target marker_m = metres past the apex).
+Drills: {DRILL_LINES}. Only coach drills with calibrated telemetry and available evidence.
 Every number you say must come from the packet or a tool result. Cues are one sentence, an action at a visible marker, under 20 words. If the packet has "voice", the driver hears you at speed: at most voice.max_cue_words words for cues and summaries, reminder at most voice.max_reminder_words words, second person, e.g. "Brake 14 m earlier, at the 100 m board." and "Better, 4 m earlier. Keep that."
 invalid_reason pedal_dropout or steering_dropout means the phone or the pedals cut out during the lap, not a driver mistake: say the lap did not count because the input dropped, and never coach technique from that lap.
 Reason briefly (under 150 words)."""
+
+AGENT_PROMPT = AGENT_PROMPT.replace("{DRILL_LINES}", prompt_drills())
 
 AGENT_JSON_SUFFIX = (
     '\nTools are not available. Answer with only one JSON object: {"tool": "<name>", "arguments": {...}}. '
@@ -101,6 +106,8 @@ def _short(name: str, res: dict) -> str:
         return ", ".join(f"{k} {d[k]:+}" for k in keys) or f"{len(d)} differences"
     if name == "get_session_history":
         return f"{len(res.get('laps', []))} laps, plan {'set' if res.get('plan') else 'none'}"
+    if name == "get_driver_history":
+        return f"{len(res.get('sessions', []))} previous sessions"
     if name == "get_corner_info":
         return res.get("name", "corner")
     if name == "get_attempt_evidence":
@@ -124,6 +131,7 @@ class AgentSession:
         self.history: list[dict] = []
         self.plan: Plan | None = None
         self.baseline_id: str | None = None
+        self.driver_history: Callable[[], dict] | None = None
         self._profiles: dict[str, dict] = {}
 
     def reset(self) -> None:
@@ -162,7 +170,7 @@ class AgentSession:
             a = self.reference if aid == "reference" else (self.runs.get(aid) or {}).get("attempt")
             if a is None:
                 return None
-            p = {"brake_onset_m": a.brake_onset_m, "brake_board_m": round(self.corner.board_zero_m - a.brake_onset_m, 1),
+            p = {**{k: v for k, v in vars(a).items() if v is not None}, "brake_onset_m": a.brake_onset_m, "brake_board_m": round(self.corner.board_zero_m - a.brake_onset_m, 1),
                  "peak_brake": a.peak_brake, "release_s": a.release_s, "min_kmh": a.min_kmh or a.apex_kmh,
                  "throttle_pickup_m": a.throttle_pickup_m, "section_s": a.section_s, "note": "no trace"}
         self._profiles[aid] = p
@@ -183,6 +191,8 @@ class AgentSession:
     # -- read tools --
     def run_tool(self, name: str, args: dict, current: str, packet: dict) -> dict:
         args = args if isinstance(args, dict) else {}
+        if name == "get_driver_history":
+            return self.driver_history() if self.driver_history else packet.get("driver_history", {"sessions": []})
         if name == "get_driving_profile":
             aid = self._resolve(str(args.get("attempt_id", current)), current)
             p = self.profile(aid) if aid else None
@@ -331,7 +341,7 @@ class AgentTurn:
         gap = packet.get("target_gap") or {}
         key = DRILL_METRIC.get(goal.drill_id)
         tol = packet["tolerance"].get(key)
-        if not packet["valid"] or key not in gap or tol is None or abs(gap[key]) > tol:
+        if not packet["valid"] or key not in gap or tol is None or not target_hit(goal.drill_id, gap[key], tol):
             return False, f"target gap {gap.get(key)} is not inside tolerance {tol}; not met"
         if goal.hits < goal.in_a_row:
             return False, f"inside tolerance {goal.hits} time(s) in a row; the goal needs {goal.in_a_row}"

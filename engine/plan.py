@@ -7,8 +7,8 @@ from .evidence import DRILL_METRIC, DRILL_TARGET
 
 PENDING, ACTIVE, DONE, FAILED = "pending", "active", "done", "failed"
 MAX_GOALS = 3
-TITLES = {"brake_point": "Brake point", "brake_release": "Brake release",
-          "throttle_pickup": "Throttle pickup"}
+from .drills import DRILLS, TITLES, eligible
+
 
 
 @dataclass
@@ -28,10 +28,10 @@ class Goal:
         key = DRILL_METRIC.get(self.drill_id, "")
         tkey = DRILL_TARGET.get(self.drill_id, "marker_m")
         tol = tolerance.get(key)
-        unit = "s" if key == "release_s" else "m"
+        unit = DRILLS[self.drill_id].unit
         v = self.target.get(tkey)
         what = {"brake_point": f"brake at the {v} m board", "brake_release": f"release over {v} s",
-                "throttle_pickup": f"throttle {v} m past the apex"}.get(self.drill_id, str(self.target))
+                "throttle_pickup": f"throttle {v} m past the apex"}.get(self.drill_id, f"{TITLES[self.drill_id]} target {v}")
         times = "" if self.in_a_row <= 1 else f", {self.in_a_row} times in a row"
         return f"{what}, within {tol} {unit}{times}"
 
@@ -117,8 +117,7 @@ def rule_plan(packet: dict) -> list[dict]:
         return goals
     for drill in BASELINE_ORDER:
         key = DRILL_METRIC[drill]
-        if drill in packet["allowed"]["drills"] and drill in packet["suggested"] \
-                and key in d and key in tol and abs(d[key]) > tol[key]:
+        if eligible(packet, drill):
             target, cue = _baseline_cue(packet, drill)
             goals.append({"drill_id": drill, "target": target, "cue": cue,
                           "reminder": reminder_for(drill, d[key]), "in_a_row": 1})

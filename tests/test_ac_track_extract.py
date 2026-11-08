@@ -139,7 +139,8 @@ def test_reference_sane(lane, base_corner):
     a, tr = ref["attempt"], ref["trace"]
     core = {"attempt_id", "valid", "invalid_reason", "entry_kmh", "apex_kmh", "exit_kmh",
             "brake_onset_m", "peak_brake", "throttle_pickup_m", "section_s"}
-    assert core <= set(a) <= set(json.loads((ROOT / "fixtures" / "reference.json").read_text()))
+    from engine.models import Attempt
+    assert core <= set(a) <= set(Attempt.__dataclass_fields__)
     assert a["attempt_id"] == "ai" and a["valid"] is True and a["invalid_reason"] is None
     assert a["entry_kmh"] == pytest.approx(85 * 3.6, abs=0.5)
     assert a["apex_kmh"] == pytest.approx(18 * 3.6, abs=0.5)
@@ -171,6 +172,18 @@ def test_cli_unknown_version_fails_cleanly(tmp_path, capsys):
     bad = make_file(tmp_path / "fast_lane.ai", version=9)
     assert ate.main([str(bad)]) == 1
     assert "version 9" in capsys.readouterr().err
+
+
+def test_cli_keeps_world_line_and_measured_reference(lane, tmp_path):
+    from engine.config import load_corner, load_attempt
+    out, ref_out = tmp_path / 'corner.json', tmp_path / 'reference.json'
+    assert ate.main([str(lane), '--out', str(out), '--ref-out', str(ref_out), '--window','0','800']) == 0
+    corner = load_corner(out)
+    points = ate.parse_file(lane)
+    assert corner.racing_line[10] == pytest.approx([points[10].dist_m, points[10].x, points[10].z])
+    assert not any(corner.telemetry_verified.values())
+    reference = load_attempt(ref_out)
+    assert reference.line_offset_m == 0 and reference.coast_s is not None
 
 
 # --- whole lap -------------------------------------------------------------------

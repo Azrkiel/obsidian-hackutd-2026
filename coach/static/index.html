@@ -45,6 +45,7 @@ code{font:600 13px/18px var(--font-sans);font-variant-ligatures:none;font-featur
 .race{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2) var(--space-3)}
 a.pp-pill{text-decoration:none}
 .race #c-src{margin-right:var(--space-3);font:600 13px/18px var(--font-sans);letter-spacing:.04em;color:var(--ink-muted)}
+.race .pp-label{padding-top:6px}
 .checker{height:24px;background:url(/pitpal/pattern-checker.svg) left top/auto 24px repeat-x;image-rendering:pixelated}
 
 /* status pill */
@@ -192,6 +193,7 @@ summary:focus-visible{outline:3px solid var(--ink);outline-offset:4px}
 #tools:empty::before,#thinking:empty::before{display:block;padding:6px 0;font:400 14px/20px var(--font-sans);color:var(--ink-muted)}
 #tools:empty::before{content:"No tool calls yet. Nemotron's read tools show here in agent mode."}
 #thinking:empty::before{content:"Nemotron's reasoning streams here while it decides."}
+#history-live{width:100%;height:850px;border:0;margin-top:var(--space-4)}
 
 /* footer controls */
 .controls{display:flex;flex-wrap:wrap;gap:var(--space-2) var(--space-3);align-items:center}
@@ -218,8 +220,10 @@ summary:focus-visible{outline:3px solid var(--ink);outline-offset:4px}
   <div class="brand"><span class="pp-display d44">Pit Pal</span><span class="pp-label">Sim racing coach</span></div>
   <div class="race" role="status" aria-live="polite">
     <span class="small" id="c-src"></span>
-    <a class="pp-pill pp-pill--info" id="s-history" href="/history-view">Session history</a>
+    <span class="pp-label">Race</span><span class="pp-display d44 tab" id="race-n">--</span>
+    <a class="pp-pill pp-pill--info" id="s-history" href="/cloud-history-view">Session history</a>
     <span class="pp-pill" id="race-sync">History off</span>
+    <span class="pp-pill hidden" id="cloud-sync"></span>
   </div>
 </header>
 <div class="checker" aria-hidden="true"></div>
@@ -314,8 +318,13 @@ summary:focus-visible{outline:3px solid var(--ink);outline-offset:4px}
 
 <section class="panel">
   <details class="drawer"><summary><span class="pp-label">Race history</span><span class="small" id="history-summary">Loading saved history</span></summary>
-    <p style="margin:var(--space-3) 0"><a href="/history-view">Open session history</a></p>
-    <div id="history-local" style="overflow:auto"><table><thead><tr><th>Track</th><th>Source</th><th>Device</th><th>Started</th><th>Status</th></tr></thead><tbody id="history-laps"></tbody></table></div>
+    <p style="margin:var(--space-3) 0"><a href="/history-viewer/">Open history and live leaderboard</a></p>
+    <div id="history-local" style="overflow:auto"><table><thead><tr><th>Session</th><th>Pass</th><th>Role</th><th>Section s</th><th>Brake board m</th></tr></thead><tbody id="history-laps"></tbody></table></div>
+    <iframe id="history-live" title="Live race history" src="/history-viewer/?embedded=1" hidden></iframe>
+  </details>
+  <details class="drawer"><summary><span class="pp-label">Shared history</span><span class="small" id="cloud-summary">Loading</span></summary>
+    <p style="margin:var(--space-3) 0"><a href="/cloud-history-view">Open session history</a></p>
+    <div id="cloud-local" style="overflow:auto"><table><thead><tr><th>Track</th><th>Source</th><th>Device</th><th>Started</th><th>Status</th></tr></thead><tbody id="cloud-sessions"></tbody></table></div>
   </details>
 </section>
 
@@ -338,7 +347,7 @@ summary:focus-visible{outline:3px solid var(--ink);outline-offset:4px}
 const $ = id => document.getElementById(id);
 const CSS = getComputedStyle(document.documentElement), tok = n => CSS.getPropertyValue("--"+n).trim();
 const S = {state: "IDLE", corner: null, ref: null, refTrace: [], base: null, retry: null, offer: null,
-           decision: null, health: null, tries: 0, thinking: "", plan: null, tools: [],
+           decision: null, health: null, tries: 0, thinking: "", plan: null, tools: [], ghost: [],
            track: null, laps: [], focusId: null, live: null, map: null, src: "", inputs: ""};
 let ws, tToast;
 
@@ -438,9 +447,9 @@ function targetOnset(){
   const d=S.drills&&S.drills[o.drill_id];
   return d ? {key:d.metric, pos:o.target[d.target_key]} : null;
 }
-const CLOUD_TEXT={synced:["Synced to SpacetimeDB","go"],syncing:["Syncing to SpacetimeDB","caution"],
-  offline:["SpacetimeDB offline, saved on this PC","caution"],viewer:["History viewer","info"],
-  auth_error:["SpacetimeDB sign-in failed","brand"],config_error:["SpacetimeDB config error","brand"],
+const CLOUD_TEXT={synced:["Shared history synced","go"],syncing:["Shared history syncing","caution"],
+  offline:["Shared history offline, saved on this PC","caution"],viewer:["History viewer","info"],
+  auth_error:["Shared history: device not authorized","brand"],config_error:["Shared history: setup error","brand"],
   storage_error:["History storage error","brand"],disabled:["History off",""]};
 function cloudPill(c){
   c=c||{state:"disabled"}; const sy=CLOUD_TEXT[c.state]||[String(c.state||"History off").replace(/_/g," "),"brand"];
@@ -448,11 +457,18 @@ function cloudPill(c){
   if(c.pending) t+=" ("+c.pending+" pending)";
   if(c.rejected) t+=" ("+c.rejected+" rejected)";
   if(c.capture_complete===false) t+=" - incomplete";
-  pill($("race-sync"),t,sy[1]); $("race-sync").title=c.error?String(c.error):"";
+  const el=$("cloud-sync"); el.classList.toggle("hidden",c.state==="disabled"); pill(el,t,sy[1]); el.title=c.error?String(c.error):"";
 }
+const SYNC={live:["Synced to SpacetimeDB","go"],offline:["SpacetimeDB offline, saved on this PC","caution"],
+  local:["Saved on this PC (SpacetimeDB not set up)",""],off:["History off",""]};
 function renderTop(){
   const h=S.health; if(!h) return;
   cloudPill(h.cloud);
+  const rc=h.race||{}, sy=SYNC[rc.sync]||SYNC.off;
+  $("race-n").textContent=rc.number?String(rc.number).padStart(2,"0"):"";
+  $("race-n").classList.toggle("hidden",!rc.number); $("race-n").previousElementSibling.classList.toggle("hidden",!rc.number);
+  pill($("race-sync"),sy[0]+(rc.sync==="live"&&rc.database?" · "+rc.database:""),sy[1]);
+  $("race-sync").classList.toggle("hidden",(rc.sync||"off")==="off"&&(h.cloud||{}).state&&(h.cloud||{}).state!=="disabled");
   const t=h.telemetry, i=h.inputs, v=h.voice;
   S.inputs=i?" · pedals: "+i.pedal_source+" · phone "+i.phone+" · arduino "+i.arduino+(i.serial_error&&i.arduino!=="live"?" ("+i.serial_error+")":""):"";
   if(t.state!=="live") $("l-src").textContent=(t.state==="paused"?"Game paused":"No telemetry"+(t.error?": "+t.error:""))+S.inputs;
@@ -561,7 +577,7 @@ function draw(){
   g.fillStyle=tok("ink-muted"); g.fillText("apex",px(c.apex_window_m[0])+4,24);
   const line=(tr,col,w)=>{ if(!tr||!tr.length) return; g.strokeStyle=col; g.lineWidth=w; g.lineJoin="miter"; g.beginPath();
     tr.forEach((p,i)=>{ const x=px(p[0]), y=py(p[1]); i?g.lineTo(x,y):g.moveTo(x,y); }); g.stroke(); };
-  line(S.refTrace,tok("ink-muted"),2); line(S.base&&S.base.trace,tok("caution"),2); line(S.retry&&S.retry.trace,tok("go"),3);
+  line(S.ghost,tok("suit-steel"),4); line(S.refTrace,tok("ink-muted"),2); line(S.base&&S.base.trace,tok("caution"),2); line(S.retry&&S.retry.trace,tok("go"),3);
   const t=targetOnset(); if(t){ g.strokeStyle=tok("signal-blue"); g.lineWidth=2; g.setLineDash([6,4]); g.beginPath(); g.moveTo(px(t.pos),12); g.lineTo(px(t.pos),H-28); g.stroke(); g.setLineDash([]); }
 }
 function renderLaps(){
@@ -642,14 +658,26 @@ function connect(){
   ws.onmessage=m=>onEvent(JSON.parse(m.data));
   ws.onclose=()=>{ $("l-src").textContent="Dashboard disconnected from the coach. Reconnecting."; setTimeout(connect,1000); };
 }
-let histTried=0;
-function histText(el,t){ el.textContent=t; }
+window.addEventListener("message",e=>{if(e.origin===location.origin&&e.source===$("history-live").contentWindow&&e.data.type==="history-ghost"&&Array.isArray(e.data.rows)){S.ghost=e.data.rows;draw();}});
 async function loadHistory(){
-  const sum=$("history-summary"), tb=$("history-laps");
   try{
-    const r=await fetch("/history?limit=10",{cache:"no-store"}); if(!r.ok) throw new Error("HTTP "+r.status);
+    const r=await fetch("/history"), h=await r.json();
+    if(!h.enabled){ const c=document.createElement("code"); c.textContent="--history"; $("history-summary").replaceChildren("History is off. Start the coach with ",c,"."); }
+    else $("history-summary").textContent=h.error?"History unavailable: "+h.error:h.sessions.length+" saved sessions · "+h.laps.length+" passes";
+    const rows=(h.laps||[]).slice(0,30), tb=$("history-laps"); tb.replaceChildren();
+    for(const lap of rows){const s=h.sessions.find(s=>s.session_id===lap.session_id),tr=document.createElement("tr");for(const v of [s?new Date(s.started_at*1000).toLocaleString():"",lap.n,lap.role,lap.valid?fmt(lap.section_s,2):"Invalid: "+lap.invalid_reason,fmt(lap.brake_board_m,1)]){const td=document.createElement("td");td.textContent=v;tr.appendChild(td);}tb.appendChild(tr);}
+  }catch{$("history-summary").textContent="History unavailable. Retrying.";}
+}
+fetch("/history/config").then(r=>r.json()).then(c=>{if(c.url&&c.database){$("history-live").hidden=false;$("history-local").hidden=true;}}).catch(()=>{});
+loadHistory(); setInterval(loadHistory,5000);
+let cloudTried=0;
+function histText(el,t){ el.textContent=t; }
+async function loadCloudHistory(){
+  const sum=$("cloud-summary"), tb=$("cloud-sessions");
+  try{
+    const r=await fetch("/cloud-history?limit=10",{cache:"no-store"}); if(!r.ok) throw new Error("HTTP "+r.status);
     const h=await r.json(), st=h.status||{}, cache=(h.cache||{}).state, items=Array.isArray(h.items)?h.items.slice(0,10):[];
-    if(st.state==="disabled") histText(sum,"History off");
+    if(st.state==="disabled") histText(sum,"Off: no cloud profile on this PC (see docs/SPACETIMEDB.md)");
     else if(st.error&&!items.length) histText(sum,"History unavailable: "+st.error);
     else if(cache==="not_fetched"&&!items.length) histText(sum,st.refreshing?"Fetching history":"Not fetched yet");
     else histText(sum,items.length?"Last "+items.length+" session"+(items.length===1?"":"s")+(h.next_cursor?" (more in session history)":"")+(cache==="stale"?" · cached":""):"No saved sessions yet");
@@ -660,12 +688,12 @@ async function loadHistory(){
       for(const v of [p.track||"",p.source||"",it.device_label||"",when,p.status||""]){ const td=document.createElement("td"); td.textContent=String(v); tr.appendChild(td); }
       tb.appendChild(tr);
     }
-    if(cache!=="fresh"&&!st.refreshing&&st.state!=="disabled"&&Date.now()-histTried>60000){
-      histTried=Date.now(); fetch("/history/refresh",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({limit:10})}).then(()=>setTimeout(loadHistory,2000)).catch(()=>{});
+    if(cache!=="fresh"&&!st.refreshing&&st.state!=="disabled"&&Date.now()-cloudTried>60000){
+      cloudTried=Date.now(); fetch("/cloud-history/refresh",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({limit:10})}).then(()=>setTimeout(loadCloudHistory,2000)).catch(()=>{});
     }
   }catch{ histText(sum,"History unavailable. Retrying."); }
 }
-loadHistory(); setInterval(loadHistory,15000);
+loadCloudHistory(); setInterval(loadCloudHistory,15000);
 function accept(){ if(S.state==="OFFERED"&&S.offer) send({type:"accept",decision_id:S.offer.decision_id}); }
 $("b-accept").onclick=accept;
 for(const k of ["retry","resume","retry_reset","save_checkpoint","set_reference","new_session","toggle_cue_next","toggle_mute","mark_board","new_pairing"])

@@ -621,6 +621,18 @@ def build_reference(points: list[LanePoint], corner: dict) -> dict:
         "throttle_pickup_m": _r(pickup),
         "section_s": round(t, 2),
     }
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from engine.analysis import driving_profile
+    from engine.models import Attempt, CornerConfig
+    cfg = CornerConfig(**{k: v for k, v in corner.items() if not k.startswith("_")})
+    profile = driving_profile(trace, cfg)
+    for key in Attempt.__dataclass_fields__:
+        if key not in attempt and profile.get(key) is not None:
+            attempt[key] = profile[key]
+    # The AI reference itself follows its line; a car trace must carry x/z.
+    if corner.get("racing_line"):
+        attempt["line_offset_m"] = 0.0
     return {"attempt": attempt, "trace": trace}
 
 
@@ -634,8 +646,11 @@ def lap_time_s(points: list[LanePoint]) -> float:
 
 
 def build_track_reference(points: list[LanePoint], track: dict) -> dict:
+    # Same merge as engine.config.load_track: build_reference needs a full CornerConfig
+    defaults = {k: v for k, v in (track.get("defaults") or {}).items() if not k.startswith("_")}
+    full = [{"track_length_m": track["length_m"], **defaults, **c} for c in track["corners"]]
     return {"source": "fast_lane.ai v7", "lap_time_s": round(lap_time_s(points), 2),
-            "corners": {c["id"]: build_reference(points, c) for c in track["corners"]}}
+            "corners": {c["id"]: build_reference(points, c) for c in full}}
 
 
 # --- CLI -----------------------------------------------------------------------
@@ -724,6 +739,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"warning: no AI brake input before apex 1; brake point falls back to "
                   f"board_zero_m - {BRAKE_FALLBACK_BEFORE_BOARD_M:g} = {ch.brake_m:g} m", file=sys.stderr)
         corner = build_corner(base, ch, lap_length(points))
+        # Preserve world coordinates for racing-line comparisons. Calibration stays
+        # explicitly false until O2 checks the mapping against live carCoordinates.
+        corner["racing_line"] = [[round(p.dist_m, 3), p.x, p.z] for p in points]
         diff = corner_diff(base, corner)
         print("corner changes:\n" + ("\n".join(diff) if diff else "  (none)"))
         if args.out:

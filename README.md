@@ -2,7 +2,32 @@
 
 One-corner practice coach for Assetto Corsa (HackUTD 2026).
 
-## Optional shared session history
+Optional persistent race history: start with `--history`. See [HISTORY.md](HISTORY.md) for local storage, SpacetimeDB sync, the live leaderboard, coach memory, and iPhone setup.
+
+## Race PC: one command (no hosting)
+
+```
+uv run python scripts/rig.py          # Assetto Corsa: shared memory, CSP reset (UDP 9101), phone/Arduino inputs
+uv run python scripts/rig.py --sim    # same, with the simulated car
+uv run python scripts/rig.py --lan    # phones on the same Wi-Fi can open the dashboard and the leaderboard
+uv run python scripts/rig.py -- --agent --track fixtures/track_monza.json   # extra coach flags after --
+```
+
+Everything runs on the race PC. Nemotron coaching (`--agent`) and the spoken coach (`--voice nvidia`: NVIDIA Magpie TTS with an `NVIDIA_API_KEY`, else the Windows voice) are on by default; Nemotron needs `NEMOTRON_BASE_URL` (Brev/vLLM), `NVIDIA_API_KEY` or `OPENROUTER_API_KEY`, otherwise the rules coach answers and the dashboard says so. The dashboard (http://127.0.0.1:8020) shows live telemetry, the Nemotron coach, the Monza map and the brake chart, and its buttons control the game through the coach (rewind, retry, resume, checkpoint, mark board). Race history is saved in `data/history.sqlite3`. If the SpacetimeDB CLI is installed (`spacetime` on PATH or `SPACETIME_CLI`), the script also starts a local SpacetimeDB server on 127.0.0.1:3000 (data in `data/spacetime`), publishes the race-history module from `spacetime/prebuilt/` (no Node or npm needed) and gives the coach a writer identity kept in `data/spacetime_local.json`; the header then shows "Synced to SpacetimeDB". Keep `data/` between sessions. Ctrl+C stops the coach and the local server.
+
+### Control the game from a laptop
+
+The coach has to run on the PC that runs Assetto Corsa (it reads AC's shared memory and talks to the CSP reset app on 127.0.0.1:9101). A laptop on the same Wi-Fi only needs a browser:
+
+1. On the game PC: install the CSP reset app (see "Coach program" below), start AC, then `uv run python scripts/rig.py --lan`. Allow Python through the Windows firewall when asked (dashboard port 8020, SpacetimeDB 3000).
+2. The script prints the game PC's address, for example `dashboard: http://192.168.1.20:8020/`. Open it on the laptop. Every button there (Accept, Retry, Resume, Save checkpoint, Set reference, Mark board) controls the game through the coach, and the leaderboard is at `/history-viewer/`.
+3. Phones on the same network can open the same address or scan the leaderboard's QR code.
+
+`--lan` makes the dashboard reachable by anyone on that network, controls included: use it on a network you trust.
+
+## Optional shared session history (multi-PC)
+
+This is separate from `--history` above: it syncs to a SpacetimeDB module in `spacetime-cloud/` with per-PC enrollment, and its pages live at `/cloud-history-view`.
 
 The coach can upload completed sessions, laps, scored attempts and coaching decisions to a
 SpacetimeDB database in your account. The game PC keeps its local dashboard, Rev overlay and Brev
@@ -23,7 +48,7 @@ installation continues to run locally.
 After enrolling a second PC as a viewer, run its history-only dashboard:
 
 ```powershell
-uv run --system-certs --extra cloud python -m coach.history
+uv run --system-certs --extra cloud python -m coach.cloud_viewer
 ```
 
 Open `http://127.0.0.1:8020`. The viewer needs no game, controller bridge or Brev GPU connection.
@@ -239,7 +264,7 @@ CSP reset app (draft): copy `csp/nomadsim_reset/` to `<assettocorsa>/apps/lua/no
 
 Not tested without AC: the shared-memory struct offsets against a live game (layout copied from the CSP `sim_info.py`, parsing is unit-tested on fake buffers), the CSP Lua API calls, `SendInput` hotkeys, `winsound` playback, and the corner positions (placeholders until real laps are logged).
 
-Corner positions in `fixtures/corner_monza_t1.json` are placeholders; replace after logging real laps.
+Single-corner mode uses `fixtures/corner_monza_t1_measured.json` by default: Monza T1 at its position measured from F1 data (start 520, apexes 875-955, exit 1060 m), with a simulator reference braking at the 100 m board (`scripts/make_t1_fixture.py`). `fixtures/corner_monza_t1.json` keeps the old placeholder gates for the unit tests. Check the boards in the game (press B) and press Set reference after a clean real lap.
 
 ### Whole lap: every error gets a retry (`--whole-lap`)
 
@@ -315,6 +340,72 @@ uv run python scripts/speed_agent.py --n 10 --provider brev --voice
 Done when at least 9 of 10 turns of each kind end in a valid action within the budget (plan 15 s, evaluate 10 s).
 
 Still unverified without the game: the new shared-memory fields (yaw-rate sign, g-forces, wheel slip units, so the lock-up/wheelspin thresholds), the reminder position on the real Monza line, and the extractor on Kunos' `fast_lane.ai`.
+
+## Drill registry and telemetry (D1–D12)
+
+`engine/drills.py` defines all 13 drill types, their metric and target keys, units,
+coaching priority, cue gate, reminders, and evidence prerequisites. Tool enums,
+target schemas, model prompt drill descriptions, plan titles, and dashboard target
+metadata derive from this registry. Corner JSON supplies permitted target ranges
+and per-metric tolerances. The original three drills retain their board/apex marker
+semantics; new targets use the metric's own units.
+
+| Drill | Metric / target key | Live cue |
+| --- | --- | --- |
+| brake_bite | time_to_peak_s | Brake gate |
+| no_coast | coast_s | Turn-in gate |
+| apex_position | min_vs_apex_m | Target minimum-speed position relative to apex midpoint |
+| trail_brake | trail_brake_share | Turn-in gate |
+| throttle_roll_on | full_throttle_s | Second apex |
+| lockup | lockup_s | Brake gate |
+| min_speed | min_kmh | First apex |
+| turn_in | turn_in_m | Target position |
+| downshift | last_downshift_m | Target position |
+| racing_line | line_offset_m | Turn-in gate |
+
+All metrics flow from the driving profile into `Attempt`, evidence, agent session
+history (`laps[].metrics`), run events, and dashboard rows. Old attempts and traces
+remain supported: unavailable measurements stay absent/`None` and cannot produce a
+drill or a successful retry. A measured reference is required for each metric;
+use **Set reference** after a valid recorded run. The placeholder reference does
+not contain evidence for every new drill.
+
+`turn_in_m` is the first steering magnitude strictly above 0.05 at or after brake
+onset. `last_downshift_m` is the last forward-gear reduction from brake onset to
+the first apex; neutral blips are ignored. Gear uses -1 reverse, 0 neutral, and
+1.. forward gears. Trace columns append gear, world x, and world z to the original
+nine columns, preserving old column indices and old replay files.
+
+Minimum-speed advice is offered only when minimum-speed position is already
+within apex-position tolerance. No-coast, lockup, and racing-line goals penalize
+excess; minimum speed penalizes a deficit. Improving past those targets still
+counts as success. Other drills compare both sides of the reference target.
+
+### O2 calibration and racing line
+
+The fixture explicitly sets `telemetry_verified.steering`, `.slip`, and
+`.coordinates` to false. Set these flags in a measured corner configuration only
+after checking the corresponding live AC telemetry. `steering` gates trail braking;
+`slip` gates throttle roll-on and lockup (verify wheelSlip units and the 0.15
+thresholds in `engine/analysis.py`); `coordinates` gates racing-line advice (verify
+world x/z axes, metres, and AI cumulative distance vs normalized lap position).
+These real-game checks cannot be established by simulator tests.
+
+Extract a real track without overwriting the fixtures:
+
+```sh
+uv run python scripts/ac_track_extract.py /path/to/track --out data/corner.json --ref-out data/ai_reference.json
+uv run python -m coach --telemetry sim --reset sim --corner data/corner.json --reference data/ai_reference.json --voice off
+```
+
+The extractor preserves `racing_line` as `[track_metres, world_x, world_z]` points;
+its bundled reference attempt and trace load directly into the coach. Racing-line
+error is RMS distance to local AI line segments through the turn, constrained by
+track progress to avoid nearby parallel sections. Missing coordinates, insufficient
+line coverage, or invalid geometry produce no line metric. AI-derived reference
+profiles cannot supply steering, slip, or gear evidence; record a real reference
+for those drills. Synthetic telemetry supports development but does not validate
+a real AC track's geometry or make the synthetic driver learn every drill.
 
 ## Whole-lap coaching
 

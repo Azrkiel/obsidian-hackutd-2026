@@ -3,16 +3,132 @@
   "name": "Monza T1 (Variante del Rettifilo)",
   "track_length_m": 5793,
   "start_gate_m": 240,
-  "apex_window_m": [448, 468],
+  "apex_window_m": [
+    448,
+    468
+  ],
   "exit_gate_m": 540,
   "wheelbase_m": 2.62,
   "board_zero_m": 440,
   "comparable_entry_kmh": 5,
-  "tolerance": {"brake_onset_m": 5, "throttle_pickup_m": 5, "section_s": 0.1, "release_s": 0.15},
+  "tolerance": {
+    "brake_onset_m": 5,
+    "throttle_pickup_m": 5,
+    "section_s": 0.1,
+    "release_s": 0.15,
+    "time_to_peak_s": 0.1,
+    "coast_s": 0.2,
+    "min_vs_apex_m": 5,
+    "trail_brake_share": 0.1,
+    "full_throttle_s": 0.3,
+    "lockup_s": 0.1,
+    "min_kmh": 3,
+    "turn_in_m": 5,
+    "last_downshift_m": 5,
+    "line_offset_m": 0.5
+  },
   "allowed": {
-    "drills": ["brake_point", "brake_release", "throttle_pickup"],
-    "brake_point": {"marker_m": [50, 150], "peak_brake": [0.6, 1.0]},
-    "brake_release": {"release_s": [0.2, 1.5]},
-    "throttle_pickup": {"marker_m": [0, 80]}
+    "drills": [
+      "brake_point",
+      "brake_release",
+      "throttle_pickup",
+      "brake_bite",
+      "no_coast",
+      "apex_position",
+      "trail_brake",
+      "throttle_roll_on",
+      "lockup",
+      "min_speed",
+      "turn_in",
+      "downshift",
+      "racing_line"
+    ],
+    "brake_point": {
+      "marker_m": [
+        50,
+        150
+      ],
+      "peak_brake": [
+        0.6,
+        1.0
+      ]
+    },
+    "brake_release": {
+      "release_s": [
+        0.2,
+        1.5
+      ]
+    },
+    "throttle_pickup": {
+      "marker_m": [
+        0,
+        80
+      ]
+    },
+    "brake_bite": {
+      "time_to_peak_s": [
+        0.05,
+        1.0
+      ]
+    },
+    "no_coast": {
+      "coast_s": [
+        0,
+        2
+      ]
+    },
+    "apex_position": {
+      "min_vs_apex_m": [
+        -30,
+        30
+      ]
+    },
+    "trail_brake": {
+      "trail_brake_share": [
+        0,
+        0.8
+      ]
+    },
+    "throttle_roll_on": {
+      "full_throttle_s": [
+        0.1,
+        3
+      ]
+    },
+    "lockup": {
+      "lockup_s": [
+        0,
+        1
+      ]
+    },
+    "min_speed": {
+      "min_kmh": [
+        40,
+        120
+      ]
+    },
+    "turn_in": {
+      "turn_in_m": [
+        380,
+        448
+      ]
+    },
+    "downshift": {
+      "last_downshift_m": [
+        300,
+        448
+      ]
+    },
+    "racing_line": {
+      "line_offset_m": [
+        0,
+        3
+      ]
+    }
+  },
+  "telemetry_verified": {
+    "steering": false,
+    "slip": false,
+    "coordinates": false
   }
 }
