@@ -1,0 +1,32 @@
+{
+  "_note": "Whole-lap placeholder. T1 matches corner_monza_t1.json; the other corners are approximate positions, not measured. Replace with scripts/ac_track_extract.py --track-out after logging real laps (W3).",
+  "name": "Monza",
+  "length_m": 5793,
+  "reference": "track_monza_reference.json",
+  "talk_zones": [[5300, 200], [560, 1480], [1820, 2030], [2340, 2440], [2740, 3330], [3740, 4680]],
+  "defaults": {
+    "wheelbase_m": 2.62,
+    "comparable_entry_kmh": 5,
+    "tolerance": {"brake_onset_m": 5, "throttle_pickup_m": 5, "section_s": 0.1, "release_s": 0.15},
+    "allowed": {
+      "drills": ["brake_point", "brake_release", "throttle_pickup"],
+      "brake_point": {"marker_m": [50, 150], "peak_brake": [0.6, 1.0]},
+      "brake_release": {"release_s": [0.2, 1.5]},
+      "throttle_pickup": {"marker_m": [0, 80]}
+    }
+  },
+  "corners": [
+    {"id": "t1", "name": "Variante del Rettifilo", "start_gate_m": 240, "board_zero_m": 440,
+     "apex_window_m": [448, 468], "exit_gate_m": 540, "reminder_m": 50},
+    {"id": "roggia", "name": "Variante della Roggia", "start_gate_m": 1500, "board_zero_m": 1700,
+     "apex_window_m": [1710, 1730], "exit_gate_m": 1800, "reminder_m": 1300},
+    {"id": "lesmo1", "name": "Lesmo 1", "start_gate_m": 2050, "board_zero_m": 2200,
+     "apex_window_m": [2230, 2260], "exit_gate_m": 2330, "reminder_m": 1960},
+    {"id": "lesmo2", "name": "Lesmo 2", "start_gate_m": 2450, "board_zero_m": 2600,
+     "apex_window_m": [2630, 2650], "exit_gate_m": 2720, "reminder_m": 2360},
+    {"id": "ascari", "name": "Variante Ascari", "start_gate_m": 3350, "board_zero_m": 3550,
+     "apex_window_m": [3570, 3640], "exit_gate_m": 3720, "reminder_m": 3150},
+    {"id": "parabolica", "name": "Curva Parabolica", "start_gate_m": 4700, "board_zero_m": 4900,
+     "apex_window_m": [4960, 5050], "exit_gate_m": 5250, "reminder_m": 4450}
+  ]
+}
