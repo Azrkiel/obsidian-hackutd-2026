@@ -98,7 +98,7 @@ struct ReceiverSetupView: View {
                         .frame(minHeight: 36)
                 }
             } footer: {
-                Text("Windows receivers without Bonjour won’t appear above. Run `py listen.py` and enter the address it shows.")
+                Text("Windows PCs without Bonjour won’t appear above. On the race PC, run `ipconfig` and enter its IPv4 address.")
             }
             .listRowBackground(Theme.surface)
         }
@@ -191,7 +191,7 @@ struct ManualAddressView: View {
                     .frame(width: 92)
                 Text("Phone and PC on the same network")
                     .font(.subheadline.weight(.semibold))
-                Text("Using an iPhone hotspot? Use the PC’s IPv6 address instead.")
+                Text("Venue Wi-Fi blocks devices? Use this iPhone’s Personal Hotspot and the PC’s hotspot IPv4 address.")
                     .font(.footnote)
                     .foregroundStyle(Theme.secondaryText)
             }
