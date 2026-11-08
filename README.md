@@ -70,4 +70,19 @@ vllm serve nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4 \
 Then on the PC: `NEMOTRON_BASE_URL=http://<brev-host>:8000/v1 NEMOTRON_API_KEY=$ENGINE_KEY uv run python scripts/spike_nemotron.py --provider brev`.
 vLLM has no hosted-style `reasoning_budget`; thinking length is bounded by the prompt, `max_tokens` and the ladder deadline.
 
+Pick a **stoppable** H100 offer (Nebius; `brev search gpu --gpu-name H100 --stoppable`). Lambda and Scaleway offers are "No stop/start" and can only be deleted. On the instance, set `HF_HOME=/home/ubuntu/workspace/hf` so the model download survives a stop.
+
+#### Idle auto-stop
+
+`scripts/brev_idle_stop.py` runs on your machine, reads vLLM's `/metrics` every minute, and runs `brev stop <instance>` after 30 idle minutes. It never deletes. While the box is stopped the engine falls back to build.nvidia.com.
+
+```
+NEMOTRON_BASE_URL=http://<brev-host>:8000/v1 uv run python scripts/brev_idle_stop.py --instance <name>
+```
+
+- Needs the brev CLI logged in where it runs (Brev supports Windows through WSL; `--brev-bin` points at another command).
+- `--idle-min 30`, `--poll-s 60`; `--dry-run` logs instead of stopping.
+- Judging: `touch .brev-hold` (or `--hold-until 11:30`) and it will not stop; delete the file after.
+- After a stop: `brev start <name>`, restart vLLM, restart the watchdog.
+
 Corner positions in `fixtures/corner_monza_t1.json` are placeholders; replace after logging real laps.

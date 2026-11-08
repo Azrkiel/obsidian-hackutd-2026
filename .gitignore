@@ -8,3 +8,4 @@ traces/*.jsonl
 .env
 CLAUDE.md
 .claude/
+.brev-hold
