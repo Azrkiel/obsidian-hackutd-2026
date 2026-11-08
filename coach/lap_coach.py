@@ -41,7 +41,7 @@ def rules_cue(ev: CornerEvent) -> str:
 class LapCoach:
     def __init__(self, app: "CoachApp", detector: EventDetector | None = None,
                  picker: CheckpointPicker | None = None, offers: OfferManager | None = None,
-                 store: Any = None, max_retries: int = 5, tick_s: float = 0.1,
+                 store: Any = None, max_retries: int = 5, tick_s: float = 0.05,
                  live_budget: dict | None = None):
         self.app, self.track = app, app.track
         self.detector = detector or EventDetector()
@@ -57,6 +57,9 @@ class LapCoach:
         self._cue_for: dict[str, str] = {}      # coach attempt_id -> offer id waiting for its cue
         self._task: asyncio.Task | None = None
         self.passes = 0
+        self.ofr_every_s = 0.25                  # phone offer resend rate (UDP may drop packets)
+        self._ofr_at = -1.0
+        self._pushed: str | None = None          # offer id last shown on the phone
 
     # -- lifecycle --
     def start(self) -> None:
@@ -78,6 +81,22 @@ class LapCoach:
             await self._drop(self.offers.tick())
             if was_open and o.state == "expired" and self.retrying is None:
                 self._release_coach()
+            self._push_phone()
+
+    def _push_phone(self) -> None:
+        """ofr,<id>,<corner>,<ms left> about 4x/s while an offer is open; ofx,<id> (3x) when it closes."""
+        hub = self.app.inputs
+        if hub is None:
+            return
+        o, now = self.offers.open_offer(), self.offers.clock()
+        if self._pushed is not None and (o is None or o.id != self._pushed):
+            for _ in range(3):
+                hub.send_phone(f"ofx,{self._pushed}")
+            self._pushed = None
+        if o is not None and now - self._ofr_at >= self.ofr_every_s - 1e-6:
+            label = o.event.corner.replace(",", " ")[:24]
+            hub.send_phone(f"ofr,{o.id},{label},{o.ms_left(now)}")
+            self._ofr_at, self._pushed = now, o.id
 
     async def _drop(self, offers: list[Offer]) -> None:
         if self.store is None:

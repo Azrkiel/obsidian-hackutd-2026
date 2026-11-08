@@ -259,6 +259,7 @@ class InputHub:
         self.pairing = pairing
         self.pairing_mode = pairing_mode if pairing is not None else "off"
         self.sessions: dict[Any, Session] = {}
+        self._phones: dict[Any, float] = {}     # address -> last control packet (for pushes)
         self.rejected = 0
         self._lock = threading.Lock()  # the serial reader runs in a thread
         self.steer = self.p_gas = self.p_brake = 0.0
@@ -315,6 +316,7 @@ class InputHub:
             with self._lock:
                 self.steer = -steer if self.invert else steer
                 self.p_gas, self.p_brake, self.t_phone = thr, brk, self.clock()
+            self._phones[addr] = self.clock()
             if seq % 30:
                 return None
             ack = b"ack,%d" % seq
@@ -454,6 +456,35 @@ class InputHub:
         self._release_due.clear()
         self._releases.clear()
         self.pad.update()
+
+    # -- receiver -> phone pushes (whole-lap retry offers: ofr / ofx) --
+    def phone_packets(self, text: str, live_s: float = 2.0) -> list[tuple[bytes, Any]]:
+        """The datagram for each phone driving right now: signed with its session when paired
+        (plain only where plain packets are still accepted)."""
+        now, out = self.clock(), []
+        data = text.encode()
+        for addr, seen in list(self._phones.items()):
+            if now - seen > live_s:
+                del self._phones[addr]
+                continue
+            session = self.sessions.get(addr)
+            if session is not None:
+                out.append((sign(session.key, data), addr))
+            elif self.pairing_mode == "off" or (self.pairing_mode == "optional" and not self.sessions):
+                out.append((data, addr))
+        return out
+
+    def send_phone(self, text: str) -> int:
+        if not self._transports:
+            return 0
+        n = 0
+        for data, addr in self.phone_packets(text):
+            try:
+                self._transports[0].sendto(data, addr)
+                n += 1
+            except OSError:
+                pass
+        return n
 
     # -- lifecycle --
     async def start(self) -> None:

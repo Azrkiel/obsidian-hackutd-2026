@@ -48,6 +48,8 @@ QR content: `nomadsim://pair?v=1&h=<ipv4>[,<ipv4>...]&p=<port>&k=<key>&n=<pc nam
 | control | phone → PC | `v1,<seq>,<steer>,<throttle>,<brake>,<tag16>` | HMAC(S, packet), 8 bytes |
 | button | phone → PC | `evt,<id>,<command>,<phase>,<tag16>` | same |
 | ack | PC → phone | `ack,<seq>,<tag16>` | same |
+| retry offer | PC → phone | `ofr,<offer id>,<corner>,<ms left>,<tag16>`, ~4× per second while open | same |
+| offer closed | PC → phone | `ofx,<offer id>,<tag16>`, sent 3× | same |
 | rehello | PC → phone | `rehello` (unsigned hint) | |
 
 `pn` / `rn`: 16 lowercase hex digits of fresh randomness from the phone / the PC.
@@ -58,6 +60,8 @@ Rules:
   A new hello starts a new session and `seq` may start again at 0.
 - `rehello` means "no session for you" (receiver restarted, or a new code was made). The app should
   send a new hello without interrupting the driver; if the hello is ignored, the code changed: rescan.
+- Whole-lap mode (`--whole-lap`): while `ofr` offers are arriving, Next (`coach_next`) accepts that
+  offer. Unpaired phones get `ofr`/`ofx` without the tag (only while unsigned packets are accepted).
 - Everything else is the existing protocol, unchanged: ~100 Hz v1, events sent 3× per id, ack every
   30th seq.
 
