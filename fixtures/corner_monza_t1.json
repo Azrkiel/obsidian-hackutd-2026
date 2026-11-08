@@ -1,0 +1,16 @@
+{
+  "_note": "Positions are placeholders. Replace after logging real laps.",
+  "name": "Monza T1 (Variante del Rettifilo)",
+  "track_length_m": 5793,
+  "start_gate_m": 240,
+  "apex_window_m": [448, 468],
+  "exit_gate_m": 540,
+  "board_zero_m": 440,
+  "comparable_entry_kmh": 5,
+  "tolerance": {"brake_onset_m": 5, "throttle_pickup_m": 5, "section_s": 0.1},
+  "allowed": {
+    "drills": ["brake_point", "throttle_pickup"],
+    "brake_point": {"marker_m": [50, 150], "peak_brake": [0.6, 1.0]},
+    "throttle_pickup": {"marker_m": [0, 80]}
+  }
+}
