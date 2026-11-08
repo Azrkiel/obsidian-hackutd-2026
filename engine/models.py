@@ -19,6 +19,7 @@ class CornerConfig:
     gates: dict[str, float] | None = None  # brake_m, turn_in_m, apex1_m, apex2_m (ac_track_extract)
     reminder_m: float | None = None  # lap mode: where the spoken reminder plays on the approach
     wheelbase_m: float = 2.6  # understeer index (787B is about 2.6 m)
+    id: str = ""  # whole-lap mode: corner id inside a Track ("t1", "ascari", ...)
 
     telemetry_verified: dict[str, bool] = field(default_factory=dict)
     racing_line: list[list[float]] | None = None  # [track metres, world x, world z]
@@ -37,6 +38,56 @@ class CornerConfig:
             return float(self.reminder_m)
         # about 300 m before the braking zone, but clear of the lap line (cues disarm on a wrap)
         return max(self.gate("brake_m") - 300.0, min(50.0, self.start_gate_m / 2))
+
+
+def in_zone(pos_m: float, zone: tuple[float, float] | list[float]) -> bool:
+    """pos inside [a, b]; a > b means the zone wraps over the lap line (e.g. the main straight)."""
+    a, b = zone
+    return a <= pos_m <= b if a <= b else (pos_m >= a or pos_m <= b)
+
+
+@dataclass
+class Track:
+    """Whole-lap mode: every scored corner of one track, in lap order, plus where speech may play."""
+    name: str
+    length_m: float
+    corners: list[CornerConfig]
+    talk_zones: list[tuple[float, float]] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self.corners = sorted(self.corners, key=lambda c: c.start_gate_m)
+        ids = [c.id for c in self.corners]
+        if not all(ids) or len(set(ids)) != len(ids):
+            raise ValueError(f"corner ids must be set and unique, got {ids}")
+        for a, b in zip(self.corners, self.corners[1:]):
+            if a.exit_gate_m >= b.start_gate_m:
+                raise ValueError(f"corners {a.id} and {b.id} overlap ({a.exit_gate_m} >= {b.start_gate_m})")
+        self.talk_zones = [tuple(z) for z in self.talk_zones]
+
+    @property
+    def ids(self) -> list[str]:
+        return [c.id for c in self.corners]
+
+    def corner(self, corner_id: str) -> CornerConfig:
+        for c in self.corners:
+            if c.id == corner_id:
+                return c
+        raise KeyError(f"unknown corner {corner_id!r}; known: {self.ids}")
+
+    @property
+    def last_id(self) -> str:
+        """The corner whose exit starts the per-lap decision (Parabolica at Monza)."""
+        return self.corners[-1].id
+
+    @property
+    def quiet_zones(self) -> list[tuple[float, float]]:
+        return [(c.start_gate_m, c.exit_gate_m) for c in self.corners]
+
+    def corner_at(self, pos_m: float) -> CornerConfig | None:
+        return next((c for c in self.corners if c.start_gate_m <= pos_m <= c.exit_gate_m), None)
+
+    def in_talk_zone(self, pos_m: float) -> bool:
+        return not self.talk_zones or any(in_zone(pos_m, z) for z in self.talk_zones)
 
 
 @dataclass
@@ -99,6 +150,7 @@ class Decision:
     reasoning: str = ""
     plan: dict | None = None  # agent mode: the session plan after this decision
     plan_action: str | None = None  # set_plan | advance_plan | revise_plan | end_session
+    corner_id: str | None = None  # whole-lap mode: the corner this decision coaches
     tool_calls: list = field(default_factory=list)  # agent mode: read-tool rounds
 
     def to_dict(self) -> dict:

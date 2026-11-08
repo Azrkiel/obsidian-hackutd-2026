@@ -22,6 +22,7 @@ class Goal:
     status: str = PENDING
     hits: int = 0              # current streak of retries inside tolerance
     tries: int = 0
+    corner_id: str = ""        # whole-lap mode: the corner this goal is at
 
     def done_when(self, tolerance: dict) -> str:
         key = DRILL_METRIC.get(self.drill_id, "")
@@ -43,12 +44,14 @@ class Plan:
     reason: str = ""
     finished: bool = False
     log: list[dict] = field(default_factory=list)
+    tolerances: dict[str, dict] = field(default_factory=dict)  # whole lap: per-corner tolerance
 
     @classmethod
     def from_goals(cls, goals: list[dict], reason: str = "") -> "Plan":
         gs = [Goal(drill_id=g["drill_id"], target=dict(g["target"]), cue=g.get("cue", ""),
                    reminder=g.get("reminder") or "", title=g.get("title") or TITLES.get(g["drill_id"], g["drill_id"]),
-                   in_a_row=int(g.get("in_a_row") or 1)) for g in goals[:MAX_GOALS]]
+                   in_a_row=int(g.get("in_a_row") or 1), corner_id=g.get("corner_id") or "")
+              for g in goals[:MAX_GOALS]]
         p = cls(gs, reason=reason)
         if gs:
             gs[0].status = ACTIVE
@@ -101,7 +104,8 @@ class Plan:
         tol = tolerance or {}
         return {"active": self.active, "finished": self.finished, "revisions": self.revisions,
                 "reason": self.reason,
-                "goals": [{**asdict(g), "done_when": g.done_when(tol)} for g in self.goals]}
+                "goals": [{**asdict(g), "done_when": g.done_when(self.tolerances.get(g.corner_id, tol))}
+                          for g in self.goals]}
 
 
 def rule_plan(packet: dict) -> list[dict]:

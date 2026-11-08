@@ -29,7 +29,7 @@ import json
 import math
 import struct
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -59,6 +59,36 @@ START_GATE_BEFORE_BRAKE_M = 250.0       # start gate = brake zone start - this
 GAS_PICKUP_THRESHOLD = 0.2
 TRACE_STEP_M = 2.0
 MIN_SPEED_MS = 1.0                      # floor when integrating section time
+
+# --- whole-lap (braking zones -> track) tuning ----------------------------------
+ZONE_MIN_BRAKE = 0.3                    # brake value counted as braking when finding zones
+ZONE_MIN_GAP_M = 150.0                  # brake runs closer than this merge into one zone
+FALLBACK_DROP_KMH = 30.0                # zeroed-brake fallback: min must drop this far from the peak
+FALLBACK_LOOKBACK_M = 600.0             # ... looking back this far for the preceding speed peak
+FALLBACK_MIN_WINDOW_M = 100.0           # ... a speed minimum is the lowest within +-this distance
+FALLBACK_PEAK_TOL_KMH = 1.0             # speeds this close to the peak count as the peak plateau
+WINDOW_BEFORE_BRAKE_M = 50.0            # corner search window starts this far before the brake point
+WINDOW_AFTER_BRAKE_M = 700.0            # ... and ends at most this far after it
+SINGLE_APEX_HALF_WINDOW_M = 10.0        # single-apex corner: apex window = apex +- this
+START_GATE_MIN_GAP_M = 10.0             # start gate stays this far past the previous exit gate
+BOARD_ZERO_AFTER_BRAKE_M = 100.0        # new corner board_zero_m = brake_m + this
+ID_MATCH_RADIUS_M = 300.0               # reuse a base corner id if its apex is this close
+REMINDER_BEFORE_START_M = 200.0
+REMINDER_AFTER_EXIT_M = 20.0
+TALK_ZONE_MARGIN_M = 20.0               # talk zones keep this clear of corner gates
+TALK_ZONE_MIN_LEN_M = 100.0
+DEFAULT_TRACK_NAME = "Track"
+DEFAULT_TRACK_DEFAULTS = {
+    "wheelbase_m": 2.62,
+    "comparable_entry_kmh": 5,
+    "tolerance": {"brake_onset_m": 5, "throttle_pickup_m": 5, "section_s": 0.1, "release_s": 0.15},
+    "allowed": {
+        "drills": ["brake_point", "brake_release", "throttle_pickup"],
+        "brake_point": {"marker_m": [50, 150], "peak_brake": [0.6, 1.0]},
+        "brake_release": {"release_s": [0.2, 1.5]},
+        "throttle_pickup": {"marker_m": [0, 80]},
+    },
+}
 
 class AiFormatError(ValueError):
     pass
@@ -209,6 +239,79 @@ def find_chicane(points: list[LanePoint], window: tuple[float, float],
     return Chicane(brake_m, turn_in, apex1_m, points[a2].dist_m, exit_m, slow.dist_m, fallback)
 
 
+@dataclass
+class BrakingZone:
+    brake_m: float
+    slowest_m: float
+    fallback: bool
+
+
+def _brake_runs(points: list[LanePoint], min_brake: float) -> list[tuple[int, int]]:
+    runs: list[tuple[int, int]] = []
+    start = None
+    for i, p in enumerate(points):
+        if p.brake > min_brake:
+            start = i if start is None else start
+        elif start is not None:
+            runs.append((start, i - 1))
+            start = None
+    if start is not None:
+        runs.append((start, len(points) - 1))
+    return runs
+
+
+def _merge_runs(points: list[LanePoint], runs: list[tuple[int, int]],
+                min_gap_m: float) -> list[tuple[int, int]]:
+    merged: list[tuple[int, int]] = []
+    for s, e in runs:
+        if merged and points[s].dist_m - points[merged[-1][1]].dist_m < min_gap_m:
+            merged[-1] = (merged[-1][0], e)
+        else:
+            merged.append((s, e))
+    return merged
+
+
+def _zones_from_brake(points: list[LanePoint], min_brake: float, min_gap_m: float) -> list[BrakingZone]:
+    runs = _merge_runs(points, _brake_runs(points, min_brake), min_gap_m)
+    zones = []
+    for k, (s, e) in enumerate(runs):
+        limit = runs[k + 1][0] if k + 1 < len(runs) else len(points)
+        # slowest point: from the zone start until throttle is back on (after the brake run) or the next zone
+        j = next((i for i in range(e + 1, limit) if points[i].gas > GAS_PICKUP_THRESHOLD), limit)
+        slow = min(points[s:max(j, e + 1)], key=lambda p: p.speed_kmh)
+        zones.append(BrakingZone(points[s].dist_m, slow.dist_m, False))
+    return zones
+
+
+def _zones_from_speed(points: list[LanePoint]) -> list[BrakingZone]:
+    zones: list[BrakingZone] = []
+    prev_slow = -math.inf
+    for i, p in enumerate(points):
+        near = [q for q in points if abs(q.dist_m - p.dist_m) <= FALLBACK_MIN_WINDOW_M]
+        if any(q.speed_kmh < p.speed_kmh or (q.speed_kmh == p.speed_kmh and q.index < i) for q in near):
+            continue
+        lo = max(p.dist_m - FALLBACK_LOOKBACK_M, prev_slow)
+        before = [q for q in points if lo <= q.dist_m < p.dist_m]
+        if not before:
+            continue
+        peak = max(q.speed_kmh for q in before)
+        if peak - p.speed_kmh < FALLBACK_DROP_KMH:
+            continue
+        top = [q for q in before if q.speed_kmh >= peak - FALLBACK_PEAK_TOL_KMH][-1]
+        zones.append(BrakingZone(top.dist_m, p.dist_m, True))
+        prev_slow = p.dist_m
+    return zones
+
+
+def find_braking_zones(points: list[LanePoint], min_brake: float = ZONE_MIN_BRAKE,
+                       min_gap_m: float = ZONE_MIN_GAP_M) -> list[BrakingZone]:
+    """Every run of brake > min_brake (runs closer than min_gap_m merge) is a braking zone.
+    With no brake input at all (zeroed column) fall back to speed minima; zones are marked."""
+    if any(p.brake > min_brake for p in points):
+        return _zones_from_brake(points, min_brake, min_gap_m)
+    return _zones_from_speed(points)
+
+
 # --- outputs -------------------------------------------------------------------
 
 def _r(v: float) -> float:
@@ -228,6 +331,121 @@ def build_corner(base: dict, ch: Chicane, track_length_m: float) -> dict:
                     "apex1_m": _r(ch.apex1_m), "apex2_m": _r(ch.apex2_m)}
     out["_source"] = "fast_lane.ai v7"
     return out
+
+
+def _single_apex(points: list[LanePoint], window: tuple[float, float], brake_m: float,
+                 slowest_m: float, fallback: bool) -> Chicane:
+    idx = [i for i, p in enumerate(points) if window[0] <= p.dist_m <= window[1]]
+    if len(idx) < 5:
+        raise AiFormatError(f"fewer than 5 points inside window {window}")
+    rad = {i: _rad(points[i]) for i in idx}
+    a = min(idx, key=lambda i: (rad[i], i))
+    k = a
+    while k > idx[0] and rad[k] <= TURN_IN_RADIUS_FACTOR * rad[a]:
+        k -= 1
+    turn_in = points[k].dist_m
+    k = a
+    while k < idx[-1] and rad[k] <= EXIT_RADIUS_FACTOR * rad[a]:
+        k += 1
+    apex = points[a].dist_m
+    # apex1/apex2 hold the apex window ends, as build_corner expects
+    return Chicane(brake_m, turn_in, apex - SINGLE_APEX_HALF_WINDOW_M, apex + SINGLE_APEX_HALF_WINDOW_M,
+                   points[k].dist_m, slowest_m, fallback)
+
+
+def build_zone_corners(points: list[LanePoint], zones: list[BrakingZone],
+                       lap_len: float) -> list[dict]:
+    """One corner per braking zone: a chicane if find_chicane fits the window, else a single apex.
+    Dicts carry start/apex/exit gates and gates{}; "_fallback" marks zones from the speed fallback."""
+    zones = sorted(zones, key=lambda z: z.brake_m)
+    corners: list[dict] = []
+    prev_exit = None
+    for k, z in enumerate(zones):
+        hi = z.brake_m + WINDOW_AFTER_BRAKE_M
+        if k + 1 < len(zones):
+            hi = min(hi, zones[k + 1].brake_m - WINDOW_BEFORE_BRAKE_M)
+        window = (max(0.0, z.brake_m - WINDOW_BEFORE_BRAKE_M), hi)
+        try:
+            ch = find_chicane(points, window, z.brake_m + BRAKE_FALLBACK_BEFORE_BOARD_M)
+            ch = replace(ch, brake_m=z.brake_m, brake_from_fallback=z.fallback)
+        except AiFormatError:
+            ch = _single_apex(points, window, z.brake_m, z.slowest_m, z.fallback)
+        c = build_corner({}, ch, lap_len)
+        start = max(0.0, z.brake_m - START_GATE_BEFORE_BRAKE_M)
+        if prev_exit is not None:
+            start = max(start, prev_exit + START_GATE_MIN_GAP_M)
+        c["start_gate_m"] = _r(start)
+        c["exit_gate_m"] = _r(min(ch.exit_m, lap_len))
+        del c["track_length_m"], c["_source"]
+        c["_fallback"] = z.fallback
+        corners.append(c)
+        prev_exit = c["exit_gate_m"]
+    return corners
+
+
+def _apex_mid(c: dict) -> float:
+    return sum(c["apex_window_m"]) / 2
+
+
+def _match_base_ids(corners: list[dict], base_corners: list[dict]) -> dict[int, dict]:
+    pairs = sorted((abs(_apex_mid(c) - _apex_mid(b)), i, j)
+                   for i, c in enumerate(corners) for j, b in enumerate(base_corners))
+    match: dict[int, dict] = {}
+    used: set[int] = set()
+    for d, i, j in pairs:
+        if d < ID_MATCH_RADIUS_M and i not in match and j not in used:
+            match[i] = base_corners[j]
+            used.add(j)
+    return match
+
+
+def _talk_zones(corners: list[dict], lap_len: float) -> list[list[float]]:
+    """Gaps between consecutive corners; the last->first gap wraps the lap line (a > b)."""
+    zones = []
+    for k, c in enumerate(corners):
+        wraps = k + 1 == len(corners)
+        a = c["exit_gate_m"] + TALK_ZONE_MARGIN_M
+        b = corners[(k + 1) % len(corners)]["start_gate_m"] - TALK_ZONE_MARGIN_M
+        if b - a + (lap_len if wraps else 0.0) >= TALK_ZONE_MIN_LEN_M:
+            zones.append([_r(a), _r(b)])
+    return zones
+
+
+def build_track(base: dict | None, corners: list[dict], lap_len: float,
+                name: str | None = None) -> dict:
+    """Track JSON in the fixtures/track_*.json format. `base` supplies name, defaults and the
+    id/name/board_zero_m of corners whose apex is within ID_MATCH_RADIUS_M of a new corner's."""
+    base = base or {}
+    corners = sorted(corners, key=lambda c: c["start_gate_m"])
+    matched = _match_base_ids(corners, base.get("corners") or [])
+    taken = {b["id"] for b in matched.values()}
+    out_corners = []
+    prev_exit = None
+    for i, c in enumerate(corners):
+        if i in matched:
+            cid, cname, board = matched[i]["id"], matched[i]["name"], matched[i]["board_zero_m"]
+        else:
+            n = i + 1
+            while f"c{n}" in taken:
+                n += 1
+            cid, cname = f"c{n}", f"Corner {i + 1}"
+            board = _r(c["gates"]["brake_m"] + BOARD_ZERO_AFTER_BRAKE_M)
+            taken.add(cid)
+        reminder = c["start_gate_m"] - REMINDER_BEFORE_START_M
+        if prev_exit is not None:
+            reminder = max(prev_exit + REMINDER_AFTER_EXIT_M, reminder)
+        out_corners.append({
+            "id": cid, "name": cname, "start_gate_m": c["start_gate_m"], "board_zero_m": board,
+            "apex_window_m": c["apex_window_m"], "exit_gate_m": c["exit_gate_m"],
+            "reminder_m": _r(max(0.0, reminder)), "gates": c["gates"]})
+        prev_exit = c["exit_gate_m"]
+    return {
+        "name": base.get("name") or name or DEFAULT_TRACK_NAME,
+        "length_m": _r(lap_len),
+        "talk_zones": _talk_zones(corners, lap_len) if corners else [],
+        "defaults": base.get("defaults") or DEFAULT_TRACK_DEFAULTS,
+        "corners": out_corners,
+    }
 
 
 def _interp(points: list[LanePoint], s: float, attr: str) -> float:
@@ -298,6 +516,23 @@ def build_reference(points: list[LanePoint], corner: dict) -> dict:
     return {"attempt": attempt, "trace": trace}
 
 
+def lap_time_s(points: list[LanePoint]) -> float:
+    """Whole-lap time integrated from the speed column (closing segment included)."""
+    ends = [p.dist_m for p in points[1:]] + [lap_length(points)]
+    speeds = [max(p.speed_kmh / SPEED_TO_KMH, MIN_SPEED_MS) for p in points]
+    speeds.append(speeds[0])
+    return sum((d1 - p.dist_m) * 0.5 * (1 / v0 + 1 / v1)
+               for p, d1, v0, v1 in zip(points, ends, speeds, speeds[1:]))
+
+
+def build_track_reference(points: list[LanePoint], track: dict) -> dict:
+    # Same merge as engine.config.load_track: build_reference needs a full CornerConfig
+    defaults = {k: v for k, v in (track.get("defaults") or {}).items() if not k.startswith("_")}
+    full = [{"track_length_m": track["length_m"], **defaults, **c} for c in track["corners"]]
+    return {"source": "fast_lane.ai v7", "lap_time_s": round(lap_time_s(points), 2),
+            "corners": {c["id"]: build_reference(points, c) for c in full}}
+
+
 # --- CLI -----------------------------------------------------------------------
 
 def resolve_ai_path(p: Path) -> Path:
@@ -329,42 +564,82 @@ def dump_csv(points: list[LanePoint], path: Path) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("track", help="track folder or path to fast_lane.ai")
+    ap.add_argument("track_dir", metavar="track", help="track folder or path to fast_lane.ai")
     ap.add_argument("--corner", default=str(ROOT / "fixtures" / "corner_monza_t1.json"),
                     help="existing corner config to copy keys from")
     ap.add_argument("--out", help="write updated corner JSON here (omit to only print the diff)")
     ap.add_argument("--ref-out", help="write AI reference attempt + trace JSON here")
     ap.add_argument("--window", nargs=2, type=float, default=[0.0, 1200.0], metavar=("START_M", "END_M"))
     ap.add_argument("--dump", help="write all points to this CSV")
+    ap.add_argument("--track-out", help="whole lap: write track JSON (a corner per braking zone) here")
+    ap.add_argument("--track", help="base track JSON for ids/names/defaults "
+                    "(default fixtures/track_monza.json if it exists)")
+    ap.add_argument("--track-ref-out", help="whole lap: write per-corner AI reference JSON here")
     args = ap.parse_args(argv)
 
+    track_mode = bool(args.track_out or args.track_ref_out)
+    single = bool(args.out or args.ref_out) or not track_mode
     try:
-        path = resolve_ai_path(Path(args.track))
+        path = resolve_ai_path(Path(args.track_dir))
         points = parse_file(path)
-        base = json.loads(Path(args.corner).read_text(encoding="utf-8"))
-        ch = find_chicane(points, (args.window[0], args.window[1]), base.get("board_zero_m"))
+        if single:
+            base = json.loads(Path(args.corner).read_text(encoding="utf-8"))
+            ch = find_chicane(points, (args.window[0], args.window[1]), base.get("board_zero_m"))
     except (OSError, AiFormatError, json.JSONDecodeError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
-    if ch.brake_from_fallback:
-        print(f"warning: no AI brake input before apex 1; brake point falls back to "
-              f"board_zero_m - {BRAKE_FALLBACK_BEFORE_BOARD_M:g} = {ch.brake_m:g} m", file=sys.stderr)
 
     if args.dump:
         dump_csv(points, Path(args.dump))
-    corner = build_corner(base, ch, lap_length(points))
-    # Preserve world coordinates for racing-line comparisons. Calibration stays
-    # explicitly false until O2 checks the mapping against live carCoordinates.
-    corner["racing_line"] = [[round(p.dist_m, 3), p.x, p.z] for p in points]
-    diff = corner_diff(base, corner)
     print(f"{len(points)} points from {path}")
-    print("corner changes:\n" + ("\n".join(diff) if diff else "  (none)"))
-    if args.out:
-        Path(args.out).write_text(json.dumps(corner, indent=2) + "\n", encoding="utf-8")
-        print(f"wrote {args.out}")
-    if args.ref_out:
-        Path(args.ref_out).write_text(json.dumps(build_reference(points, corner)) + "\n", encoding="utf-8")
-        print(f"wrote {args.ref_out}")
+    if single:
+        if ch.brake_from_fallback:
+            print(f"warning: no AI brake input before apex 1; brake point falls back to "
+                  f"board_zero_m - {BRAKE_FALLBACK_BEFORE_BOARD_M:g} = {ch.brake_m:g} m", file=sys.stderr)
+        corner = build_corner(base, ch, lap_length(points))
+        # Preserve world coordinates for racing-line comparisons. Calibration stays
+        # explicitly false until O2 checks the mapping against live carCoordinates.
+        corner["racing_line"] = [[round(p.dist_m, 3), p.x, p.z] for p in points]
+        diff = corner_diff(base, corner)
+        print("corner changes:\n" + ("\n".join(diff) if diff else "  (none)"))
+        if args.out:
+            Path(args.out).write_text(json.dumps(corner, indent=2) + "\n", encoding="utf-8")
+            print(f"wrote {args.out}")
+        if args.ref_out:
+            Path(args.ref_out).write_text(json.dumps(build_reference(points, corner)) + "\n", encoding="utf-8")
+            print(f"wrote {args.ref_out}")
+    if track_mode:
+        try:
+            return _run_track(args, points, path)
+        except (OSError, AiFormatError, json.JSONDecodeError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+    return 0
+
+
+def _run_track(args, points: list[LanePoint], path: Path) -> int:
+    base_path = Path(args.track) if args.track else ROOT / "fixtures" / "track_monza.json"
+    base = None
+    if args.track or base_path.is_file():
+        base = json.loads(base_path.read_text(encoding="utf-8"))
+    lap_len = lap_length(points)
+    zones = find_braking_zones(points)
+    if not zones:
+        raise AiFormatError("no braking zones found")
+    corners = build_zone_corners(points, zones, lap_len)
+    track = build_track(base, corners, lap_len, name=path.parent.parent.name or None)
+    print(f"track {track['name']}: {len(track['corners'])} corners")
+    for c, raw in zip(track["corners"], corners):
+        print(f"  {c['id']}: brake_m={c['gates']['brake_m']:g}")
+        if raw["_fallback"]:
+            print(f"warning: {c['id']} brake point from speed minimum (no AI brake input)", file=sys.stderr)
+    if args.track_out:
+        Path(args.track_out).write_text(json.dumps(track, indent=2) + "\n", encoding="utf-8")
+        print(f"wrote {args.track_out}")
+    if args.track_ref_out:
+        Path(args.track_ref_out).write_text(
+            json.dumps(build_track_reference(points, track)) + "\n", encoding="utf-8")
+        print(f"wrote {args.track_ref_out}")
     return 0
 
 

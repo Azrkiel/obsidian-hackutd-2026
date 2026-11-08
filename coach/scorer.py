@@ -172,3 +172,104 @@ class CornerScorer:
             **{k: prof.get(k) for k in ("time_to_peak_s", "coast_s", "min_vs_apex_m",
                                       "full_throttle_s", "turn_in_m", "last_downshift_m", "line_offset_m")})
         self.on_run(attempt, trace)
+
+
+# --- whole lap (W4) -------------------------------------------------------------------------------
+LINE_NEAR_M = 300.0      # a lap-line crossing = position wraps from the last LINE_NEAR_M to the first
+LAP_GAP_S, LAP_JUMP_M = 0.5, 50.0
+
+
+class TrackScorer:
+    """One CornerScorer per corner of a Track; every sample goes to all of them (corners never overlap,
+    so at most one is inside a run).
+
+    - on_run(corner_id, attempt, trace): each scored corner pass (attempt ids are "L03-ascari").
+    - on_corners(lap_n, runs): the corners of one lap, {corner_id: (attempt, trace)}, sent at the
+      last corner's exit so the per-lap decision can be spoken on the main straight. If the last
+      corner did not score, they go at the lap line instead.
+    - on_track_lap(event): at the lap line, lap time (None for a partial or broken lap) and every
+      corner's time vs reference (reference_of(corner_id) -> Attempt | None).
+    """
+
+    def __init__(self, track, on_run: Callable[[str, Attempt, list], None],
+                 on_corners: Callable[[int, dict], None], on_track_lap: Callable[[dict], None],
+                 reference_of: Callable[[str], Attempt | None] = lambda cid: None,
+                 max_run_s: float = MAX_RUN_S):
+        self.track, self.on_run, self.on_corners, self.on_track_lap = track, on_run, on_corners, on_track_lap
+        self.reference_of = reference_of
+        self.scorers = {c.id: CornerScorer(c, self._corner_cb(c.id), max_run_s) for c in track.corners}
+        self.lap = 0                    # laps started (line crossings seen)
+        self._line_t: float | None = None
+        self._lap_bad: str | None = "partial lap"  # the first lap starts wherever the car is
+        self._prev = None
+        self._bucket: dict[str, tuple[Attempt, list]] = {}   # corners since the last flush
+        self._lap_runs: dict[str, Attempt] = {}              # corners since the last line crossing
+        self._ids: set[str] = set()
+
+    @property
+    def in_run(self) -> bool:
+        return any(s.in_run for s in self.scorers.values())
+
+    def abort(self) -> None:
+        for s in self.scorers.values():
+            s.abort()
+        self._lap_bad = self._lap_bad or "reset"
+
+    def _corner_cb(self, cid: str) -> Callable[[Attempt, list], None]:
+        def cb(attempt: Attempt, trace: list) -> None:
+            aid = f"L{self.lap:02d}-{cid}"
+            while aid in self._ids:  # same corner twice in one lap (a reset): keep ids unique
+                aid += "b"
+            self._ids.add(aid)
+            attempt.attempt_id = aid
+            self._bucket[cid] = (attempt, trace)
+            self._lap_runs[cid] = attempt
+            self.on_run(cid, attempt, trace)
+            if cid == self.track.last_id:
+                self._flush()
+        return cb
+
+    def _flush(self) -> None:
+        if self._bucket:
+            runs, self._bucket = self._bucket, {}
+            self.on_corners(self.lap, runs)
+
+    def add(self, s: Sample) -> None:
+        prev, self._prev = self._prev, s
+        if prev is not None:
+            L = self.track.length_m
+            if prev.pos_m > L - LINE_NEAR_M and s.pos_m < LINE_NEAR_M:
+                self._line(prev, s, L)
+            else:
+                if s.t - prev.t > LAP_GAP_S:
+                    self._lap_bad = self._lap_bad or f"data gap {s.t - prev.t:.2f}s"
+                if abs(s.pos_m - prev.pos_m) > LAP_JUMP_M:
+                    self._lap_bad = self._lap_bad or "position jump"
+            if s.status != "live":
+                self._lap_bad = self._lap_bad or f"status {s.status}"
+        for sc in self.scorers.values():
+            sc.add(s)
+
+    def _line(self, prev: Sample, s: Sample, L: float) -> None:
+        a, b = L - prev.pos_m, s.pos_m
+        t = prev.t + (s.t - prev.t) * (a / (a + b) if a + b > 0 else 0.0)
+        self._flush()  # the last corner did not score this lap: decide now
+        if self.lap > 0:
+            lap_time = round(t - self._line_t, 3) if self._lap_bad is None and self._line_t is not None else None
+            self.on_track_lap(self._lap_event(self.lap, lap_time, self._lap_bad))
+        self.lap += 1
+        self._line_t, self._lap_bad, self._lap_runs = t, None, {}
+
+    def _lap_event(self, lap: int, lap_time: float | None, why: str | None) -> dict:
+        corners, lost = [], 0.0
+        for c in self.track.corners:
+            a = self._lap_runs.get(c.id)
+            if a is None:
+                continue
+            ref = self.reference_of(c.id)
+            d = round(a.section_s - ref.section_s, 3) if a.valid and ref is not None else None
+            lost += d or 0.0
+            corners.append({"corner_id": c.id, "name": c.name, "attempt_id": a.attempt_id,
+                            "valid": a.valid, "section_s": round(a.section_s, 3), "delta_s": d})
+        return {"type": "track_lap", "lap": lap, "lap_time_s": lap_time, "valid": lap_time is not None,
+                "invalid_reason": why, "delta_s": round(lost, 3), "corners": corners}

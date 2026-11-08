@@ -1,4 +1,5 @@
-"""aiohttp dashboard: GET / (page), GET /ws (events out, commands in), GET /state (snapshot)."""
+"""aiohttp dashboard: GET / (page), GET /ws (events out, commands in), GET /state (snapshot),
+GET /track (whole-lap mode: corners, talk zones, recent laps)."""
 from __future__ import annotations
 
 import asyncio
@@ -49,6 +50,12 @@ def make_web_app(app: CoachApp) -> web.Application:
             raise web.HTTPNotFound()
         return web.json_response({"rows": rows})
 
+    async def track(_: web.Request) -> web.StreamResponse:
+        info = app.track_info()
+        if info is None:
+            return web.json_response({"error": "not in whole-lap mode (--track)"}, status=404)
+        return web.json_response({**info, "laps": list(app.track_laps)})
+
     async def ws_handler(request: web.Request) -> web.StreamResponse:
         ws = web.WebSocketResponse(heartbeat=20)
         await ws.prepare(request)
@@ -84,6 +91,7 @@ def make_web_app(app: CoachApp) -> web.Application:
         return web.FileResponse(STATIC / "history" / "index.html")
     web_app.router.add_get("/history-viewer/", viewer)
     web_app.router.add_static("/history-viewer/assets/", STATIC / "history" / "assets")
+    web_app.router.add_get("/track", track)
     web_app.router.add_get("/ws", ws_handler)
     return web_app
 

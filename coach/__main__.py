@@ -1,5 +1,8 @@
 """uv run python -m coach [--mode lap|drill] [--telemetry ac|sim|replay FILE] [--reset udp|hotkey|manual|sim]
-[--voice auto|windows|nvidia|silent|off] [--port 8020]
+[--voice auto|windows|nvidia|silent|off] [--port 8020] [--track fixtures/track_monza.json]
+
+Whole lap: --track coaches every corner of the track in lap mode, one decision per lap after the
+last corner (spoken on the main straight). Drill mode (rewind per corner) stays single-corner (--corner).
 
 With --inputs the coach is also the input receiver: phone (UDP 5005) + Arduino pedals -> one
 virtual Xbox 360 pad. Then do not run bridge/bridge.py or hardware/bridge.py alongside it (port 5005,
@@ -16,16 +19,19 @@ import sys
 from pathlib import Path
 from uuid import UUID
 
-from engine.config import load_attempt, load_corner
+from engine.config import load_attempt, load_corner, load_track, load_track_reference
 from engine.nemotron import default_providers
 from engine.voice import make_speaker
 
 from .app import CoachApp
 from .dashboard import Dashboard
 from .inputs import InputHub, make_pad
-from .telemetry import ACSharedMemory, Recorder, ReplaySource, SimSource
+from .telemetry import ACSharedMemory, Recorder, ReplaySource, SimSource, TrackSimSource
 
 ROOT = Path(__file__).resolve().parent.parent
+# track sim demo (787B defaults in coach.telemetry.DEFAULT_BOARD_M): Ascari 35 m and Roggia 25 m early,
+# Parabolica snaps off the brake
+DEMO_SIM_CORNERS = {"ascari": {"board_m": 230}, "roggia": {"board_m": 215}, "parabolica": {"release_s": 0.15}}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -76,7 +82,83 @@ def build_parser() -> argparse.ArgumentParser:
                     help="sim: first-run brake release time in s (0.15 = snaps off: triggers brake_release)")
     ap.add_argument("--lap-gap", type=float, default=12.0,
                     help="sim lap mode: seconds between corner passes")
+    t = ap.add_argument_group("whole lap (lap mode over every corner of a track)")
+    t.add_argument("--track", default=None, metavar="FILE",
+                   help="track JSON (e.g. fixtures/track_monza.json): score and coach every corner; implies --mode lap")
+    t.add_argument("--track-reference", default=None, metavar="FILE",
+                   help="per-corner reference (default: data/track_reference.json, else the track's own)")
+    t.add_argument("--sim-corner", action="append", default=[], metavar="ID:KEY=V[,KEY=V]",
+                   help="track sim knobs, e.g. ascari:board_m=135 or parabolica:release_s=0.15 "
+                        "(repeatable; default: a demo set with three mistakes)")
     return ap
+
+
+def parse_sim_corners(specs: list[str]) -> dict[str, dict]:
+    if not specs:
+        return {k: dict(v) for k, v in DEMO_SIM_CORNERS.items()}
+    out: dict[str, dict] = {}
+    for spec in specs:
+        cid, _, kv = spec.partition(":")
+        if not cid or not kv:
+            raise SystemExit(f"--sim-corner {spec!r}: expected ID:KEY=V[,KEY=V]")
+        for pair in kv.split(","):
+            k, _, v = pair.partition("=")
+            try:
+                out.setdefault(cid, {})[k.strip()] = float(v)
+            except ValueError:
+                raise SystemExit(f"--sim-corner {spec!r}: {v!r} is not a number") from None
+    return out
+
+
+def track_reference_path(args: argparse.Namespace, track_path: Path) -> Path:
+    if args.track_reference:
+        return Path(args.track_reference)
+    data = Path(args.data_dir) / "track_reference.json"
+    if data.exists():
+        return data
+    ref = json.loads(track_path.read_text(encoding="utf-8")).get("reference")
+    if not ref:
+        raise SystemExit(f"{track_path} names no reference; pass --track-reference")
+    return track_path.parent / ref
+
+
+def build_track_app(args: argparse.Namespace) -> CoachApp:
+    tpath = Path(args.track)
+    track = load_track(tpath)
+    refs = load_track_reference(track_reference_path(args, tpath))
+    missing = [c for c in track.ids if c not in refs]
+    if missing:
+        raise SystemExit(f"the track reference has no corner {missing}")
+    if args.history:
+        # History stores one corner per session; per-corner whole-lap rows are W11 (not built yet)
+        print("warning: --history is single-corner only for now; whole-lap laps are not saved", file=sys.stderr)
+    kind = args.telemetry[0]
+    if kind == "sim":
+        unknown = [c for c in parse_sim_corners(args.sim_corner) if c not in track.ids]
+        if unknown:
+            raise SystemExit(f"--sim-corner: unknown corner {unknown}; known: {track.ids}")
+        source = TrackSimSource(track, corners=parse_sim_corners(args.sim_corner))
+    elif kind == "ac":
+        source = ACSharedMemory(track.length_m, fixed_length=True)
+    elif kind == "replay":
+        if len(args.telemetry) < 2:
+            raise SystemExit("--telemetry replay needs a FILE")
+        source = ReplaySource(args.telemetry[1], realtime=True)
+    else:
+        raise SystemExit(f"unknown telemetry source {kind!r}")
+    reset = args.reset or "manual"
+    if reset == "sim":
+        raise SystemExit("--reset sim is for single-corner drills; whole lap never resets the car")
+    voice = args.voice or "auto"
+    speaker = None if voice == "off" else make_speaker(voice)
+    first = track.corners[0].id
+    return CoachApp(track.corners[0], refs[first][0], source, default_providers(transport=args.transport),
+                    reset_mode=reset, data_dir=Path(args.data_dir), trace_dir=args.traces,
+                    recorder=Recorder(Path(args.data_dir) / "recordings") if args.record else None,
+                    sound=args.sound, countdown=args.countdown, persist_checkpoint=kind != "sim",
+                    mode="lap", speaker=speaker, muted=args.mute, agent=args.agent,
+                    inputs=build_inputs(args), auto_retry=False, max_retries=args.max_retries,
+                    track=track, track_references=refs)
 
 
 def build_inputs(args: argparse.Namespace) -> InputHub | None:
@@ -92,6 +174,11 @@ def build_inputs(args: argparse.Namespace) -> InputHub | None:
 
 
 def build_app(args: argparse.Namespace) -> CoachApp:
+    if args.track:
+        if args.mode == "drill" and "--mode" in sys.argv:
+            raise SystemExit("--track is lap mode only (drill mode rewinds one corner: use --corner)")
+        args.mode = "lap"
+        return build_track_app(args)
     corner = load_corner(args.corner)
     data = Path(args.data_dir)
     if args.reference:
@@ -147,6 +234,9 @@ async def amain(args: argparse.Namespace) -> None:
     voice = "off" if app.announcer is None else app.announcer.speaker.name
     print(f"NomadSim coach: mode={app.mode} agent={'on' if app.coach.agent else 'off'} telemetry={args.telemetry[0]} reset={app.reset.mode} "
           f"voice={voice} dashboard http://{args.host}:{args.port}", flush=True)
+    if app.track is not None:
+        print(f"whole lap: {app.track.name}, corners {', '.join(app.track.ids)}; decides after {app.track.last_id}",
+              flush=True)
     if app.inputs is not None:
         i = app.inputs
         print(f"inputs: phone UDP :{i.phone_port}, arduino {i.arduino}"

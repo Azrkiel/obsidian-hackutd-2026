@@ -271,3 +271,31 @@ line coverage, or invalid geometry produce no line metric. AI-derived reference
 profiles cannot supply steering, slip, or gear evidence; record a real reference
 for those drills. Synthetic telemetry supports development but does not validate
 a real AC track's geometry or make the synthetic driver learn every drill.
+
+## Whole-lap coaching
+
+`--track` scores every corner of the lap and coaches the one or two corners that lose the most time. Lap mode only; drill mode (rewind per corner) stays single-corner with `--corner`.
+
+```
+uv run python -m coach --track fixtures/track_monza.json                    # track sim, rules coach
+uv run python -m coach --track fixtures/track_monza.json --agent            # Nemotron plans across corners
+uv run python -m coach --track fixtures/track_monza.json --telemetry ac     # in the game
+uv run python -m coach --track fixtures/track_monza.json --sim-corner ascari:board_m=135 --sim-corner parabolica:release_s=0.15
+```
+
+- One decision per lap, started at the last corner's exit (Parabolica), so the cue plays on the main straight. Corners a few seconds apart (Lesmo 1 and 2) would get stale per-corner advice.
+- The lap packet (`packet.lap`): last full lap time, `delta_s` (time lost in the scored corners vs the reference) and the top 3 corners by time lost that have a metric over tolerance, each with its worst metric, deltas and suggested targets. The rest of the packet is the full single-corner evidence for the corner being decided on, so the rules coach, validators and drills are unchanged.
+- Plan goals are keyed by (corner, drill): the same drill may be planned at two corners, at most 3 goals, goal 1 = the corner losing the most time. Only the active goal is cued on a lap (one live cue, armed for the next lap). Read tools take `corner_id`; `get_lap_summary` gives every corner's time lost.
+- Voice: quiet inside every corner (start gate to exit gate) and speech only inside the track's `talk_zones` (the straights; a zone may wrap the lap line).
+- If the coached corner does not score on a lap (went off, data gap), the goal and its cue carry over.
+- Set reference uses every valid corner of the last lap and writes `data/track_reference.json` (used on the next start).
+- Dashboard: a Laps table (lap time, seconds lost per corner, the coached corner outlined); the metrics and trace show the coached corner. `GET /track` returns the corners, talk zones and recent laps.
+- Sim: `--sim-corner ID:KEY=V[,KEY=V]` sets per-corner knobs (`board_m`, `release_s`, `apex_kmh`, `pickup_after_apex_m`); without it a demo set has three mistakes (Ascari 35 m and Roggia 25 m early, Parabolica snaps off the brake). The sim drives 787B minimum speeds and brake boards.
+
+`fixtures/track_monza.json` positions are measured (W3): MultiViewer's official circuit line and corner markers plus the 20 fastest 2024/2025 Monza qualifying laps from OpenF1 (`scripts/monza_f1/`, numbers in `fixtures/monza_f1_corners.json`). Brake points for the car we drive come from Track Titan's Mazda 787B guide for AC Monza (1:43.2 lap): the 787B brakes 25 to 120 m earlier than F1 (T1 about 232 m before the apex, about the 215 m board) and every 787B brake point sits 67 to 186 m inside its start gate. Still to check in the game: the lap line, the board positions (press B at each board) and a clean 787B lap as the reference (Set reference). Or build the track from the AI line:
+
+```
+uv run python scripts/ac_track_extract.py "<assettocorsa>/content/tracks/monza" --track-out fixtures/track_monza.json --track-ref-out fixtures/track_monza_reference.json
+```
+
+`fixtures/track_monza_reference.json` comes from the track simulator driving 787B speeds and boards (99.2 s lap vs 103.2 s for the Track Titan 787B lap; `scripts/track_sim_reference.py`); it is only right for the sim. In the game, press Set reference after a clean lap.

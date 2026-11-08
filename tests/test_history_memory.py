@@ -107,8 +107,8 @@ async def test_second_session_agent_reads_and_cites_persisted_number(
                 [p],
                 agent=turn,
                 breaker=CircuitBreaker(),
-                think_deadline_s=4,
-                total_deadline_s=6,
+                think_deadline_s=15,  # local fake server; generous so a cold start never falls back to rules
+                total_deadline_s=20,
             )
             assert d.mode == "think" and "6.8" in d.summary
             assert turn.log[0]["name"] == "get_driver_history"

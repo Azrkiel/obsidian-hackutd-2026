@@ -304,3 +304,41 @@ async def test_lap_mode_brake_release_drill(corner, ref, tmp_path):
     runs = [e["attempt"]["release_s"] for e in app.events if e["type"] == "run"]
     assert runs[1] > runs[0]  # the sim driver follows the drill
     assert any(d["action"] == "end_drill" and d["end_reason"] == "drill_complete" for d in ds)
+
+
+# ---------------- whole lap: quiet in every corner, talk only on straights (W8) ----------------
+def test_track_zones_quiet_in_every_corner_and_talk_only_on_straights():
+    a, clk, spk, _ = make(quiet=None, quiet_zones=[(240, 540), (1500, 1800)],
+                          talk_zones=[(5300, 200), (560, 1480)])
+    a.on_position(1600)  # inside the second corner
+    a.say("Brake earlier.", ADVICE)
+    assert spk.said == []
+    a.on_position(1850)  # between corners but not a talk zone
+    a.pump()
+    assert spk.said == []
+    clk.t = 1.0
+    a.on_position(600)
+    a.pump()
+    assert spk.said == ["Brake earlier."]
+
+
+def test_talk_zone_wraps_over_the_lap_line():
+    a, clk, spk, _ = make(quiet=None, quiet_zones=[(240, 540)], talk_zones=[(5300, 200)])
+    for pos, ok in ((5400, True), (100, True), (220, False), (5000, False)):
+        a.on_position(pos)
+        assert a.can_talk is ok, pos
+
+
+def test_message_never_in_a_talk_zone_goes_stale():
+    a, clk, spk, ev = make(quiet=None, talk_zones=[(5300, 200)])
+    a.on_position(3000)
+    a.say("Same again.", ADVICE)
+    clk.t = 11.0
+    a.pump()
+    assert spk.said == [] and ev[-1]["status"] == "dropped" and ev[-1]["reason"] == "stale"
+
+
+def test_no_telemetry_can_talk_with_zones():
+    a, clk, spk, _ = make(quiet=None, quiet_zones=[(240, 540)], talk_zones=[(5300, 200)])
+    a.say("Hello.", ADVICE)
+    assert spk.said == ["Hello."]
