@@ -166,6 +166,29 @@ Not tested without AC: the shared-memory struct offsets against a live game (lay
 
 Corner positions in `fixtures/corner_monza_t1.json` are placeholders; replace after logging real laps.
 
+### Whole lap: every error gets a retry (`--whole-lap`)
+
+Plan and decisions: `docs/ROLLING_CHECKPOINTS.md`. Every corner of `--track` is scored; each error
+gets a cue and a 5 s retry offer (dashboard Retry, or phone Next). Accepting rewinds to a state held
+before that corner, runs the retry loop, then puts the car back where Retry was pressed.
+
+```bash
+# no game: the lap simulator, with planted mistakes per corner (per attempt, + separated)
+uv run python -m coach --whole-lap --plant c1=late_brake,c4=spin+none,c6=slow_exit
+# game PC: rolling checkpoints from the CSP Lua app (install csp/nomadsim_reset v0.2 first)
+uv run python -m coach --whole-lap --telemetry ac --reset udp --inputs
+```
+
+- Settings (saved in `data/settings.json`, applied live): `GET/POST /settings`, with fields
+  `reference` (`pb`|`ai`), `sensitivity_s`, `countdown_s`, `lead_time_s` and `voice`.
+  `POST /personal_best/reset` clears the personal bests.
+- `fixtures/tracks/monza.json` is **synthetic** until the real AI line is in:
+  `uv run python scripts/ac_track_extract.py "<assettocorsa>/content/tracks/monza" --track-out fixtures/tracks/monza.json --names "Rettifilo,Curva Grande,Roggia,Lesmo 1,Lesmo 2,Ascari,Parabolica"`,
+  then check the printed corner table. Personal bests from the synthetic track are not reused.
+- Before the first in-game run (coach stopped):
+  `uv run python scripts/checkpoint_probe.py --seconds 40 --hold-at 10 --restore-at 35`.
+  It checks hold and restore in game and prints the frame cost of each save.
+
 ## Live voice coach and agent mode
 
 Lap mode (the demo mode): keep driving, no Accept and no reset. After the corner exit the coach speaks one short sentence, says a reminder (at most 4 words) about 300 m before the braking zone on the next lap, beeps at the target, then gives a spoken verdict after the next exit.
