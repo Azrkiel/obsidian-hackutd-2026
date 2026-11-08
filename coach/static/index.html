@@ -111,6 +111,7 @@ function targetOnset(){
 function fmt(v,d){ return (v===null||v===undefined)?"-":Number(v).toFixed(d); }
 const ROWS=[["Brake board m","board",1],["Brake onset m","brake_onset_m",1],["Peak brake","peak_brake",2],
   ["Entry km/h","entry_kmh",1],["Apex km/h","apex_kmh",1],["Exit km/h","exit_kmh",1],
+  ["Release s","release_s",2],["Min km/h","min_kmh",1],
   ["Throttle pickup m","throttle_pickup_m",1],["Section s","section_s",2]];
 function val(a,k){ if(!a) return null; if(k==="board") return S.corner? S.corner.board_zero_m-a.brake_onset_m : null; return a[k]; }
 function renderMetrics(){
@@ -208,7 +209,8 @@ function draw(){
 function renderAll(){ renderTop(); renderCue(); renderMetrics(); renderPlan(); draw(); }
 
 function onEvent(e){
-  if(e.text&&e.type!=="snapshot") addActivity({ts:e.ts,text:e.text});
+  if(e.type==="voice"){ if(e.text_log) addActivity({ts:e.ts,text:e.text_log}); }
+  else if(e.text&&e.type!=="snapshot") addActivity({ts:e.ts,text:e.text});
   switch(e.type){
   case "snapshot":
     S.state=e.state; S.corner=e.corner; S.ref=e.reference.attempt; S.refTrace=e.reference.trace||[];
