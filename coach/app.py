@@ -31,7 +31,8 @@ from .scorer import CornerScorer
 from .telemetry import Recorder, Sample, SimSource
 
 COMMANDS = {"accept", "retry", "save_checkpoint", "set_reference", "new_session",
-            "toggle_cue_next", "retry_reset", "toggle_mute", "mark_board", "resume"}
+            "toggle_cue_next", "retry_reset", "toggle_mute", "mark_board", "resume",
+            "new_pairing"}
 LAP_TOTAL_DEADLINE_S = 8.0  # lap mode: slower than this and the rules sentence is spoken instead
 ACTIVITY_TYPES = {"run", "decision", "reset_request", "reset_confirmed", "reset_failed",
                   "checkpoint", "reference", "session", "input", "resume_point", "resumed"}
@@ -404,6 +405,11 @@ class CoachApp:
             self.broadcast({"type": "session"})
         elif kind == "toggle_cue_next":
             self.cue_next_off = c.toggle_cue_next_try()
+            self.broadcast(self.health())
+        elif kind == "new_pairing":
+            if self.inputs is None or self.inputs.pairing is None:
+                return self._note("pairing is off (start with --inputs)")
+            self.inputs.new_pairing_code()
             self.broadcast(self.health())
         elif kind == "resume":
             if self.reset.resume_point is None:

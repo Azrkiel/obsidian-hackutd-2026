@@ -138,6 +138,7 @@ uv run --with vgamepad --with pyserial python -m coach --telemetry ac --reset ud
 - Phone buttons map to pad buttons in `BINDINGS` (`coach/inputs.py`): paddles are RB/LB.
 - `--pad none` reads and mixes inputs without a virtual pad (default off Windows).
 - `--invert-steer` flips steering.
+- **Pairing:** with `--inputs` the coach prints a QR code (also on the dashboard, "Pair a phone"). The app scans it and connects with only "same Wi-Fi" as a requirement; after that every packet is signed, so only paired phones can drive. `--pairing optional|required|off` (default `optional`, which also accepts the current unpaired app). Protocol, test vectors and the app plan: `docs/PAIRING.md`.
 - The receiver is off unless `--inputs` is given. If UDP 5005 is already taken (by `bridge/bridge.py` or `listen.py`), the coach stops with an error naming them.
 - Phone coach buttons are events too. `evt,<id>,coach_next,tap` accepts the offered drill, or rewinds for a retry when nothing is offered. `evt,<id>,coach_resume,tap` ends the drill and loads the resume point. Both are ignored by `bridge/bridge.py`.
 

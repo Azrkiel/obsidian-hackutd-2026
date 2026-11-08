@@ -68,6 +68,9 @@ button:disabled{opacity:.35;cursor:not-allowed}
       <div class="legend"><span style="color:#8793a3">&#9632; reference</span><span style="color:#ffc233">&#9632; baseline</span><span style="color:#3ddc84">&#9632; retry</span><span style="color:#4aa8ff">| drill target</span></div></div>
   </div>
   <div>
+    <div class="panel hidden" id="p-pair" style="margin-bottom:16px"><h2>Pair a phone</h2>
+      <div style="display:flex;gap:16px;align-items:center"><img id="pairqr" alt="Phone pairing QR code" style="width:200px;height:200px;background:#fff;border-radius:8px">
+      <div><div id="pairinfo" style="font-size:17px;color:var(--dim)"></div><button id="b-new_pairing" style="margin-top:10px">New pairing code</button></div></div></div>
     <div class="panel" id="p-voice"><h2>Coach said</h2><ul id="voice"></ul></div>
     <div class="panel hidden" id="p-plan" style="margin-top:16px"><h2>Session plan</h2><ul id="plan"></ul></div>
     <div class="panel hidden" id="p-tools" style="margin-top:16px"><h2>Tool calls</h2><ul id="tools"></ul></div>
@@ -153,6 +156,9 @@ function renderTop(){
   $("b-resume").style.display=h.resume_available?"":"none";
   const i=h.inputs; if(i) badge($("inp"),"pedals: "+i.pedal_source+" · phone "+i.phone+" · arduino "+i.arduino+(i.serial_error&&i.arduino!=="live"?" ("+i.serial_error+")":""),
     i.pedal_source==="arduino"?"ok":i.pedal_source==="phone"?"warn":"bad");
+  const pr=i&&i.pairing; $("p-pair").classList.toggle("hidden",!pr);
+  if(pr){ $("pairinfo").textContent="Scan with the Stealth Racing app (same Wi-Fi). "+pr.name+" ["+pr.id+"] · "+(pr.hosts.join(", ")||"no Wi-Fi address")+" · UDP "+pr.port+" · "+pr.paired+" paired · "+pr.mode+(pr.rejected?" · "+pr.rejected+" packets ignored":"");
+    const key=pr.id+"|"+pr.hosts.join(","); if(S.pairKey!==key){ S.pairKey=key; $("pairqr").src="/pair.svg?"+encodeURIComponent(key); } }
   const lap=h.mode==="lap";
   badge($("mode"),lap?"lap mode: keep driving":"drill mode",lap?"ok":"");
   for(const k of ["accept","retry","save_checkpoint"]) $("b-"+k).classList.toggle("hidden",lap);
@@ -248,7 +254,7 @@ function connect(){
 }
 function accept(){ if(S.state==="OFFERED"&&S.offer) send({type:"accept",decision_id:S.offer.decision_id}); }
 $("b-accept").onclick=accept;
-for(const k of ["retry","resume","retry_reset","save_checkpoint","set_reference","new_session","toggle_cue_next","toggle_mute","mark_board"])
+for(const k of ["retry","resume","retry_reset","save_checkpoint","set_reference","new_session","toggle_cue_next","toggle_mute","mark_board","new_pairing"])
   $("b-"+k).onclick=()=>send({type:k});
 document.addEventListener("keydown",ev=>{
   if(ev.code==="KeyM"){ send({type:"toggle_mute"}); return; }

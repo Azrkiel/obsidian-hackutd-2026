@@ -22,6 +22,7 @@ from engine.voice import make_speaker
 from .app import CoachApp
 from .dashboard import Dashboard
 from .inputs import InputHub, make_pad
+from .pairing import Pairing
 from .telemetry import ACSharedMemory, Recorder, ReplaySource, SimSource
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -56,6 +57,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="throttle curve sent to the game: out = in^gamma. 1 = linear, higher = gentler "
                         "start (1.8: half pedal = 29%% throttle)")
     g.add_argument("--brake-gamma", type=float, default=1.0, help="brake curve, same as --gas-gamma")
+    g.add_argument("--pairing", choices=["off", "optional", "required"], default="optional",
+                   help="QR pairing for the phone: required = only phones that scanned the code can "
+                        "drive; optional (default) = also accept the unpaired app until a phone pairs; "
+                        "off = plain UDP")
     ap.add_argument("--auto-retry", action=argparse.BooleanOptionalAction, default=True,
                     help="after Accept, keep rewinding until the drill ends, then resume (default on)")
     ap.add_argument("--max-retries", type=int, default=5,
@@ -74,6 +79,20 @@ def build_parser() -> argparse.ArgumentParser:
     return ap
 
 
+def print_pairing(hub: InputHub, dashboard_port: int) -> None:
+    """Show the pairing QR in the terminal (also on the dashboard and at /pair.svg)."""
+    p = hub.pairing
+    hosts = ", ".join(p.hosts()) or "none found: is this PC on Wi-Fi?"
+    try:
+        qr = p.qr_text()
+        qr.encode(sys.stdout.encoding or "utf-8")
+    except (UnicodeEncodeError, LookupError):
+        qr = "(this console can't draw the QR code: open the dashboard to scan it)"
+    print(f"\nScan with the Stealth Racing app to pair ({hub.pairing_mode}):\n{qr}\n"
+          f"receiver {p.name} [{p.receiver_id}] on {hosts}, UDP {hub.phone_port}; "
+          f"also at http://127.0.0.1:{dashboard_port}/pair.svg\n", flush=True)
+
+
 def build_inputs(args: argparse.Namespace) -> InputHub | None:
     if not args.inputs:
         return None
@@ -81,9 +100,13 @@ def build_inputs(args: argparse.Namespace) -> InputHub | None:
         pad = make_pad(args.pad)
     except RuntimeError as e:
         raise SystemExit(f"error: {e}") from e
+    pairing = None
+    if args.pairing != "off":
+        pairing = Pairing(Path(args.data_dir) / "pairing.json", port=args.phone_port)
     return InputHub(pad, phone_port=args.phone_port, arduino=args.arduino,
                     arduino_udp_port=args.arduino_udp_port, invert_steer=args.invert_steer,
-                    gas_gamma=args.gas_gamma, brake_gamma=args.brake_gamma)
+                    gas_gamma=args.gas_gamma, brake_gamma=args.brake_gamma,
+                    pairing=pairing, pairing_mode=args.pairing)
 
 
 def build_app(args: argparse.Namespace) -> CoachApp:
@@ -144,6 +167,8 @@ async def amain(args: argparse.Namespace) -> None:
         print(f"inputs: phone UDP :{i.phone_port}, arduino {i.arduino}"
               f"{f' + UDP :{i.arduino_udp_port}' if i.arduino_udp_port else ''}, pad {type(i.pad).__name__}",
               flush=True)
+        if i.pairing is not None and i.pairing_mode != "off":
+            print_pairing(i, args.port)
     try:
         await asyncio.Event().wait()
     finally:

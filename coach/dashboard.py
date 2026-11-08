@@ -22,6 +22,15 @@ def make_web_app(app: CoachApp) -> web.Application:
     async def state(_: web.Request) -> web.StreamResponse:
         return web.json_response(app.snapshot())
 
+    async def pair_svg(_: web.Request) -> web.StreamResponse:
+        """The phone pairing QR code (only with --inputs). The dashboard listens on 127.0.0.1 by
+        default; with --host 0.0.0.0 anyone on the LAN could fetch the code, so keep it local."""
+        hub = app.inputs
+        if hub is None or hub.pairing is None or hub.pairing_mode == "off":
+            raise web.HTTPNotFound(text="pairing is off: start the coach with --inputs")
+        return web.Response(text=hub.pairing.qr_svg(), content_type="image/svg+xml",
+                            headers={"Cache-Control": "no-store"})
+
     async def ws_handler(request: web.Request) -> web.StreamResponse:
         ws = web.WebSocketResponse(heartbeat=20)
         await ws.prepare(request)
@@ -50,6 +59,7 @@ def make_web_app(app: CoachApp) -> web.Application:
 
     web_app.router.add_get("/", index)
     web_app.router.add_get("/state", state)
+    web_app.router.add_get("/pair.svg", pair_svg)
     web_app.router.add_get("/ws", ws_handler)
     return web_app
 
