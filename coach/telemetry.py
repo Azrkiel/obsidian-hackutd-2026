@@ -126,8 +126,11 @@ class ACSharedMemory:
     """Reads the three AC shared-memory pages (Windows only). samples() yields on new physics packets."""
     finite = False
 
-    def __init__(self, track_length_m: float | None = None, poll_hz: float = 200.0):
-        self.fallback_len = track_length_m
+    def __init__(self, track_length_m: float | None = None, poll_hz: float = 200.0,
+                 fixed_length: bool = False):
+        # fixed_length (whole-lap mode): position = normalized position x track_length_m, so corner
+        # positions are fractions of the lap even if AC's spline length differs from the config's
+        self.fallback_len, self.fixed_length = track_length_m, fixed_length
         self.poll_s = 1.0 / poll_hz
         self.car = self.track = ""
 
@@ -152,7 +155,8 @@ class ACSharedMemory:
             if not st.track:
                 raise ACNotRunning("Assetto Corsa is not running (shared memory is empty)")
             self.car, self.track = st.carModel, st.track
-            length = float(st.trackSPlineLength) or self.fallback_len
+            length = (self.fallback_len if self.fixed_length and self.fallback_len
+                      else float(st.trackSPlineLength) or self.fallback_len)
             if not length:
                 raise ACNotRunning("track length unknown: corner config needs track_length_m")
             last = 0

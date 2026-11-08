@@ -130,7 +130,7 @@ def build_track_app(args: argparse.Namespace) -> CoachApp:
             raise SystemExit(f"--sim-corner: unknown corner {unknown}; known: {track.ids}")
         source = TrackSimSource(track, corners=parse_sim_corners(args.sim_corner))
     elif kind == "ac":
-        source = ACSharedMemory(track.length_m)
+        source = ACSharedMemory(track.length_m, fixed_length=True)
     elif kind == "replay":
         if len(args.telemetry) < 2:
             raise SystemExit("--telemetry replay needs a FILE")

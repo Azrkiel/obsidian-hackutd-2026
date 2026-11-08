@@ -127,7 +127,7 @@ async def test_data_gap_invalidates_lap_time():
         if state["prev"] is not None and s.pos_m < state["prev"] - 1000:
             state["laps"] += 1
         state["prev"] = s.pos_m
-        return state["laps"] == 1 and 700 <= s.pos_m <= 800
+        return state["laps"] == 1 and 1200 <= s.pos_m <= 1300
     rec = await drive(Rec(), skip=skip, laps=3.2)
     e = rec.laps[0]
     assert e["lap"] == 1 and e["lap_time_s"] is None and e["valid"] is False
