@@ -110,7 +110,7 @@ def test_bad_event_does_not_disable_future_laps_or_hide_existing_history(tmp_pat
 
 def test_explicit_driver_uuid_survives_a_name_change(tmp_path):
     path = tmp_path / "h.db"
-    for name in ("Kevin", "Kevin Jiang"):
+    for name in ("Kevin", "Kevin Racer"):
         h = HistoryRecorder(path)
         h.start(
             {
@@ -121,7 +121,7 @@ def test_explicit_driver_uuid_survives_a_name_change(tmp_path):
         )
         h.close()
     assert len(h.read()["drivers"]) == 1
-    assert h.read()["drivers"][0]["name"] == "Kevin Jiang"
+    assert h.read()["drivers"][0]["name"] == "Kevin Racer"
 
 
 async def test_app_lifecycle_rotates_all_resets_and_history_endpoint(
