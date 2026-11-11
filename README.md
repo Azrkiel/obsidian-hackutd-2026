@@ -121,7 +121,7 @@ in the **[setup guide](SETUP.md)**.
 
 ## Demo in 3 minutes
 
-1. Click the **Pit Pal** shortcut. Rev appears with a QR code; scan it in the app and he says **Connected.**
+1. Click the **Pit Pal** shortcut (make it once with `scripts/make_shortcut.ps1`, then pin it to the taskbar: [SETUP.md, Part E](SETUP.md#part-e-run-it)). Rev appears with a QR code; scan it in the app and he says **Connected.**
 2. Drive Monza in the Mazda Miata. Brake late into Turn 1.
 3. On the straight, Rev and the voice: *"Rettifilo: you braked 14 m late, 0.4 s lost. Brake at the 100 board."*
 4. Tap **Next** on the phone: the car is back before the corner. Try again: **Clean.** or **Not yet.**

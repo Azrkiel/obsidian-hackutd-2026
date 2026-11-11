@@ -315,11 +315,19 @@ only deleted, and deleting removes the downloaded model.
 
 1. Start **Assetto Corsa** from Content Manager (your preset) in borderless mode and get on track.
 2. If you use Nemotron, start the tunnel ([Part D](#nemotron-on-a-brev-h100)) first.
-3. Double-click **`PitPal.bat`**. For a desktop shortcut with the Pit Pal icon, run once:
+3. **Install the Pit Pal app on your desktop** so it is one click away. Run this once from the repository folder:
 
    ```powershell
    powershell -ExecutionPolicy Bypass -File scripts\make_shortcut.ps1
    ```
+
+   It puts a **Pit Pal** shortcut with the red **P** icon on your Desktop and in the Start menu. For the taskbar, right-click
+   the Desktop shortcut, choose **Show more options**, then **Pin to taskbar** (Windows does not let programs pin themselves).
+   It should look like this, next to Assetto Corsa:
+
+   <img src="docs/img/taskbar-icon.png" alt="The Pit Pal icon, a red tile with a white P, pinned on the taskbar next to the Assetto Corsa icon" width="160">
+
+   From then on, click that icon (or double-click **`PitPal.bat`**) to start Pit Pal.
 
 4. **Rev** appears in the bottom-right corner with a **SCAN ME** QR code. Scan it with the app and he says **Connected.**
    On shared Wi-Fi use `--pairing required` so only a paired phone can drive. Right-click Rev for **New pairing code**.
