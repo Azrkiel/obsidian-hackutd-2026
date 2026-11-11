@@ -19,12 +19,16 @@ for /f "tokens=4" %%p in ('netstat -ano -p UDP ^| findstr /r /c:":5005 "') do (
 )
 set VOICE=auto
 if defined NVIDIA_API_KEY set VOICE=nvidia
+rem The tunnel can be mid-reconnect for a few seconds: try up to 6 times (about 18 s) before giving up.
 if not defined NEMOTRON_BASE_URL (
-  curl.exe -s -m 3 -o nul http://localhost:8000/v1/models && (
-    echo Nemotron tunnel found on localhost:8000: using the Brev H100.
-    set NEMOTRON_BASE_URL=http://localhost:8000/v1
+  for /l %%i in (1,1,6) do if not defined NEMOTRON_BASE_URL (
+    curl.exe -s -m 3 -o nul http://localhost:8000/v1/models && (
+      echo Nemotron tunnel found on localhost:8000: using the Brev H100.
+      set NEMOTRON_BASE_URL=http://localhost:8000/v1
+    ) || ping -n 3 127.0.0.1 >nul
   )
 )
+if not defined NEMOTRON_BASE_URL if not defined NVIDIA_API_KEY echo Nemotron tunnel not reachable: running the rules coach. Start scripts\nemotron_tunnel.sh and relaunch.
 if defined NEMOTRON_BASE_URL (
   if not defined NEMOTRON_BREV_MODEL set NEMOTRON_BREV_MODEL=nemotron
   if not defined NEMOTRON_MAX_TOKENS_THINK set NEMOTRON_MAX_TOKENS_THINK=3000
