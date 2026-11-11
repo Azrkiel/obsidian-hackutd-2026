@@ -147,7 +147,7 @@ coach and cloud reference is [docs/REFERENCE.md](docs/REFERENCE.md).
 
 ---
 
-## Team
+## Team Obsidian
 
 | | |
 | --- | --- |
