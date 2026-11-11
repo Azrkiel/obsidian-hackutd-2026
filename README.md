@@ -151,12 +151,12 @@ coach and cloud reference is [docs/REFERENCE.md](docs/REFERENCE.md).
 
 | | |
 | --- | --- |
-| **Keven Diaz** | iPhone app, input receiver, pairing |
-| **Kevin Jiang** | engine, Nemotron, voice and history |
-| **Dhanush Koyi** | game PC, CSP rewind app, pedal tuning, Rev overlay |
-| **Will Yang** | Arduino pedals |
+| **Keven** | iPhone app, input receiver, pairing |
+| **Kevin** | engine, Nemotron, voice and history |
+| **Dhanush** | game PC, CSP rewind app, pedal tuning, Rev overlay |
+| **Will** | Arduino pedals |
 
-<p align="center"><img src="docs/team/team.png" alt="The Pit Pal team as pixel racers: Dhanush Koyi in red, Keven Diaz in blue, Kevin Jiang in orange, Will Yang in black" width="100%"></p>
+<p align="center"><img src="docs/team/team.png" alt="The Pit Pal team as pixel racers: Dhanush in red, Keven in blue, Kevin in orange, Will in black" width="100%"></p>
 
 ## License and credits
 
