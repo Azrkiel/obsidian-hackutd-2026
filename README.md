@@ -156,6 +156,8 @@ coach and cloud reference is [docs/REFERENCE.md](docs/REFERENCE.md).
 | **Dhanush Koyi** | game PC, CSP rewind app, pedal tuning, Rev overlay |
 | **Will Yang** | Arduino pedals |
 
+<p align="center"><img src="docs/team/team.png" alt="The Pit Pal team as pixel racers: Dhanush Koyi in red, Keven Diaz in blue, Kevin Jiang in orange, Will Yang in black" width="100%"></p>
+
 ## License and credits
 
 Code: [MIT](LICENSE). Rev, the Pit Pal logos, wordmark and app icon are the team's brand assets and are not licensed
