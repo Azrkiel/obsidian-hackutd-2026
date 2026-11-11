@@ -86,9 +86,9 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--arduino-udp-port", type=int, default=None,
                    help="also accept 'gas,brake' pedal datagrams on this UDP port (e.g. 5006)")
     g.add_argument("--invert-steer", action="store_true")
-    g.add_argument("--gas-gamma", type=float, default=1.8,
+    g.add_argument("--gas-gamma", type=float, default=1.3,
                    help="throttle curve sent to the game: out = in^gamma. 1 = linear, higher = gentler "
-                        "start (1.8: half pedal = 29%% throttle)")
+                        "start (1.3: half pedal = 41%% throttle)")
     g.add_argument("--brake-gamma", type=float, default=1.0, help="brake curve, same as --gas-gamma")
     g.add_argument("--pairing", choices=["off", "optional", "required"], default="optional",
                    help="QR pairing for the phone: required = only phones that scanned the code can "
