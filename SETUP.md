@@ -60,53 +60,64 @@ It measures **position, not pressure**: the number says how far the pedal is dow
 
 ### A2. Parts
 
+<p align="center">
+  <img src="docs/img/hardware-parts.jpg" alt="Everything you need laid out: an Arduino UNO R4 WiFi, two HC-SR04 ultrasonic sensors, a breadboard, jumper wires, resistors and USB cables" width="760">
+</p>
+
 | Qty | Part | Notes |
 | --- | --- | --- |
 | 1 | **Arduino UNO R4 WiFi** | 5 V logic, native USB. The sketch is written and tested for this board. |
 | 2 | **HC-SR04 ultrasonic sensor** | One for gas, one for brake. The 5 V version with 4 pins: VCC, TRIG, ECHO, GND. |
-| 8 | Jumper wires | Female-to-female if you plug straight onto the sensor pins; male-to-female onto a breadboard. |
+| 1 | **Solderless breadboard** | Half-size is plenty. It carries the shared 5 V and GND rails and one row per signal. |
+| 14 | Jumper wires | Male-to-male between the Arduino and the breadboard, male-to-female from the breadboard to the sensor pins. |
 | 1 | USB cable | Must carry data (not charge-only), long enough to reach the PC. |
 | 2 | Pedal plates | Anything that moves down when pressed and returns to the top by itself (a hinged plate with a spring or foam). |
 | 2 | Flat reflectors | A smooth, hard, flat patch on the underside of each pedal: stiff cardboard, plastic or thin wood. |
 | 1 | Base | Holds the sensors still, facing up at the pedals. |
 | | Fixings | Double-sided tape, zip ties, screws or hot glue to hold the sensors rigidly. |
-| | Optional | A breadboard, to keep the wiring neat while you test. |
 
 Tools: a screwdriver or hot-glue gun, a ruler (you will measure distances in centimetres), and a computer to flash the board.
 
 ### A3. Wiring
 
-Both sensors run on the Arduino's **5 V** pin and **GND**. Each sensor gets two signal pins.
+Both sensors take power from the breadboard's **+ (5 V)** and **- (GND)** rails, and every signal passes through its own breadboard row.
+That is 8 connections and **14 jumper wires** in all:
 
-| Sensor | Sensor pin | Arduino pin |
-| --- | --- | --- |
-| **Gas** | VCC | 5V |
-| | GND | GND |
-| | TRIG | **D4** |
-| | ECHO | **D5** |
-| **Brake** | VCC | 5V |
-| | GND | GND |
-| | TRIG | **D2** |
-| | ECHO | **D3** |
+1. **Arduino 5V** to the breadboard **+ rail**, and **Arduino GND** to the **- rail** (2 wires).
+2. Each sensor's **VCC** to the **+ rail** and its **GND** to the **- rail** (4 wires).
+3. Each signal: **Arduino pin to a hole in a breadboard row, then a hole in the same row to the sensor pin** (8 wires).
+
+| Sensor | Sensor pin | Breadboard | Arduino pin |
+| --- | --- | --- | --- |
+| **Gas** | VCC | + rail | 5V |
+| | GND | - rail | GND |
+| | TRIG | row 1 | **D4** |
+| | ECHO | row 2 | **D5** |
+| **Brake** | VCC | + rail | 5V |
+| | GND | - rail | GND |
+| | TRIG | row 3 | **D2** |
+| | ECHO | row 4 | **D3** |
 
 ```text
-        Arduino UNO R4 WiFi                 Gas sensor (HC-SR04)
-       +-----------------+                 +-----------------+
-       |             5V  |-----------------| VCC             |
-       |            GND  |-----------------| GND             |
-       |             D4  |-----------------| TRIG            |
-       |             D5  |-----------------| ECHO            |
-       |                 |                 +-----------------+
-       |                 |                 Brake sensor (HC-SR04)
-       |             5V  |-----------------| VCC             |
-       |            GND  |-----------------| GND             |
-       |             D2  |-----------------| TRIG            |
-       |             D3  |-----------------| ECHO            |
-       +-----------------+                 +-----------------+
+ ARDUINO UNO R4 WiFi        BREADBOARD                       HC-SR04 SENSORS
+ +--------------+     +----------------------+          +--------------------+
+ |          5V  |-----| + rail (red)  -------|--------->| Gas    VCC         |
+ |         GND  |-----| - rail (blue) -------|--------->| Gas    GND         |
+ |              |     |                      |          |                    |
+ |          D4  |-----| row 1  --------------|--------->| Gas    TRIG        |
+ |          D5  |-----| row 2  --------------|--------->| Gas    ECHO        |
+ |              |     |                      |          +--------------------+
+ |          D2  |-----| row 3  --------------|--------->| Brake  TRIG        |
+ |          D3  |-----| row 4  --------------|--------->| Brake  ECHO        |
+ +--------------+     |                      |          |                    |
+                      | + rail (to Brake VCC)|--------->| Brake  VCC         |
+                      | - rail (to Brake GND)|--------->| Brake  GND         |
+                      +----------------------+          +--------------------+
 ```
 
-The Arduino has one 5 V pin and a few GND pins: share them with a breadboard rail, or twist the two VCC wires into the same hole.
-Double-check VCC and GND before you plug in USB: reversed power can damage a sensor.
+The Arduino has one 5 V pin, which is exactly why the breadboard rails are there: one wire in, a wire out to each sensor.
+Any free row works; the row numbers are only labels. Double-check VCC and GND before you plug in USB: reversed power can
+damage a sensor. The diagram on the [website](https://pitpal-site.vercel.app/hardware) lights up each wire as you hover its row.
 
 ### A4. Mount the sensors
 
@@ -334,6 +345,13 @@ only deleted, and deleting removes the downloaded model.
 5. Plug in the pedals before starting: the coach finds the Arduino on its own. Rev warns if a pedal or the phone drops out.
 6. Drive Monza. Make a mistake on purpose: a cue appears with a countdown. Tap **Next** on the phone and the car rewinds to before
    the corner so you can try again. **Quit Rev** (right-click) ends the session.
+
+Here is the whole thing set up: the game laptop with Rev on top of Assetto Corsa, the coach dashboard on a second screen, the phone as the wheel and the pedals on the floor.
+
+<p align="center">
+  <img src="docs/img/rig-setup.jpg" alt="The full rig: game laptop running Assetto Corsa, an iPad showing Rev, the coach dashboard on a second laptop and the taped pedals on the floor" width="560">
+  <img src="docs/img/rig-setup-pov.jpg" alt="Driver's view: the iPhone wheel in hand, the pedals under the desk and the game on the laptop" width="250">
+</p>
 
 By hand, the same thing:
 

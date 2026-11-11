@@ -149,6 +149,18 @@ coach and cloud reference is [docs/REFERENCE.md](docs/REFERENCE.md).
 
 ---
 
+## In action
+
+| | |
+| --- | --- |
+| <img src="docs/img/gameplay/pit-ready.jpg" alt="Rev in the pit lane: Ready when you are, Nemotron fast"> **Pit lane:** Rev is ready and Nemotron is connected. | <img src="docs/img/gameplay/pit-qr.jpg" alt="Rev showing a Scan me QR code in the pit lane"> **Pairing:** scan the QR in the pit lane. |
+| <img src="docs/img/gameplay/curva-grande.jpg" alt="Rev: Curva Grande, the car spun, 42.3 s lost. Press Next to retry"> **A cue:** the car spun, 42.3 s lost. Press Next to retry. | <img src="docs/img/gameplay/easy-throttle.jpg" alt="Rev: Easy on throttle"> **A quick reaction:** *"Easy on throttle."* |
+
+<p align="center">
+  <img src="docs/img/hardware-parts.jpg" alt="The pedal parts: Arduino UNO R4 WiFi, two HC-SR04 sensors, breadboard, jumper wires" width="46%">
+  <img src="docs/img/rig-setup.jpg" alt="The whole rig on the table" width="46%">
+</p>
+
 ## Team Obsidian
 
 | | |

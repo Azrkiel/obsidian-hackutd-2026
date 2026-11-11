@@ -7,7 +7,8 @@ Arduino UNO R4 WiFi with two HC-SR04 ultrasonic sensors: one measures how far th
 | Gas | D4 | D5 | 9.2 / 4.0 |
 | Brake | D2 | D3 | 8.5 / 3.8 |
 
-Both sensors use 5V and GND. To re-measure, set `MEASURE 1` in [`pedals/pedals.ino`](pedals/pedals.ino), read the distances, update
+Both sensors take 5V and GND from a breadboard's + and - rails (Arduino 5V and GND feed the rails), and each signal passes
+through its own breadboard row: 8 connections, 14 jumper wires. Wiring table and diagram: [SETUP.md, A3](../SETUP.md#a3-wiring). To re-measure, set `MEASURE 1` in [`pedals/pedals.ino`](pedals/pedals.ino), read the distances, update
 `REST` and `PRESS`, and upload with `MEASURE 0`.
 
 The full build (parts, wiring, mounting, flashing, calibration) is in the [setup guide](../SETUP.md#part-a-build-the-pedals).
