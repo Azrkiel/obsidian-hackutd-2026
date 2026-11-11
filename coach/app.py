@@ -37,7 +37,7 @@ from .telemetry import ACSharedMemory, Recorder, ReplaySource, Sample, SimSource
 COMMANDS = {"accept", "retry", "save_checkpoint", "set_reference", "new_session",
             "toggle_cue_next", "retry_reset", "toggle_mute", "mark_board", "resume",
             "new_pairing", "select_corner", "accept_offer", "settings", "reset_personal_best",
-            "rev_say", "pedal_source"}
+            "rev_say", "pedal_source", "simulate_crash"}
 REV_SAY_MAX_AGE_S = 6.0     # Rev's reactions ("Easy on throttle."): spoken on the next straight, or not at all
 REV_SAY_REPEAT_S = 15.0     # the same reaction is not spoken again sooner than this
 LIVE_HZ = 10.0
@@ -682,6 +682,10 @@ class CoachApp:
                 self._spawn(self.reset.reset("free-run"))
             else:
                 self._note(f"retry not available in {c.state}")
+        elif kind == "simulate_crash":
+            if self.lap_coach is None:
+                return self._note("simulate_crash needs whole-lap mode")
+            self.lap_coach.simulate_crash()
         elif kind == "save_checkpoint":
             self._spawn(self.reset.save_checkpoint())
         elif kind == "set_reference":

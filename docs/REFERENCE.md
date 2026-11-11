@@ -273,6 +273,15 @@ gets a cue and a 5 s retry offer (dashboard Retry, or phone Next). In the combin
 rewinds once to the held checkpoint before the corner. The coach scores one attempt after telemetry
 confirms the rewind, then the driver keeps going. Resume returns to the saved position when available.
 
+**Crash and stuck rewinds** (`coach/crash.py`, whole-lap mode only): `CrashWatch` reads telemetry and reports a
+`crash` when speed falls by 45 km/h or more within 0.5 s from at least 40 km/h (hard braking loses about 18 km/h in that
+time), or on a longitudinal-g spike of 4 g with a 15 km/h loss; and `stuck` when the car is under 6 km/h with two or more
+tyres off the track for 5 s. Each fires once, then is silent for 20 s, and is held off while a rewind runs (the teleport
+is not a crash). The lap coach turns it into the usual retry offer (corner `Crash` or `Stuck`, cue spoken, Next to accept).
+The rewind point is `CheckpointPicker.pick_crash`: the newest rolling save at least 5 s old that was still moving, else
+the oldest moving save. Accepting plays the 3-2-1 first (the app's `--countdown`), then loads the save. To test without
+crashing: `uv run python scripts/trigger_crash.py` (the dashboard command `simulate_crash`).
+
 **The demo runs both coaches together**: the lap coach's per-lap voice cue (above) plus a retry
 offer for every error. Retries are judged by the error detector (fixed = the corner is clean),
 the offer's cue is spoken first on the next straight, and its countdown starts when it's spoken.

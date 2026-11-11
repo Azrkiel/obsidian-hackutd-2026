@@ -85,7 +85,7 @@ class Session:
     last_seq: int = -1
 
 
-def local_ipv4s(limit: int = 4) -> list[str]:
+def local_ipv4s(limit: int = 8) -> list[str]:
     """LAN IPv4 addresses a phone on the same network could reach, the default route's first."""
     found: list[str] = []
     try:
@@ -107,7 +107,14 @@ def local_ipv4s(limit: int = 4) -> list[str]:
         ip = ipaddress.ip_address(a)
         if ip.is_private and not ip.is_loopback and not ip.is_link_local and a not in out:
             out.append(a)
-    return out[:limit]
+    # virtual adapters (VirtualBox host-only 192.168.56.x, WSL / Hyper-V 172.16-31.x) come last so the real
+    # Wi-Fi or Ethernet address is never pushed out of the list; the default route's address stays first
+    def virtual(a: str) -> bool:
+        return a.startswith("192.168.56.") or (a.startswith("172.") and 16 <= int(a.split(".")[1]) <= 31
+                                               and not a.startswith("172.20.10."))
+    head = out[:1]
+    rest = sorted(out[1:], key=virtual)
+    return (head + rest)[:limit]
 
 
 class Pairing:

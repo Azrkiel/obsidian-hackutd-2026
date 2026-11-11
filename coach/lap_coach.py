@@ -28,7 +28,8 @@ from engine.state import AWAIT_RESET, DONE, IDLE, OFFERED, RETRY
 from engine.voice import OFFER
 
 from .coaching_text import actionable_cue, corner_guide, describe, with_facts
-from .events import CheckpointPicker, CornerEvent, EventDetector, RetryStart
+from .crash import CRASH, CrashWatch
+from .events import MAJOR, CheckpointPicker, CornerEvent, EventDetector, RetryStart
 from .offers import Offer, OfferManager
 from .corner_pass import CornerPass, PassScorer
 
@@ -76,6 +77,8 @@ class LapCoach:
         self._pushed: str | None = None          # offer id last shown on the phone
         self.recent_cues: deque[str] = deque(maxlen=3)     # what was said (context for Nemotron)
         self.recent_actions: deque[str] = deque(maxlen=3)  # just the advice: a repeat is rejected
+        self.crash = CrashWatch()                # a wall hit or a stuck car gets the same retry offer
+        self._crash_n = 0
 
     # -- lifecycle --
     def start(self) -> None:
@@ -145,6 +148,54 @@ class LapCoach:
     # -- telemetry --
     def on_sample(self, s: Any) -> None:
         self.scorer.add(s)
+        if not self.standalone:
+            return
+        if self.app.reset.busy or self.retrying is not None:
+            self.crash.hold(s.t, 3.0)                    # a rewind's teleport is not a crash
+            return
+        kind = self.crash.feed(s)
+        if kind is not None:
+            self.app._spawn(self._raise_crash(kind, s))
+
+    def simulate_crash(self) -> None:
+        """Dashboard / script test hook: raise the crash offer now, as if the car had just hit a wall."""
+        s = self.app.latest
+        if s is None:
+            self.app._note("no telemetry yet: cannot simulate a crash")
+            return
+        self.app._spawn(self._raise_crash(CRASH, s))
+
+    async def _pin_crash(self, s: Any) -> RetryStart | None:
+        if self.app.reset.mode == "sim":
+            pos = max(0.0, s.pos_m - 120.0)
+            return RetryStart("sim", pos, max(80.0, self.track.ai_kmh(pos)))
+        if self.store is None:
+            return None
+        start = self.picker.pick_crash(self.store, self.store.clock())
+        return start
+
+    async def _raise_crash(self, kind: str, s: Any) -> None:
+        """A crash or a stuck car: offer to rewind to just before it (same offer, cue, Next and 3-2-1)."""
+        if not self.standalone or self.retrying is not None or self.app.reset.busy:
+            return
+        start = await self._pin_crash(s)
+        if start is None:
+            self.app._note("crash detected, but no rewind point is saved yet")
+            return
+        self._crash_n += 1
+        label = "Crash" if kind == CRASH else "Stuck"
+        ev = CornerEvent(f"x{self._crash_n:03d}", "crash", label, 0, MAJOR, [kind],
+                         {"speed_kmh": round(s.speed_kmh, 1)}, None, None)   # type: ignore[arg-type]
+        if self.store is not None and start.cp is not None and not await self.store.hold(ev.id, start.cp):
+            self.app._note("crash detected, but the rewind point could not be held")
+            return
+        self.app.broadcast({"type": "corner_event", "id": ev.id, "corner_id": "crash", "corner": label, "lap": 0,
+                            "severity": MAJOR, "kinds": [kind], "facts": ev.facts, "reference": "none"})
+        offer, dropped = self.offers.new(ev, start)
+        await self._drop(dropped)
+        text = ("Crashed. Press Next to rewind to just before it." if kind == CRASH
+                else "Stuck off the track. Press Next to get back on.")
+        self._deliver(offer, text, "rules")
 
     def on_pass(self, p: CornerPass) -> None:
         self.passes += 1
@@ -305,7 +356,8 @@ class LapCoach:
         app = self.app
         if self.standalone:
             self.scorer.abort()
-            self._retry_ready = await app.reset.reset(f"{o.id}-1", abort_run=True, countdown=0,
+            # the 3-2-1 plays first (the app's countdown setting), then the car rewinds
+            self._retry_ready = await app.reset.reset(f"{o.id}-1", abort_run=True,
                                                       resume_save_timeout_s=0.25)
             if not self._retry_ready:
                 app.reset.checkpoint = None

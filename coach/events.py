@@ -143,3 +143,13 @@ class CheckpointPicker:
             if tr.corner_at(pos) is None and abs(cp.speed_kmh - ai) <= self.speed_tol * ai:
                 return RetryStart("oldest", pos, cp.speed_kmh, cp)
         return None
+
+    def pick_crash(self, store: CheckpointStore, now: float, back_s: float = 5.0,
+                   min_kmh: float = 25.0) -> RetryStart | None:
+        """Where to put the car back after a crash: the newest rolling save at least `back_s` old that
+        was still moving, else the oldest moving save in the ring. None if the ring has nothing usable."""
+        L = self.track.length_m
+        ring = [cp for cp in store.ring if now - cp.t <= self.max_age_s and cp.speed_kmh >= min_kmh]
+        old = [cp for cp in ring if now - cp.t >= back_s]
+        cp = max(old, key=lambda c: c.t) if old else (min(ring, key=lambda c: c.t) if ring else None)
+        return None if cp is None else RetryStart("crash", cp.spline * L, cp.speed_kmh, cp)
