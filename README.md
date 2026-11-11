@@ -82,7 +82,9 @@ Hover him for **Accept / Resume / Mute**, click for the details card, right-clic
   brake board, a kerb or the apex. *"Rettifilo: you braked 14 m late, 0.4 s lost. Brake at the 100 board."*
   It never repeats the same advice twice in a row; Rev's quick reactions (*"Easy on throttle."*) are spoken too.
 - **The retry:** tap **Next** within the countdown and the car rewinds to the approach of that corner (rolling
-  checkpoints saved by a Custom Shaders Patch Lua app). Skip it and you just keep driving.
+  checkpoints saved by a Custom Shaders Patch Lua app), after a **3-2-1** on Rev's overlay. Skip it and you just keep driving.
+- **Crashes and stuck cars:** hit a barrier hard, or end up stopped off the track for about five seconds, and you get the
+  same offer: *"Crashed. Press Next to rewind to just before it."* Same Next button, same 3-2-1, no walking the car back.
 - **The AI:** NVIDIA Nemotron 3.5 Lightning, self-hosted on an H100 (vLLM on Brev) or through NVIDIA's hosted API.
   Fast mode writes the live cue in about a second; think mode does the deeper look; with no AI at all, the rules coach
   still coaches. The voice is NVIDIA Magpie TTS or the Windows voice.

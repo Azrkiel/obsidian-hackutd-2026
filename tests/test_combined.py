@@ -57,7 +57,7 @@ async def test_error_retry_inside_the_lap_coach(tmp_path, monkeypatch):
     assert kinds(app, "retry_started", "reset_request", "reset_confirmed", "retry_judged", "resumed",
                  "retry_finished") == ["retry_started", "reset_request", "reset_confirmed",
                                        "retry_judged", "retry_finished"]
-    assert not any(e["type"] == "countdown" and e["n"] > 0 for e in app.events)
+    assert [e["n"] for e in app.events if e["type"] == "countdown"][:4] == [3, 2, 1, 0]   # the rewind counts down first
     assert app.reset.resume_point is not None  # returning is still an explicit driver action
     assert app.coach.state != "AWAIT_RESET" and app.auto_retry is False
 
