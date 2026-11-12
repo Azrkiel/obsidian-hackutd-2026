@@ -68,58 +68,68 @@ It measures **position, not pressure**: the number says how far the pedal is dow
 | --- | --- | --- |
 | 1 | **Arduino UNO R4 WiFi** | 5 V logic, native USB. The sketch is written and tested for this board. |
 | 2 | **HC-SR04 ultrasonic sensor** | One for gas, one for brake. The 5 V version with 4 pins: VCC, TRIG, ECHO, GND. |
-| 1 | **Solderless breadboard** | Half-size is plenty. It carries the shared 5 V and GND rails and one row per signal. |
-| 14 | Jumper wires | Male-to-male between the Arduino and the breadboard, male-to-female from the breadboard to the sensor pins. |
+| 1 | **Solderless breadboard** | Half-size is plenty. Its + and - rails share the Arduino's 5 V and GND with both sensors. |
+| 10 | Jumper wires | Male-to-male for the Arduino and the breadboard rails, male-to-female onto the sensor pins. |
+| 2 | Door hinges | One per pedal: the pivot. Superglued into the cardboard base. |
+| 2 | Compression stress balls | One under each pedal. They push it back up and give it some resistance. |
+| | Foam and cardboard | Cardboard base plus a thick foam slab as the pedal plate: soft and comfortable under the foot. |
 | 1 | USB cable | Must carry data (not charge-only), long enough to reach the PC. |
-| 2 | Pedal plates | Anything that moves down when pressed and returns to the top by itself (a hinged plate with a spring or foam). |
-| 2 | Flat reflectors | A smooth, hard, flat patch on the underside of each pedal: stiff cardboard, plastic or thin wood. |
-| 1 | Base | Holds the sensors still, facing up at the pedals. |
-| | Fixings | Double-sided tape, zip ties, screws or hot glue to hold the sensors rigidly. |
 
 Tools: a screwdriver or hot-glue gun, a ruler (you will measure distances in centimetres), and a computer to flash the board.
 
 ### A3. Wiring
 
-Both sensors take power from the breadboard's **+ (5 V)** and **- (GND)** rails, and every signal passes through its own breadboard row.
-That is 8 connections and **14 jumper wires** in all:
+Both sensors take power from the breadboard's **+ (5 V)** and **- (GND)** rails. The four signal wires go **straight from the Arduino to the sensors**.
+That is 8 connections at the sensors and **10 jumper wires** in all:
 
 1. **Arduino 5V** to the breadboard **+ rail**, and **Arduino GND** to the **- rail** (2 wires).
 2. Each sensor's **VCC** to the **+ rail** and its **GND** to the **- rail** (4 wires).
-3. Each signal: **Arduino pin to a hole in a breadboard row, then a hole in the same row to the sensor pin** (8 wires).
+3. Each signal **straight from the Arduino pin to the sensor pin** (4 wires).
 
-| Sensor | Sensor pin | Breadboard | Arduino pin |
-| --- | --- | --- | --- |
-| **Gas** | VCC | + rail | 5V |
-| | GND | - rail | GND |
-| | TRIG | row 1 | **D4** |
-| | ECHO | row 2 | **D5** |
-| **Brake** | VCC | + rail | 5V |
-| | GND | - rail | GND |
-| | TRIG | row 3 | **D2** |
-| | ECHO | row 4 | **D3** |
+| Sensor | Sensor pin | Goes to |
+| --- | --- | --- |
+| **Gas** | VCC | + rail (5 V) |
+| | GND | - rail (GND) |
+| | TRIG | Arduino **D4** |
+| | ECHO | Arduino **D5** |
+| **Brake** | VCC | + rail (5 V) |
+| | GND | - rail (GND) |
+| | TRIG | Arduino **D2** |
+| | ECHO | Arduino **D3** |
 
 ```text
- ARDUINO UNO R4 WiFi        BREADBOARD                       HC-SR04 SENSORS
+ ARDUINO UNO R4 WiFi        BREADBOARD (power rails)         HC-SR04 SENSORS
  +--------------+     +----------------------+          +--------------------+
  |          5V  |-----| + rail (red)  -------|--------->| Gas    VCC         |
  |         GND  |-----| - rail (blue) -------|--------->| Gas    GND         |
  |              |     |                      |          |                    |
- |          D4  |-----| row 1  --------------|--------->| Gas    TRIG        |
- |          D5  |-----| row 2  --------------|--------->| Gas    ECHO        |
- |              |     |                      |          +--------------------+
- |          D2  |-----| row 3  --------------|--------->| Brake  TRIG        |
- |          D3  |-----| row 4  --------------|--------->| Brake  ECHO        |
- +--------------+     |                      |          |                    |
-                      | + rail (to Brake VCC)|--------->| Brake  VCC         |
-                      | - rail (to Brake GND)|--------->| Brake  GND         |
-                      +----------------------+          +--------------------+
+ |              |     | + rail  -------------|--------->| Brake  VCC         |
+ |              |     | - rail  -------------|--------->| Brake  GND         |
+ |              |     +----------------------+          |                    |
+ |          D4  |---------------------------------------->| Gas    TRIG     |
+ |          D5  |---------------------------------------->| Gas    ECHO     |
+ |          D2  |---------------------------------------->| Brake  TRIG     |
+ |          D3  |---------------------------------------->| Brake  ECHO     |
+ +--------------+                                         +-----------------+
 ```
 
-The Arduino has one 5 V pin, which is exactly why the breadboard rails are there: one wire in, a wire out to each sensor.
-Any free row works; the row numbers are only labels. Double-check VCC and GND before you plug in USB: reversed power can
-damage a sensor. The diagram on the [website](https://pitpal-site.vercel.app/hardware) lights up each wire as you hover its row.
+The Arduino has one 5 V pin, which is why the breadboard rails are there: one wire in, a wire out to each sensor.
+On the sensor header the pins read **Gnd, Echo, Trig, Vcc** left to right (see the photos in [A4](#a4-mount-the-sensors)).
+Double-check VCC and GND before you plug in USB: reversed power can damage a sensor. The diagram on the
+[website](https://pitpal-site.vercel.app/hardware) lights up each wire as you hover its row. Full hardware reference:
+[docs/HARDWARE.md](docs/HARDWARE.md).
 
 ### A4. Mount the sensors
+
+**How ours is built.** Each pedal swings on a **door hinge** superglued into a cardboard base, springs back off a **compression stress ball**
+under it, and has a thick **foam slab** on top so the brake feels soft and comfortable. Each HC-SR04 sits on a strip of foam facing the
+underside of its pedal.
+
+<p align="center">
+  <img src="docs/img/pedals-build.jpg" alt="The finished pedals: two foam-topped pedals on cardboard, a sensor beside each, the Arduino and the breadboard" width="360">
+  <img src="docs/img/pedal-sensor-1.jpg" alt="Close-up of an HC-SR04 sensor on a foam strip with four jumper wires" width="330">
+  <img src="docs/img/pedal-sensor-2.jpg" alt="Close-up of the second HC-SR04 sensor with its four jumper wires" width="330">
+</p>
 
 The sketch only needs two things from the mechanics: **a repeatable rest distance** and **enough travel**.
 

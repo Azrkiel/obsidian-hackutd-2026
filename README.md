@@ -161,6 +161,15 @@ coach and cloud reference is [docs/REFERENCE.md](docs/REFERENCE.md).
   <img src="docs/img/rig-setup.jpg" alt="The whole rig on the table" width="46%">
 </p>
 
+**The pedals:** each one swings on a door hinge, springs back off a compression stress ball and has a foam top; an HC-SR04 sensor reads the distance to the pedal.
+Parts, wiring and the full build: [SETUP.md, Part A](SETUP.md#part-a-build-the-pedals) and [docs/HARDWARE.md](docs/HARDWARE.md).
+
+<p align="center">
+  <img src="docs/img/pedals-build.jpg" alt="The finished pedals: foam-topped pedals on cardboard with a sensor beside each, the Arduino and the breadboard" width="30%">
+  <img src="docs/img/pedal-sensor-1.jpg" alt="An HC-SR04 sensor on a foam strip with four jumper wires" width="31%">
+  <img src="docs/img/pedal-sensor-2.jpg" alt="The second HC-SR04 sensor with its four jumper wires" width="31%">
+</p>
+
 ## Team Obsidian
 
 | | |
