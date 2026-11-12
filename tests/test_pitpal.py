@@ -127,6 +127,7 @@ def test_racing_helmet_and_lockup_reaction_with_cooldown():
     m.feed(tele(brake=0.95, slip_f=0.6), 2.1)
     v = m.view(2.2)
     assert v.bubble["kind"] == "warn" and v.bubble["bold"] == "Lock-up." and v.anim == "wince"
+    assert v.outfit == RACER                                      # the warning is said in the suit, never plain Rev
     m.feed(tele(brake=0.95, slip_f=0.6), 5.0)                    # cooldown: no second reaction
     assert m.view(5.0).bubble is None or m.view(5.0).bubble["kind"] != "warn"
 
@@ -384,3 +385,21 @@ async def test_quit_rev_ends_the_session_and_a_crash_restarts_him(monkeypatch):
 
 def test_rev_lines_without_an_event_loop_never_raise():
     RevLines(FakeApp([])).on_event({"type": "retry_judged", "try": 1, "fixed": True})
+
+
+def test_plain_rev_never_shows_on_track_but_does_in_the_pits():
+    m = RevModel()
+    m.feed({"type": "_conn", "online": True}, 0.0)
+    m.feed(health(phone="live", arduino="live"), 0.0)
+    assert m.view(0.5).outfit == RACER                            # the "Connected." moment: suit, no helmet
+    assert m.view(10.0).outfit == BASE                            # then waiting in the pit lane: plain Rev
+    for i in range(20):
+        m.feed(tele(), 10.0 + i * 0.1)
+    assert m.view(12.0).outfit == HELMET                          # racing: helmet
+    m.feed(health(phone="live", arduino="silent"), 12.5)
+    m.view(12.6)
+    v = m.view(15.0)
+    assert v.bubble["bold"] == "Pedals lost." and v.outfit == RACER   # a lost pedal on track: suit, not plain Rev
+    m.feed(health(phone="live", arduino="live"), 15.5)
+    m.feed({"type": "_conn", "online": False}, 16.0)
+    assert m.view(16.1).outfit == BASE                             # coach connection lost: plain Rev

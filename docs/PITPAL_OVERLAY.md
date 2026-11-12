@@ -31,7 +31,7 @@ Rev never takes focus from the game and has no taskbar entry; the see-through pa
 | `racer` (white, red suit, no helmet) | the main form: idle, thinking, talking, offers |
 | `helmet_suit` | while driving (a racing session) |
 | `suit` | the rewind countdown |
-| `base` (plain white) | pairing, warnings, no coach connection |
+| `base` (plain white) | pairing, no coach connection, a lost phone or pedals off track, the pits (waiting in the pit lane before the car goes out, or a real stop). Never on track |
 
 An outfit never changes while Rev is talking. Rev moves only in whole art pixels and in steps (idle bob, talk bounce, think sway, warn shake, hop, wince): no easing, no smoothing, as the design system requires.
 

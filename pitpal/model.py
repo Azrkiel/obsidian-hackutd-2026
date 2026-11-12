@@ -4,11 +4,12 @@ Events are the dicts the coach streams on ws://127.0.0.1:8020/ws (see docs/PITPA
 three the overlay client adds itself: {"type": "_conn", "online": bool}, {"type": "_pair", "uri": str|None}.
 
 What Rev wears (design system README: the helmet is for racing sessions only, plain white for
-pairing and empty states):
-    racer        the main form: idle, thinking, talking, offers
+pairing and empty states). The plain white Rev (base) never shows on track:
+    base         pairing, coach not found, a lost phone or pedals off track, the pits (in the pit lane before the car goes out, or a real stop)
+    racer        racing suit, no helmet: ready to go, thinking, offers, and on track warnings
+                 (wheels off, lock-up, a lost phone or pedals)
     helmet_suit  while you are driving (racing session)
     suit         the rewind countdown
-    base         pairing, warnings, no coach
 An outfit never changes while Rev is talking.
 """
 from __future__ import annotations
@@ -335,14 +336,19 @@ class RevModel:
 
         bubble: dict | None
         want = RACER
+        pits = not self.racing and (not self.session_started or self._was_parked)   # in the pit lane: not out on the circuit yet, or a real stop
+        on_track = self.racing or (self.session_started and not self._was_parked)
+        no_helmet = False            # on track warnings show the suit, not the full helmet
         if not self.online:
             bubble, want = {"kind": "idle", "title": "Rev", "sub": "Looking for the coach…"}, BASE
         elif self.countdown is not None:
             bubble, want = {"kind": "countdown", "n": self.countdown, "label": "Rewinding"}, SUIT
         elif warn:
-            bubble, want = {"kind": "warn", "bold": warn[0], "rest": warn[1]}, BASE
+            bubble, want = {"kind": "warn", "bold": warn[0], "rest": warn[1]}, (RACER if on_track else BASE)
+            no_helmet = on_track
         elif mom is not None and mom.kind == "warn":
-            bubble, want = {"kind": "warn", "bold": mom.bold, "rest": mom.rest}, BASE
+            bubble, want = {"kind": "warn", "bold": mom.bold, "rest": mom.rest}, RACER
+            no_helmet = True
         elif self.offer is not None:
             left = max(0.0, self.offer["end"] - now)
             bubble = {"kind": "offer", "frac": min(1.0, left / self.offer["total"]),
@@ -361,7 +367,9 @@ class RevModel:
             bubble = {"kind": "idle", "title": "Rev", "sub": "Ready when you are"}
         else:
             bubble = None
-        if self.online and want == RACER and (self.racing or (self.session_started and not self._was_parked)):
+        if pits and want == RACER and (bubble is None or bubble["kind"] == "idle"):
+            want = BASE                  # waiting in the pit lane: plain Rev until the car goes out
+        if self.online and want == RACER and on_track and not no_helmet:
             want = HELMET                # the helmet stays on through a spin or an off
 
         # an outfit never changes while Rev is talking
