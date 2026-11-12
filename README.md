@@ -98,7 +98,7 @@ Hover him for **Accept / Resume / Mute**, click for the details card, right-clic
 
 | Part | What it does |
 | --- | --- |
-| **iPhone wheel** ([`phone/`](phone)) | Tilt to steer, paddle shifters, on-screen pedals, the **Next** button for retries, pairing by QR. |
+| **iPhone wheel** ([`phone/`](phone)) | Tilt to steer, paddle shifters, on-screen pedals, the **Next** button for retries, pairing by QR. Built with Xcode, so it needs a Mac ([how](SETUP.md#part-c-the-iphone-wheel)). |
 | **Arduino pedals** ([`hardware/`](hardware)) | An UNO R4 WiFi with two ultrasonic sensors for gas and brake, calibrated on the game PC, with a fail-safe that releases a pedal if its sensor goes quiet. |
 | **Game PC** | Assetto Corsa with Content Manager and Custom Shaders Patch, the coach, Rev, and the rewind app ([`csp/nomadsim_reset`](csp/nomadsim_reset)). |
 | **History** | Laps saved locally and, optionally, shared across PCs ([docs/HISTORY.md](docs/HISTORY.md), [docs/SPACETIMEDB.md](docs/SPACETIMEDB.md)). |
@@ -115,6 +115,11 @@ cd obsidian-hackutd-2026
 uv sync --system-certs
 .\PitPal.bat
 ```
+
+**The iPhone app needs a Mac.** The wheel app is SwiftUI, so it is built with Xcode on a Mac and installed on your iPhone with a USB
+cable; a free Apple ID is enough (the app then lasts 7 days before you reinstall it). Open `phone/stealth-racing.xcodeproj`, pick your own
+Team under Signing & Capabilities, turn on Developer Mode on the phone and press Run. Full steps, fixes for common errors and a no-Mac
+fallback: [SETUP.md, Part C](SETUP.md#part-c-the-iphone-wheel).
 
 Start Assetto Corsa first (borderless or windowed, so Rev can sit on top), then run `PitPal.bat`. Scan Rev's QR with
 the app and drive. Everything else (the rewind app, the pedals, Nemotron, pairing, cloud history, troubleshooting) is

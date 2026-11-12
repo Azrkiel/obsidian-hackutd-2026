@@ -279,17 +279,52 @@ loads one when you accept a retry. Offline practice only.
 
 ## Part C: The iPhone wheel
 
-The app lives in [`phone/`](phone) (SwiftUI). You need a Mac with Xcode and an iPhone.
+The app lives in [`phone/`](phone) (SwiftUI, Swift 6). **An iPhone app can only be built on a Mac**, so this part needs one. The team built
+it with Xcode; the steps below come from the project's own settings, and the troubleshooting list covers what usually goes wrong.
 
-1. Open `phone/stealth-racing.xcodeproj` in Xcode.
-2. Select the app target, open **Signing & Capabilities**, choose your own **Team** (a free Apple ID works for your own phone) and
-   change the bundle identifier if Xcode asks for a unique one.
-3. Plug in the iPhone, choose it as the run destination and press **Run**. Trust the developer profile on the phone
-   (Settings > General > VPN & Device Management) the first time.
-4. Open the app and allow **Local Network** (it must reach the PC) and **Camera** (it scans Rev's QR code).
+### C1. What you need
 
-Hold the phone upright like a wheel, tap **Recenter**, and use **Drive**. If your Wi-Fi stops devices talking to each other (campus
-and venue networks often do), turn on the iPhone's **Personal Hotspot** and join the PC to it.
+- A **Mac with Xcode** (free from the Mac App Store). The project's iOS deployment target is **26.6**, so use an Xcode that includes
+  a matching iOS SDK, and an iPhone on a matching iOS version. A free **Apple ID** is enough to run the app on your own phone.
+- An **iPhone** and a **USB cable** (a data cable, not charge-only).
+- The PC and the iPhone on the **same network**. Campus and venue Wi-Fi often blocks devices from talking to each other: use the iPhone's
+  **Personal Hotspot** and join the PC to it.
+
+### C2. Build and install
+
+1. On the Mac, get the code: `git clone https://github.com/Azrkiel/obsidian-hackutd-2026.git`.
+2. Open `phone/stealth-racing.xcodeproj` in Xcode. In **Xcode > Settings > Accounts**, add your Apple ID.
+3. In the project, select the **stealth-racing** target and open **Signing & Capabilities**. Leave **Automatically manage signing** on and choose
+   **your own Team** (the project carries the original team's ID, which will not work for you). If Xcode says the bundle identifier is taken, change
+   it to something unique, for example `com.yourname.pitpal`.
+4. On the iPhone turn on **Developer Mode** (Settings > Privacy & Security > Developer Mode, then restart the phone). Plug it in, unlock it and tap
+   **Trust** if it asks.
+5. At the top of Xcode choose your iPhone as the run destination and press **Run** (the play button).
+6. The first time, the phone may say the developer is untrusted: Settings > General > **VPN & Device Management** > your Apple ID > **Trust**.
+7. Open the app and allow **Local Network** (it must reach the PC) and **Camera** (it scans Rev's QR code).
+
+Hold the phone upright like a wheel, tap **Recenter**, and use **Drive**. Pairing is by scanning the **Scan me** code that Rev shows on the PC.
+
+With a free Apple ID the app **expires after 7 days**: plug the phone in and press Run again. A paid Apple Developer Program membership
+lasts longer and allows TestFlight, which lets teammates install the app without a cable.
+
+### C3. If it will not build or connect
+
+| Symptom | Fix |
+| --- | --- |
+| "Signing requires a development team" or a profile error | Pick your own Team under Signing & Capabilities. |
+| "Failed to register bundle identifier" | Change the bundle identifier to a unique one. |
+| The iPhone is not listed as a destination | Unlock it, tap Trust, try another cable, and turn on Developer Mode. |
+| "Untrusted Developer" on the phone | Settings > General > VPN & Device Management > Trust. |
+| It says the iOS version is too old | Update the iPhone, or lower **iOS Deployment Target** in the target's General tab (not tested by us: the app may use newer APIs). |
+| The app cannot find the PC | Allow Local Network in iOS Settings > Pit Pal. Add the firewall rule from [Part E](#part-e-run-it) on the PC. Use the same network, or the iPhone's hotspot. |
+| The QR scan does nothing | Allow Camera in iOS Settings > Pit Pal. |
+
+### C4. No Mac or no iPhone?
+
+- Ask a teammate who has already installed the app to lend you their phone. You pair it to your PC by scanning Rev's QR code.
+- The pedals still work through the Arduino without the app, and Assetto Corsa accepts the keyboard for steering (Part B7 keeps it on as
+  a backup). We have not tested a full coaching session without the phone, so treat that as a fallback only.
 
 ---
 
