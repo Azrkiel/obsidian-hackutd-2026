@@ -14,6 +14,5 @@ the Arduino to the sensors: 10 jumper wires in all. Wiring table, diagram and ph
 
 The full build (parts, wiring, mounting, flashing, calibration) is in the [setup guide](../SETUP.md#part-a-build-the-pedals).
 
-Demo: the coach reads the pedals itself (`PitPal.bat`, or `python -m coach ... --inputs`). `bridge.py` here is only a standalone pedal
-tester: do **not** run it next to the coach, because two receivers make two virtual pads in the game.
-It needs Python 3, the ViGEmBus driver and `pip install -r requirements.txt`.
+Demo: the coach reads the pedals itself (`PitPal.bat`, or `python -m coach ... --inputs`). The standalone receiver is
+[`bridge/bridge.py`](../bridge/bridge.py): do **not** run it next to the coach, because two receivers make two virtual pads in the game.

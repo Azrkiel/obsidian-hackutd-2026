@@ -110,7 +110,7 @@ Sensors ping one after the other, never together, to avoid crosstalk. A reading 
 ignored. The receivers find the Arduino by USB vendor ID `0x2341` or a port description containing "arduino", "ch340" or "usb serial" (on some PCs COM3 and
 COM5 are Bluetooth, not the Arduino). If `MEASURE` was left at 1 the receiver sees no pedals.
 
-**Run only one receiver at a time.** The coach (`PitPal.bat`) already reads the pedals. `hardware/bridge.py` is a standalone tester: two receivers fight over
+**Run only one receiver at a time.** The coach (`PitPal.bat`) already reads the pedals. `bridge/bridge.py` is a standalone receiver: two receivers fight over
 UDP 5005, the COM port and the virtual pad, and the game sees two controllers. In Assetto Corsa bind throttle to the right trigger, brake to the left
 trigger and steering to the left stick.
 

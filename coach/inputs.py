@@ -576,7 +576,7 @@ class InputHub:
 
 
 def newest_line(ser: Any, backlog: int = 40) -> str:
-    """Next serial line, skipping ahead when readings pile up (same as hardware/bridge.py), so a
+    """Next serial line, skipping ahead when readings pile up (same as bridge/bridge.py), so a
     slow moment never leaves the pedals lagging behind the driver's feet."""
     line = ser.readline()
     while ser.in_waiting > backlog:
@@ -597,7 +597,7 @@ def _bind(port: int, what: str) -> socket.socket:
         return _dual_stack_socket(port)
     except OSError as e:
         raise RuntimeError(f"cannot listen for the {what} on UDP {port} ({e}). Is bridge/bridge.py, "
-                           f"hardware/bridge.py or listen.py running? Stop it, or run without --inputs.") from e
+                           f"or listen.py running? Stop it, or run without --inputs.") from e
 
 
 class _NoDualStack(OSError):
@@ -608,7 +608,7 @@ def _dual_stack_socket(port: int) -> socket.socket:
     """Bind IPv4 and IPv6 where supported (the phone may use either), else IPv4 only.
 
     On Windows the port is bound exclusively. Without it, a dual-stack bind next to another program's
-    IPv4 socket on the same port (bridge/bridge.py, hardware/bridge.py, listen.py) succeeds silently and
+    IPv4 socket on the same port (bridge/bridge.py, listen.py) succeeds silently and
     Windows delivers every phone packet to the other program, so the coach would never see the phone."""
     def exclusive(s: socket.socket) -> None:
         if sys.platform == "win32":

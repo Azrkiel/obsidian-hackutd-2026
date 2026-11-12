@@ -1,6 +1,6 @@
 ﻿"""Pit Pal PC bridge: phone tilt (UDP) + Arduino pedals (serial) -> one virtual Xbox 360 pad.
 
-Run ONLY this bridge (not hardware/bridge.py at the same time): two bridges = two virtual pads in AC.
+Run ONLY this bridge (not the coach with --inputs at the same time): two bridges = two virtual pads in AC.
 
 Inputs
   phone   UDP :5005   "v1,seq,steer,throttle,brake"   steer -1..1, throttle/brake 0..1
@@ -53,7 +53,7 @@ def find_port():
 
 def bind_phone_socket():
     """Bind UDP :port exclusively (Windows), BEFORE creating the virtual pad. If another receiver
-    (coach --inputs, hardware/bridge.py, phone/bridge) has the port, exit instead of sharing it."""
+    (coach --inputs, phone/bridge) has the port, exit instead of sharing it."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
         s.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
@@ -61,7 +61,7 @@ def bind_phone_socket():
         s.bind(("0.0.0.0", a.port))
     except OSError as e:
         raise SystemExit(f"UDP {a.port} is already in use ({e}). Another receiver is running "
-                         f"(coach --inputs, hardware/bridge.py or phone/bridge). Stop it first: "
+                         f"(coach --inputs or phone/bridge). Stop it first: "
                          f"only one program may create the virtual pad.")
     return s
 

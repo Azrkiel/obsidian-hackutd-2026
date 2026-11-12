@@ -273,7 +273,7 @@ class Overlay:
         self._text(x + cell, y + cell, s, f, C["brand"], anchor)
         self._text(x, y, s, f, C["white"], anchor)
 
-    def _button(self, x, y, w, h, label, kind, name, icon=None) -> None:
+    def _button(self, x, y, w, h, label, kind, name) -> None:
         lift = 2 * self.ring
         hot, down = self.over == name, self.pressed == name
         dy = -2 if hot and not down else (self.ring if down else 0)
