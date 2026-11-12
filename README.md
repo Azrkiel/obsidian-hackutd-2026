@@ -31,6 +31,9 @@ Practice laps teach nothing if nobody tells you why you were slow. A real coach 
 mistake that cost the most, and has you try that corner again straight away. Pit Pal does that for Assetto Corsa:
 it reads the car live, decides what to fix, says it on the next straight, and puts you back before the corner.
 
+**Built for Assetto Corsa.** It reads the game's own telemetry (shared memory), sees your inputs through a virtual
+Xbox pad, and rewinds the car through a Custom Shaders Patch app. It does not work with other sims yet.
+
 ---
 
 ## How it works
