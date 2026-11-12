@@ -38,5 +38,7 @@ if defined NEMOTRON_BASE_URL (
 set "CLOUD_ARGS="
 if exist "data\cloud\config.json" set "CLOUD_ARGS=--extra cloud"
 if defined SPACETIMEDB_URL set "CLOUD_ARGS=--extra cloud"
+rem Open the session history and telemetry page once the coach answers (set PITPAL_NO_HISTORY_TAB=1 to skip).
+if not defined PITPAL_NO_HISTORY_TAB start "" /min cmd /c "for /l %%i in (1,1,60) do (curl.exe -s -m 1 -o nul http://127.0.0.1:8020/cloud-history/status && (start http://127.0.0.1:8020/cloud-history-view & exit) || ping -n 2 127.0.0.1 >nul)"
 uv run %CLOUD_ARGS% --with vgamepad --with pyserial python -m coach --telemetry ac --reset udp --inputs --track fixtures/track_monza.json --voice %VOICE% --overlay %*
 if errorlevel 1 pause

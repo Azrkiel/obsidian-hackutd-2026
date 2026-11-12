@@ -89,6 +89,7 @@ class Overlay:
     def __init__(self, base_url: str, scale: int | None = None, side: str | None = None,
                  feed: "queue.Queue[dict] | None" = None):
         dpi_aware()
+        self.base_url = base_url
         self.root = tk.Tk()
         r = self.root
         r.withdraw()
@@ -459,7 +460,7 @@ class Overlay:
         phone = (self.model.health.get("inputs") or {}).get("pedal_mode") == "phone"
         items = [("m_qr", "Show pairing code"), ("m_new", "New pairing code"),
                  ("m_pedals", "Pedals: use Arduino" if phone else "Pedals: use phone"),
-                 ("m_mute", "Mute / unmute voice"), ("m_card", "Details"), ("m_quit", "Quit Rev")]
+                 ("m_mute", "Mute / unmute voice"), ("m_card", "Details"), ("m_history", "History"), ("m_quit", "Quit Rev")]
         lh = self.f_body.metrics("linespace") + round(10 * u)
         w = max(self.f_body.measure(t) for _, t in items) + 2 * pad
         h = lh * len(items) + 2 * pad
@@ -567,7 +568,13 @@ class Overlay:
             {"m_qr": lambda: self._qr_now(), "m_new": lambda: self._send({"type": "new_pairing"}),
              "m_pedals": lambda: self._send({"type": "pedal_source", "source": "toggle"}),
              "m_mute": lambda: self._send({"type": "toggle_mute"}), "m_card": lambda: setattr(self, "expanded", True),
-             "m_quit": self.quit}[name]()
+             "m_history": self._open_history, "m_quit": self.quit}[name]()
+
+    def _open_history(self) -> None:
+        """Open the session history and telemetry page in the default browser."""
+        import webbrowser
+        base = getattr(self, "base_url", None) or "http://127.0.0.1:8020"
+        webbrowser.open(base.rstrip("/") + "/cloud-history-view")
 
     def _right_click(self, e) -> None:
         if self._hit(e.x, e.y) == "rev":

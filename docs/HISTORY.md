@@ -111,3 +111,11 @@ npm run test:e2e
 The Python integration test checks real reducer calls, SQL representation, and second-identity denial. The browser test checks local persistence rendering, two simultaneous live viewers, QR generation, a sub-second local-server update, safe name rendering, and trace retrieval. Maincloud latency, real Wi-Fi disconnection, rig session soak, and native iPhone checks still need the deployment environment.
 
 SQLite commits survive restart; events still in memory at a forced process kill cannot be recovered. Normal stop drains the worker. A machine shutdown or process kill may leave a session without `ended_at`; its saved laps remain readable. Keep the SQLite file and its WAL together while running; use SQLite's backup API for a live backup.
+
+## History page and telemetry export
+
+The coach dashboard has a **History & telemetry** button, Rev's right-click menu has **History**, and `PitPal.bat` opens the page in your browser once the coach is up (set `PITPAL_NO_HISTORY_TAB=1` to skip that). The page is `http://127.0.0.1:8020/cloud-history-view`. It lists the cloud sessions and opens the newest one automatically.
+
+While the coach runs it saves speed, throttle and brake for every lap to `data/telemetry/<session-id>.csv` (10 rows a second; columns `lap, t_s, pos_m, speed_kmh, gas, brake, steer, gear`). The file name is the cloud history session id, so each session's page shows its telemetry: a chart for one lap, a lap picker, and CSV downloads for one lap or all laps. Live samples stay on this PC and are never sent to the cloud. Sessions recorded before this was added, or on another PC, show "No telemetry for this session on this PC".
+
+Routes: `GET /telemetry` (list), `GET /telemetry/<session>.json?lap=N`, `GET /telemetry/<session>.csv?lap=N`. Lap numbers count line crossings from the start of the session.

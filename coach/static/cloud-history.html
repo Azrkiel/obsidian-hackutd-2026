@@ -92,6 +92,14 @@ button.session[aria-current=true]{background:var(--raised);box-shadow:0 -3px 0 0
 
 @keyframes pp-blink{50%{opacity:.25}}
 @media (prefers-reduced-motion:reduce){*,*::before{animation:none!important;transition:none!important}}
+.telemetry{margin:var(--space-4) 0 var(--space-6);padding-top:var(--space-3);border-top:1px solid var(--hairline)}
+.telemetry-head{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3) var(--space-4)}
+.telemetry-head h3{margin:0 auto 0 0;font:700 18px/24px var(--font-sans);color:#fff}
+.telemetry select{min-height:34px;padding:4px 12px}
+a.dl{font:600 14px/20px var(--font-sans);color:var(--signal-blue)}
+#tchart{width:100%;height:auto;margin-top:var(--space-3);background:var(--bg);border:1px solid var(--hairline)}
+#tchart text{font:600 11px var(--font-sans);fill:var(--ink-muted)}
+#tchart .grid{stroke:var(--hairline);stroke-width:1}
 @media(max-width:860px){.layout{grid-template-columns:1fr}.top,.wrap{padding-left:var(--space-4);padding-right:var(--space-4)}.d44{font-size:34px}}
 </style>
 <script src="/cloud-history.js" defer></script>
@@ -124,6 +132,16 @@ button.session[aria-current=true]{background:var(--raised);box-shadow:0 -3px 0 0
     </div>
     <p id="details-meta">Pick a session to see its laps, corner attempts and coaching advice.</p>
     <div id="tabs" class="tabs" hidden><button data-kind="laps" aria-pressed="true">Laps</button><button data-kind="attempts" aria-pressed="false">Corner attempts</button><button data-kind="decisions" aria-pressed="false">Coaching</button></div>
+    <section id="telemetry" class="telemetry" aria-labelledby="telemetry-title">
+      <div class="telemetry-head">
+        <h3 id="telemetry-title">Telemetry</h3>
+        <label for="tlap" class="label">Lap</label><select id="tlap"></select>
+        <a id="tcsv-lap" class="dl" href="#" download>Download this lap (CSV)</a>
+        <a id="tcsv-all" class="dl" href="#" download>Download all laps (CSV)</a>
+      </div>
+      <p id="tmsg" class="meta"></p>
+      <svg id="tchart" viewBox="0 0 720 260" role="img" aria-label="Speed, throttle and brake for the selected lap" hidden></svg>
+    </section>
     <div id="records" class="records"></div>
     <div class="footer"><span id="details-freshness" class="meta"></span><button id="records-next" hidden>More results</button></div>
   </section>

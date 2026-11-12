@@ -32,6 +32,7 @@ from engine.voice import ADVICE, REMINDER, VERDICT, Announcer
 from .inputs import InputHub, RunInputs, dropout_reason
 from .reset import ResetManager
 from .scorer import CornerScorer, TrackScorer
+from .telemetry_log import TelemetryLog
 from .telemetry import ACSharedMemory, Recorder, ReplaySource, Sample, SimSource, TrackSimSource
 
 COMMANDS = {"accept", "retry", "save_checkpoint", "set_reference", "new_session",
@@ -112,6 +113,7 @@ class CoachApp:
         self._agent = agent
         self.data_dir = Path(data_dir)
         self.recorder, self.reconnect_s = recorder, reconnect_s
+        self.telemetry_log = TelemetryLog(Path(data_dir) / "telemetry", self._telemetry_session_id)
         self.reference, self.reference_trace = reference, reference_trace or []
         self.events: list[dict] = []
         self.activity: deque[dict] = deque(maxlen=50)
@@ -508,6 +510,10 @@ class CoachApp:
                 "corners": [asdict(c) for c in t.corners], "last_id": t.last_id}
 
     # -- telemetry --
+    def _telemetry_session_id(self):
+        sync = getattr(getattr(self, "cloud_runtime", None), "sync", None)
+        return sync.session_id if sync is not None else None
+
     def _on_sample(self, s: Sample) -> None:
         if self.cloud_runtime is not None:
             self.cloud_runtime.update_metadata()
@@ -520,6 +526,7 @@ class CoachApp:
                             "slip_r": round(s.slip_r, 2), "tyres_out": s.tyres_out})
         if self.recorder:
             self.recorder.write(s)
+        self.telemetry_log.add(s)
         self.reset.on_sample(s)
         if self.announcer:
             self.announcer.on_position(s.pos_m)
@@ -920,6 +927,7 @@ class CoachApp:
             await self.inputs.stop()
         if self.recorder:
             self.recorder.close()
+        self.telemetry_log.close()
         if self._history_unsub:
             self._history_unsub()
             self._history_unsub = None

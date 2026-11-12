@@ -79,7 +79,47 @@
     $("records-next").hidden = !state.detailNext;
     $("details-freshness").textContent = data.cache?.updated_at ? `Saved ${date(data.cache.updated_at)}` : "";
     status(data);
+    showTelemetry();
   }
+  const svgNs = "http://www.w3.org/2000/svg";
+  function drawChart(d) {
+    const svg = $("tchart"); svg.replaceChildren();
+    const W = 720, rows = [["Speed km/h", d.speed, "#4aa8ff", Math.max(50, ...d.speed)], ["Throttle", d.gas, "#3fd17a", 1], ["Brake", d.brake, "#ff6a58", 1]];
+    const x0 = 54, x1 = W - 10, tmax = Math.max(1, d.t[d.t.length - 1] - d.t[0]);
+    rows.forEach(([label, ys, color, ymax], i) => {
+      const top = 8 + i * 84, h = 70;
+      const g = document.createElementNS(svgNs, "line"); g.setAttribute("class", "grid"); g.setAttribute("x1", x0); g.setAttribute("x2", x1); g.setAttribute("y1", top + h); g.setAttribute("y2", top + h); svg.append(g);
+      const t = document.createElementNS(svgNs, "text"); t.setAttribute("x", 4); t.setAttribute("y", top + 12); t.textContent = label; svg.append(t);
+      const m = document.createElementNS(svgNs, "text"); m.setAttribute("x", 4); m.setAttribute("y", top + 26); m.textContent = ymax <= 1 ? "0 to 100%" : "max " + Math.round(ymax); svg.append(m);
+      const line = document.createElementNS(svgNs, "polyline"); line.setAttribute("fill", "none"); line.setAttribute("stroke", color); line.setAttribute("stroke-width", 1.6);
+      line.setAttribute("points", ys.map((y, k) => `${(x0 + (d.t[k] - d.t[0]) / tmax * (x1 - x0)).toFixed(1)},${(top + h - Math.min(1, y / ymax) * h).toFixed(1)}`).join(" "));
+      svg.append(line);
+    });
+    svg.removeAttribute("hidden");
+  }
+  async function showTelemetry(lap) {
+    const sid = state.session;
+    if (!sid) return;
+    const base = `/telemetry/${encodeURIComponent(sid)}`;
+    try {
+      const r = await fetch(`${base}.json` + (lap ? `?lap=${lap}` : ""));
+      if (state.session !== sid) return;
+      if (!r.ok) throw new Error("none");
+      const d = await r.json();
+      const sel = $("tlap");
+      if (!lap) { sel.replaceChildren(...d.laps.map(n => { const o = element("option", `Lap ${n}`); o.value = n; return o; })); }
+      sel.value = String(d.lap);
+      $("tcsv-lap").href = `${base}.csv?lap=${d.lap}`; $("tcsv-all").href = `${base}.csv`;
+      for (const id of ["tlap", "tcsv-lap", "tcsv-all"]) $(id).hidden = false;
+      $("tmsg").textContent = d.t.length ? `${d.t.length} samples on lap ${d.lap}, saved on this PC.` : "No samples on this lap.";
+      if (d.t.length > 1) drawChart(d); else $("tchart").setAttribute("hidden", "");
+    } catch (_) {
+      for (const id of ["tlap", "tcsv-lap", "tcsv-all"]) $(id).hidden = true;
+      $("tchart").setAttribute("hidden", "");
+      $("tmsg").textContent = "No telemetry for this session on this PC. It is saved while the coach runs, so older sessions or other PCs have none.";
+    }
+  }
+  $("tlap").addEventListener("change", () => showTelemetry(Number($("tlap").value)));
   async function refresh(detail = false) {
     if (state.busy) return;
     state.busy = true; $("refresh").disabled = true;
@@ -101,5 +141,8 @@
   $("sessions-back").addEventListener("click", async () => { if (state.busy) return; state.cursor = null; await showSessions(); await refresh(); });
   $("records-next").addEventListener("click", async () => { if (state.busy) return; state.detailCursor = state.detailNext; await showDetails(); await refresh(true); });
   for (const button of document.querySelectorAll("[data-kind]")) button.addEventListener("click", async () => { if (state.busy) return; state.kind = button.dataset.kind; state.detailCursor = null; await showDetails(); await refresh(true); });
-  showSessions().then(() => refresh()).catch(() => { $("status").textContent = "The local history server is unavailable."; });
+  showSessions().then(() => refresh()).then(() => {
+    const first = document.querySelector(".session");          // open the newest session so the page is never empty
+    if (first && !state.session) selectSession(first.dataset.session);
+  }).catch(() => { $("status").textContent = "The local history server is unavailable."; });
 })();

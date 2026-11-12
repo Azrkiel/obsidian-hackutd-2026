@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 
 from aiohttp import web
 
+from . import telemetry_log
 from .cloud_history import HistoryService, history_query
 
 STATIC = Path(__file__).parent / "static"
@@ -14,8 +15,55 @@ HISTORY_SERVICE = web.AppKey("history_service", HistoryService)
 _HEADERS = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
 
 
+def add_telemetry_routes(app: web.Application, directory) -> None:
+    """Local telemetry CSVs: GET /telemetry, /telemetry/{session}.json?lap=N, /telemetry/{session}.csv?lap=N."""
+    directory = Path(directory)
+
+    def lap_arg(request):
+        raw = request.query.get("lap")
+        if raw in (None, ""):
+            return None
+        try:
+            lap = int(raw)
+        except ValueError:
+            raise web.HTTPBadRequest(text="Invalid lap") from None
+        if not 1 <= lap <= 9999:
+            raise web.HTTPBadRequest(text="Invalid lap")
+        return lap
+
+    async def index(_):
+        return web.json_response({"sessions": telemetry_log.list_sessions(directory)}, headers=_HEADERS)
+
+    async def as_json(request):
+        sid, lap = request.match_info["session"], lap_arg(request)
+        rows = telemetry_log.read_session(directory, sid)
+        if rows is None:
+            raise web.HTTPNotFound(text="No telemetry saved for this session on this PC")
+        laps = sorted({int(r["lap"]) for r in rows})
+        pick = lap if lap in laps else (laps[-1] if laps else None)
+        sel = [r for r in rows if int(r["lap"]) == pick]
+        return web.json_response({"laps": laps, "lap": pick, "t": [float(r["t_s"]) for r in sel],
+                                  "speed": [float(r["speed_kmh"]) for r in sel],
+                                  "gas": [float(r["gas"]) for r in sel], "brake": [float(r["brake"]) for r in sel],
+                                  "pos": [float(r["pos_m"]) for r in sel]}, headers=_HEADERS)
+
+    async def as_csv(request):
+        sid, lap = request.match_info["session"], lap_arg(request)
+        rows = telemetry_log.read_session(directory, sid, lap)
+        if rows is None:
+            raise web.HTTPNotFound(text="No telemetry saved for this session on this PC")
+        name = f"pitpal-telemetry-{sid}" + (f"-lap{lap}" if lap else "") + ".csv"
+        return web.Response(text=telemetry_log.to_csv(rows), content_type="text/csv",
+                            headers={**_HEADERS, "Content-Disposition": f'attachment; filename="{name}"'})
+
+    app.router.add_get("/telemetry", index)
+    app.router.add_get("/telemetry/{session}.json", as_json)
+    app.router.add_get("/telemetry/{session}.csv", as_csv)
+
+
 def add_history_routes(app: web.Application, service: HistoryService, *, root=False):
     app[HISTORY_SERVICE] = service
+    add_telemetry_routes(app, service.data_dir / "telemetry")
 
     def query(request, *, body=None):
         values = dict(request.query) if body is None else body

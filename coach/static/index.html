@@ -213,6 +213,9 @@ summary:focus-visible{outline:3px solid var(--ink);outline-offset:4px}
 .pp-bob{animation:pp-bob 1100ms steps(2,end) infinite}
 .pp-pill--caution::before{animation:pp-blink 1000ms steps(1,end) infinite}
 @media (prefers-reduced-motion:reduce){*,*::before{animation:none!important;transition:none!important}}
+.hist-link{display:inline-flex;align-items:center;min-height:34px;padding:0 14px;border:1px solid var(--outline-strong);border-radius:6px;background:var(--raised);color:var(--ink);font:600 14px/1 var(--font-sans);text-decoration:none}
+.hist-link:hover{background:var(--hairline)}
+.hist-link:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
 </style>
 </head>
 <body>
@@ -221,7 +224,7 @@ summary:focus-visible{outline:3px solid var(--ink);outline-offset:4px}
   <div class="race" role="status" aria-live="polite">
     <span class="small" id="c-src"></span>
     <span class="pp-label">Race</span><span class="pp-display d44 tab" id="race-n">--</span>
-    <a class="pp-pill pp-pill--info" id="s-history" href="/cloud-history-view">Session history</a>
+    <a class="hist-link" id="s-history" href="/cloud-history-view">History &amp; telemetry</a>
     <span class="pp-pill" id="race-sync">History off</span>
     <span class="pp-pill hidden" id="cloud-sync"></span>
   </div>
