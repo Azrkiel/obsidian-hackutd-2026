@@ -12,12 +12,11 @@ from aiohttp import WSMsgType, web
 from .app import CoachApp
 from .cloud_history import HistoryService
 from .history_routes import add_history_routes
+from .webguard import LOOPBACK_HOSTS, _hostname, make_guard
 
 STATIC = Path(__file__).parent / "static"
-
-
-def make_web_app(app: CoachApp) -> web.Application:
-    web_app = web.Application()
+def make_web_app(app: CoachApp, local_only: bool = True) -> web.Application:
+    web_app = web.Application(middlewares=[make_guard(local_only)])
 
     async def index(_: web.Request) -> web.StreamResponse:
         return web.Response(text=(STATIC / "index.html").read_text(encoding="utf-8"),
@@ -162,7 +161,8 @@ class Dashboard:
         self._runner: web.AppRunner | None = None
 
     async def start(self) -> None:
-        self._runner = web.AppRunner(make_web_app(self.app))
+        local_only = _hostname(self.host) in LOOPBACK_HOSTS or self.host in ("",)
+        self._runner = web.AppRunner(make_web_app(self.app, local_only=local_only))
         await self._runner.setup()
         await web.TCPSite(self._runner, self.host, self.port).start()
 

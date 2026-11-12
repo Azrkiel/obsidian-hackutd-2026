@@ -1,5 +1,8 @@
 name: CI
 
+permissions:
+  contents: read          # the tests only need to read the code
+
 on:
   push:
     branches: [main]
@@ -24,7 +27,7 @@ jobs:
     timeout-minutes: 10
     strategy:
       matrix:
-        dir: [spacetime, spacetime-cloud]
+        dir: [cloud/spacetime, cloud/spacetime-cloud]
     defaults:
       run:
         working-directory: ${{ matrix.dir }}

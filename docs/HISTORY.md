@@ -25,7 +25,7 @@ From the repository root:
 
 ```powershell
 npm --prefix spacetime ci
-spacetime publish YOUR-DATABASE --module-path spacetime --server maincloud
+spacetime publish YOUR-DATABASE --module-path cloud/spacetime --server maincloud
 ```
 
 Set these variables in the shell that starts the coach:
@@ -69,7 +69,7 @@ The viewer subscribes to lightweight tables. Best-lap trace rows are fetched on 
 
 ## iPhone cockpit
 
-Build the updated `phone/stealth-racing` project in Xcode and connect to a coach running with `--inputs --history`. The cockpit shows **Last section** and **Best today**, scoped to that driver, track, car and corner.
+Build the updated `devices/phone/stealth-racing` project in Xcode and connect to a coach running with `--inputs --history`. The cockpit shows **Last section** and **Best today**, scoped to that driver, track, car and corner.
 
 The coach sends a `race_history` JSON datagram after each steering acknowledgement, with cached last/best times and public cloud coordinates. Paired phones receive signed history packets, and unpaired phones receive plain JSON when the receiver allows unpaired input. Older apps ignore that datagram. The new app works from local packets offline. When a new lap UUID arrives with cloud settings, it polls public HTTP SQL up to four times while the outbox catches up. Steering continues during those reads. Invalid latest passes show no time. Today uses the local calendar day on each device. Keep the rig and phone in the same timezone for matching best-today values.
 
@@ -84,11 +84,11 @@ uv run pytest -q
 npm --prefix spacetime ci
 npm --prefix spacetime test
 npm --prefix spacetime run check
-spacetime build --module-path spacetime
-spacetime generate --lang typescript --module-path spacetime --out-dir history-viewer/src/module_bindings
-npm --prefix history-viewer ci
-npm --prefix history-viewer test
-npm --prefix history-viewer run build
+spacetime build --module-path cloud/spacetime
+spacetime generate --lang typescript --module-path cloud/spacetime --out-dir cloud/history-viewer/src/module_bindings
+npm --prefix cloud/history-viewer ci
+npm --prefix cloud/history-viewer test
+npm --prefix cloud/history-viewer run build
 ```
 
 Commit generated bindings and `coach/static/history/` after schema or viewer changes. The dashboard never requires npm on the demo PC.
@@ -96,14 +96,14 @@ Commit generated bindings and `coach/static/history/` after schema or viewer cha
 For real HTTP/auth and browser tests, start a local server and publish a **fresh disposable database for each run**; the tests claim its writer identity. Do not point these tests at your booth database.
 
 ```powershell
-spacetime publish history-http-test --module-path spacetime --server local
+spacetime publish history-http-test --module-path cloud/spacetime --server local
 $env:HISTORY_TEST_URL = 'http://127.0.0.1:3000'
 $env:HISTORY_TEST_DB = 'history-http-test'
 uv run pytest tests/test_history_live.py -q
 
-spacetime publish history-browser-test --module-path spacetime --server local
+spacetime publish history-browser-test --module-path cloud/spacetime --server local
 $env:HISTORY_TEST_DB = 'history-browser-test'
-cd history-viewer
+cd cloud/history-viewer
 npx playwright install chromium --only-shell
 npm run test:e2e
 ```

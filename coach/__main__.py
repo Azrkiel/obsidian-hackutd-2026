@@ -5,7 +5,7 @@ Whole lap: --track coaches every corner of the track in lap mode, one decision p
 last corner (spoken on the main straight). Drill mode (rewind per corner) stays single-corner (--corner).
 
 With --inputs the coach is also the input receiver: phone (UDP 5005) + Arduino pedals -> one
-virtual Xbox 360 pad. Then do not run bridge/bridge.py alongside it (port 5005,
+virtual Xbox 360 pad. Then do not run devices/bridge/bridge.py alongside it (port 5005,
 the COM port and a second virtual pad would clash). The pad/serial packages stay out of the uv .venv
 (see SETUP.md), so add them for that run only:
     uv run --with vgamepad --with pyserial python -m coach --telemetry ac --reset udp --inputs
@@ -78,7 +78,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="lap simulator mistakes, e.g. c1=late_brake,c4=spin+none (per attempt, + separated)")
     g = ap.add_argument_group("inputs (phone + Arduino -> virtual pad; off unless --inputs)")
     g.add_argument("--inputs", action="store_true",
-                   help="receive phone + Arduino inputs here instead of running bridge/bridge.py")
+                   help="receive phone + Arduino inputs here instead of running devices/bridge/bridge.py")
     g.add_argument("--pad", choices=["auto", "vgamepad", "none"], default="auto",
                    help="auto = vgamepad on Windows, none elsewhere (inputs are still read and logged)")
     g.add_argument("--phone-port", type=int, default=5005)

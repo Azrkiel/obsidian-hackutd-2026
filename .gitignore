@@ -15,9 +15,9 @@ CLAUDE.md
 .brev-hold
 data/
 node_modules/
-spacetime/dist/
-history-viewer/test-results/
-history-viewer/playwright-report/
+cloud/spacetime/dist/
+cloud/history-viewer/test-results/
+cloud/history-viewer/playwright-report/
 
 # local logs and editor/OS noise
 *.log

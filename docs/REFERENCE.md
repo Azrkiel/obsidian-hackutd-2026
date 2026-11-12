@@ -27,7 +27,7 @@ The coach has to run on the PC that runs Assetto Corsa (it reads AC's shared mem
 
 ## Optional shared session history (multi-PC)
 
-This is separate from `--history` above: it syncs to a SpacetimeDB module in `spacetime-cloud/` with per-PC enrollment, and its pages live at `/cloud-history-view`.
+This is separate from `--history` above: it syncs to a SpacetimeDB module in `cloud/spacetime-cloud/` with per-PC enrollment, and its pages live at `/cloud-history-view`.
 
 The coach can upload completed sessions, laps, scored attempts and coaching decisions to a
 SpacetimeDB database in your account. The game PC keeps its local dashboard, Rev overlay and Brev
@@ -192,7 +192,7 @@ NEMOTRON_BASE_URL=http://<brev-host>:8000/v1 uv run python scripts/brev_idle_sto
 
 ## Coach program
 
-One asyncio process on the Windows PC: telemetry reader, corner scorer, engine `Coach`, reset manager, live audio cue and the dashboard web server. With `--inputs` it is also the input receiver (phone + Arduino -> virtual Xbox 360 pad) and replaces `bridge/bridge.py`. Without `--inputs`, run `bridge/bridge.py` next to it as before. Never run both: they fight over UDP 5005, the COM port and the virtual pad.
+One asyncio process on the Windows PC: telemetry reader, corner scorer, engine `Coach`, reset manager, live audio cue and the dashboard web server. With `--inputs` it is also the input receiver (phone + Arduino -> virtual Xbox 360 pad) and replaces `devices/bridge/bridge.py`. Without `--inputs`, run `devices/bridge/bridge.py` next to it as before. Never run both: they fight over UDP 5005, the COM port and the virtual pad.
 
 ```
 coach/telemetry.py   Sample + ACSharedMemory (original AC), SimSource, ReplaySource, Recorder
@@ -218,7 +218,7 @@ uv run python -m coach --telemetry ac --reset hotkey       # presses F7 (load) /
 uv run python -m coach --telemetry ac --reset manual       # you press your own load key
 ```
 
-With the coach as the input receiver (instead of `bridge/bridge.py`). The pad and serial packages stay out of the uv `.venv` (see `SETUP.md`), so `--with` adds them for this run only:
+With the coach as the input receiver (instead of `devices/bridge/bridge.py`). The pad and serial packages stay out of the uv `.venv` (see `SETUP.md`), so `--with` adds them for this run only:
 
 ```
 uv run --with vgamepad --with pyserial python -m coach --telemetry ac --reset udp --inputs
@@ -229,7 +229,7 @@ uv run --with vgamepad --with pyserial python -m coach --telemetry ac --reset ud
 | Input | Transport | Format |
 | --- | --- | --- |
 | Phone (Stealth Racing app) | UDP `--phone-port` (5005), IPv4 + IPv6, Bonjour if `dns-sd` exists | `v1,seq,steer,throttle,brake` ~100 Hz; `evt,id,command,tap/down/up` buttons; replies `ack,seq` every 30 |
-| Arduino pedals | serial (`--arduino auto`, a COM port, or `off`) | `gas,brake` ints 0..1000 per line (`hardware/pedals/pedals.ino`) |
+| Arduino pedals | serial (`--arduino auto`, a COM port, or `off`) | `gas,brake` ints 0..1000 per line (`devices/hardware/pedals/pedals.ino`) |
 | Arduino pedals (wireless) | UDP `--arduino-udp-port` (off by default; e.g. 5006) | same `gas,brake` text, one reading per datagram |
 
 - Steering always comes from the phone.
@@ -239,8 +239,8 @@ uv run --with vgamepad --with pyserial python -m coach --telemetry ac --reset ud
 - `--pad none` reads and mixes inputs without a virtual pad (default off Windows).
 - `--invert-steer` flips steering.
 - **Pairing:** with `--inputs` the coach prints a QR code (also on the dashboard, "Pair a phone"). The app scans it and connects with only "same Wi-Fi" as a requirement; after that every packet is signed, so only paired phones can drive. `--pairing optional|required|off` (default `optional`, which also accepts the current unpaired app). Protocol, test vectors and the app plan: `docs/PAIRING.md`.
-- The receiver is off unless `--inputs` is given. If UDP 5005 is already taken (by `bridge/bridge.py` or `listen.py`), the coach stops with an error naming them.
-- Phone coach buttons are events too. `evt,<id>,coach_next,tap` accepts the offered drill, or rewinds for a retry when nothing is offered. `evt,<id>,coach_resume,tap` ends the drill and loads the resume point. Both are ignored by `bridge/bridge.py`.
+- The receiver is off unless `--inputs` is given. If UDP 5005 is already taken (by `devices/bridge/bridge.py` or `listen.py`), the coach stops with an error naming them.
+- Phone coach buttons are events too. `evt,<id>,coach_next,tap` accepts the offered drill, or rewinds for a retry when nothing is offered. `evt,<id>,coach_resume,tap` ends the drill and loads the resume point. Both are ignored by `devices/bridge/bridge.py`.
 
 Each scored run carries an `inputs` summary into the evidence packet and the trace: which device drove the pedals, the phone-fallback share, link drops, and the gap between the pedal input and what the game reported. The dashboard's inputs badge shows the live pedal source.
 

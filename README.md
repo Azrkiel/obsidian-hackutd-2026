@@ -15,9 +15,10 @@ the car so you can try it again. The coaching is written live by **NVIDIA Nemotr
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-1c1f2a)](pyproject.toml)
 [![NVIDIA Nemotron](https://img.shields.io/badge/AI-NVIDIA%20Nemotron-3fd17a)](#coaching-and-retries)
 [![Assetto Corsa](https://img.shields.io/badge/sim-Assetto%20Corsa-616b83)](SETUP.md)
+[![Website](https://img.shields.io/badge/website-pitpal--site.vercel.app-d92b1f)](https://pitpal-site.vercel.app/)
 [![HackUTD 2026](https://img.shields.io/badge/HackUTD-2026-ffc233)](https://github.com/Azrkiel/obsidian-hackutd-2026)
 
-**[github.com/Azrkiel/obsidian-hackutd-2026](https://github.com/Azrkiel/obsidian-hackutd-2026)**
+**[github.com/Azrkiel/obsidian-hackutd-2026](https://github.com/Azrkiel/obsidian-hackutd-2026)** · **[Website: pitpal-site.vercel.app](https://pitpal-site.vercel.app/)**
 
 [How it works](#how-it-works) · [Meet Rev](#meet-rev) · [Coaching and retries](#coaching-and-retries) · [The rig](#the-rig) · [Quick start](#quick-start) · [Setup guide](SETUP.md)
 
@@ -98,8 +99,8 @@ Hover him for **Accept / Resume / Mute**, click for the details card, right-clic
 
 | Part | What it does |
 | --- | --- |
-| **iPhone wheel** ([`phone/`](phone)) | Tilt to steer, paddle shifters, on-screen pedals, the **Next** button for retries, pairing by QR. Built with Xcode, so it needs a Mac ([how](SETUP.md#part-c-the-iphone-wheel)). |
-| **Arduino pedals** ([`hardware/`](hardware)) | An UNO R4 WiFi with two ultrasonic sensors for gas and brake, calibrated on the game PC, with a fail-safe that releases a pedal if its sensor goes quiet. |
+| **iPhone wheel** ([`devices/phone/`](devices/phone)) | Tilt to steer, paddle shifters, on-screen pedals, the **Next** button for retries, pairing by QR. Built with Xcode, so it needs a Mac ([how](SETUP.md#part-c-the-iphone-wheel)). |
+| **Arduino pedals** ([`devices/hardware/`](devices/hardware)) | An UNO R4 WiFi with two ultrasonic sensors for gas and brake, calibrated on the game PC, with a fail-safe that releases a pedal if its sensor goes quiet. |
 | **Game PC** | Assetto Corsa with Content Manager and Custom Shaders Patch, the coach, Rev, and the rewind app ([`csp/nomadsim_reset`](csp/nomadsim_reset)). |
 | **History** | Laps saved locally and, optionally, shared across PCs ([docs/HISTORY.md](docs/HISTORY.md), [docs/SPACETIMEDB.md](docs/SPACETIMEDB.md)). |
 
@@ -117,7 +118,7 @@ uv sync --system-certs
 ```
 
 **The iPhone app needs a Mac.** The wheel app is SwiftUI, so it is built with Xcode on a Mac and installed on your iPhone with a USB
-cable; a free Apple ID is enough (the app then lasts 7 days before you reinstall it). Open `phone/stealth-racing.xcodeproj`, pick your own
+cable; a free Apple ID is enough (the app then lasts 7 days before you reinstall it). Open `devices/phone/stealth-racing.xcodeproj`, pick your own
 Team under Signing & Capabilities, turn on Developer Mode on the phone and press Run. Full steps, fixes for common errors and a no-Mac
 fallback: [SETUP.md, Part C](SETUP.md#part-c-the-iphone-wheel).
 
@@ -140,16 +141,28 @@ in the **[setup guide](SETUP.md)**.
 ## Under the hood
 
 ```text
-coach/        the coach: telemetry, corner scoring, retry offers, voice, dashboard, phone receiver
-engine/       Nemotron decision ladder, validator, rules coach, drills
-pitpal/       Rev, the overlay, and the Pit Pal brand assets
-phone/        the iPhone wheel app (SwiftUI)
-hardware/     Arduino pedal sketch
-csp/          the Custom Shaders Patch rewind app (rolling checkpoints)
-bridge/       standalone phone + pedals receiver (the coach has its own built in)
-scripts/      Brev and the Nemotron tunnel, the shortcut, the retry watcher, history setup
-spacetime*/   optional shared race history (SpacetimeDB); history-viewer/ is its web viewer
-docs/         reference, pairing, overlay, history; docs/img holds every image in this README
+THE APP (Python)
+  coach/      the coach: telemetry, corner scoring, retry offers, voice, dashboard, phone receiver
+  engine/     Nemotron decision ladder, validator, rules coach, drills
+  pitpal/     Rev, the overlay, and the Pit Pal brand assets
+  PitPal.bat  the one-click launcher
+
+DEVICES AND GAME
+  devices/phone/      the iPhone wheel app (SwiftUI, built with Xcode on a Mac)
+  devices/hardware/   the Arduino pedal sketch and build notes
+  devices/bridge/     standalone phone + pedals receiver (the coach has its own built in)
+  csp/                the Custom Shaders Patch rewind app (rolling checkpoints)
+
+HISTORY (optional, SpacetimeDB)
+  cloud/spacetime/        race-history module
+  cloud/spacetime-cloud/  per-PC history module
+  cloud/history-viewer/   the web viewer, built into coach/static/history
+
+SUPPORT
+  scripts/    Brev and the Nemotron tunnel, the shortcut, the retry watcher, history setup
+  fixtures/   Monza track data and test laps
+  tests/      the test suite (run with `uv run pytest`)
+  docs/       reference, pairing, overlay, history; docs/img holds every image in this README
 ```
 
 The rewind app's folder name, `nomadsim_reset`, is a historical name kept on purpose (it is copied by name into the game). The full engine,

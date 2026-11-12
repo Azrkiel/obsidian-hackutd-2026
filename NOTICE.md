@@ -4,11 +4,11 @@ Pit Pal's own code is MIT licensed (see `LICENSE`). It uses or ships the followi
 
 | Component | Where | Licence / note |
 | --- | --- | --- |
-| Barlow (font) | `pitpal/assets/fonts/`, `coach/static/pitpal/fonts/`, `phone/` | SIL Open Font License 1.1 |
+| Barlow (font) | `pitpal/assets/fonts/`, `coach/static/pitpal/fonts/`, `devices/phone/` | SIL Open Font License 1.1; full text and copyright in [docs/licenses/OFL-Barlow.txt](docs/licenses/OFL-Barlow.txt) |
 | Pit Pal Bubble (font) | same folders | The team's own face, part of the Pit Pal brand assets |
 | QR Code generator by Project Nayuki | `coach/qrcodegen.py` | MIT; its notice is kept in the file header |
 | ViGEmBus / vgamepad | installed separately on the game PC | Their own licences; not bundled |
-| SpacetimeDB | `spacetime/`, `spacetime-cloud/` (optional history) | Clockwork Labs; used as a service and SDK |
+| SpacetimeDB | `cloud/spacetime/`, `cloud/spacetime-cloud/` (optional history) | Clockwork Labs; used as a service and SDK |
 | Monza track data | `scripts/monza_f1/` | Sources credited in `scripts/monza_f1/README.md` |
 | NVIDIA Nemotron, NVIDIA Magpie TTS | called over the network | Named, not endorsed; used under NVIDIA's terms |
 

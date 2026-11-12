@@ -5,14 +5,14 @@ updates:
     schedule:
       interval: "weekly"
   - package-ecosystem: "npm"
-    directory: "/history-viewer"
+    directory: "/cloud/history-viewer"
     schedule:
       interval: "weekly"
   - package-ecosystem: "npm"
-    directory: "/spacetime"
+    directory: "/cloud/spacetime"
     schedule:
       interval: "weekly"
   - package-ecosystem: "npm"
-    directory: "/spacetime-cloud"
+    directory: "/cloud/spacetime-cloud"
     schedule:
       interval: "weekly"

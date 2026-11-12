@@ -1,6 +1,6 @@
 """Opt-in integration test against a fresh, disposable local SpacetimeDB database.
 
-Publish spacetime/ first, then set HISTORY_TEST_URL and HISTORY_TEST_DB. Uses new
+Publish cloud/spacetime/ first, then set HISTORY_TEST_URL and HISTORY_TEST_DB. Uses new
 anonymous identities; never needs or prints a production coach token.
 """
 

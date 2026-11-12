@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 from aiohttp import web
 
 from . import telemetry_log
+from .webguard import make_guard
 from .cloud_history import HistoryService, history_query
 
 STATIC = Path(__file__).parent / "static"
@@ -117,7 +118,7 @@ def add_history_routes(app: web.Application, service: HistoryService, *, root=Fa
 
 
 def make_history_app(service: HistoryService) -> web.Application:
-    app = web.Application(client_max_size=8192)
+    app = web.Application(client_max_size=8192, middlewares=[make_guard(True)])   # the viewer only ever listens on loopback
     add_history_routes(app, service, root=True)
     app.router.add_static("/pitpal/", STATIC / "pitpal")  # Pit Pal fonts and art (the coach dashboard adds its own)
 

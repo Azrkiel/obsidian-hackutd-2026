@@ -4,7 +4,7 @@ SpacetimeDB **2.14.1**, Node.js **24.22.1+** (or another version supported by th
 This directory is the server module, not a website or the Python coach.
 
 ```powershell
-cd spacetime-cloud
+cd cloud/spacetime-cloud
 npm ci
 npm test
 npm run typecheck

@@ -3,11 +3,17 @@ name = "pit-pal"
 version = "0.1.0"
 description = "Pit Pal: AI racing coach for Assetto Corsa, powered by NVIDIA Nemotron"
 requires-python = ">=3.11"
+license = "MIT"
+readme = "README.md"
 dependencies = [
     "aiohttp>=3.14.5",
     "openai>=3.46.0",
     "truststore>=0.10.5",
 ]
+
+[project.urls]
+Homepage = "https://pitpal-site.vercel.app/"
+Repository = "https://github.com/Azrkiel/obsidian-hackutd-2026"
 
 [project.optional-dependencies]
 cloud = ["keyring>=25.6.0"]

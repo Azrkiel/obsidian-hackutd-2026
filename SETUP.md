@@ -154,15 +154,15 @@ You need the **Arduino UNO R4 Boards** package once.
 **With the Arduino IDE:**
 1. Install the Arduino IDE. Open **Tools > Board > Boards Manager**, search **Arduino UNO R4 Boards** and install it.
 2. Plug the Arduino into the PC. Choose **Tools > Board > Arduino UNO R4 Boards > Arduino UNO R4 WiFi** and the new **Port**.
-3. Open [`hardware/pedals/pedals.ino`](hardware/pedals/pedals.ino) and press **Upload**.
+3. Open [`devices/hardware/pedals/pedals.ino`](devices/hardware/pedals/pedals.ino) and press **Upload**.
 
 **With `arduino-cli`** (what the team used; run from the repo folder, replace `COM4` with your port):
 
 ```powershell
 arduino-cli core install arduino:renesas_uno
 arduino-cli board list
-arduino-cli compile --fqbn arduino:renesas_uno:unor4wifi hardware\pedals
-arduino-cli upload -p COM4 --fqbn arduino:renesas_uno:unor4wifi hardware\pedals
+arduino-cli compile --fqbn arduino:renesas_uno:unor4wifi devices\hardware\pedals
+arduino-cli upload -p COM4 --fqbn arduino:renesas_uno:unor4wifi devices\hardware\pedals
 ```
 
 Check it works: open the Serial Monitor at **115200 baud**. You should see lines like `0,0`; press a pedal and the first (gas)
@@ -279,7 +279,7 @@ loads one when you accept a retry. Offline practice only.
 
 ## Part C: The iPhone wheel
 
-The app lives in [`phone/`](phone) (SwiftUI, Swift 6). **An iPhone app can only be built on a Mac**, so this part needs one. The team built
+The app lives in [`devices/phone/`](devices/phone) (SwiftUI, Swift 6). **An iPhone app can only be built on a Mac**, so this part needs one. The team built
 it with Xcode; the steps below come from the project's own settings, and the troubleshooting list covers what usually goes wrong.
 
 ### C1. What you need
@@ -293,7 +293,7 @@ it with Xcode; the steps below come from the project's own settings, and the tro
 ### C2. Build and install
 
 1. On the Mac, get the code: `git clone https://github.com/Azrkiel/obsidian-hackutd-2026.git`.
-2. Open `phone/stealth-racing.xcodeproj` in Xcode. In **Xcode > Settings > Accounts**, add your Apple ID.
+2. Open `devices/phone/stealth-racing.xcodeproj` in Xcode. In **Xcode > Settings > Accounts**, add your Apple ID.
 3. In the project, select the **stealth-racing** target and open **Signing & Capabilities**. Leave **Automatically manage signing** on and choose
    **your own Team** (the project carries the original team's ID, which will not work for you). If Xcode says the bundle identifier is taken, change
    it to something unique, for example `com.yourname.pitpal`.

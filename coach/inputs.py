@@ -6,7 +6,7 @@ Inputs
                          (coach_next / coach_resume are coach commands, not pad buttons)
                        reply "ack,<seq>" when seq % 30 == 0 so the app shows "Receiver confirmed"
                        paired phones (QR, coach/pairing.py) sign every packet and get signed acks
-  arduino  serial      "gas,brake" ints 0..1000 per line (hardware/pedals/pedals.ino); "#..." ignored
+  arduino  serial      "gas,brake" ints 0..1000 per line (devices/hardware/pedals/pedals.ino); "#..." ignored
            UDP (opt.)  the same "gas,brake" text, one reading per datagram
 Mixing
   steering   always from the phone (0 when the phone is silent)
@@ -576,7 +576,7 @@ class InputHub:
 
 
 def newest_line(ser: Any, backlog: int = 40) -> str:
-    """Next serial line, skipping ahead when readings pile up (same as bridge/bridge.py), so a
+    """Next serial line, skipping ahead when readings pile up (same as devices/bridge/bridge.py), so a
     slow moment never leaves the pedals lagging behind the driver's feet."""
     line = ser.readline()
     while ser.in_waiting > backlog:
@@ -596,7 +596,7 @@ def _bind(port: int, what: str) -> socket.socket:
     try:
         return _dual_stack_socket(port)
     except OSError as e:
-        raise RuntimeError(f"cannot listen for the {what} on UDP {port} ({e}). Is bridge/bridge.py, "
+        raise RuntimeError(f"cannot listen for the {what} on UDP {port} ({e}). Is devices/bridge/bridge.py, "
                            f"or listen.py running? Stop it, or run without --inputs.") from e
 
 
@@ -608,7 +608,7 @@ def _dual_stack_socket(port: int) -> socket.socket:
     """Bind IPv4 and IPv6 where supported (the phone may use either), else IPv4 only.
 
     On Windows the port is bound exclusively. Without it, a dual-stack bind next to another program's
-    IPv4 socket on the same port (bridge/bridge.py, listen.py) succeeds silently and
+    IPv4 socket on the same port (devices/bridge/bridge.py, listen.py) succeeds silently and
     Windows delivers every phone packet to the other program, so the coach would never see the phone."""
     def exclusive(s: socket.socket) -> None:
         if sys.platform == "win32":

@@ -9,7 +9,7 @@ What it does:
 1. Starts a local SpacetimeDB server (127.0.0.1:3000, data in data/spacetime) if the SpacetimeDB CLI
    is installed (`spacetime` on PATH, SPACETIME_CLI, or --spacetime-cli). Without it, history is still
    saved in SQLite (data/history.sqlite3) and the dashboard says "Saved on this PC".
-2. Publishes the race-history module once, from the committed build (spacetime/prebuilt), so the
+2. Publishes the race-history module once, from the committed build (cloud/spacetime/prebuilt), so the
    race PC needs no Node or npm.
 3. Gets a coach identity from the local server once and keeps it in data/spacetime_local.json.
    The first coach to connect owns the database; keep that file with the data folder.
@@ -34,7 +34,7 @@ import webbrowser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE = ROOT / "spacetime" / "prebuilt" / "history-module.js"
+MODULE = ROOT / "cloud" / "spacetime" / "prebuilt" / "history-module.js"
 DB = "pitpal"
 
 
@@ -111,7 +111,7 @@ def start_spacetime(cli: str, port: int, bind: str, data: Path) -> tuple[str, su
             raise SystemExit(f"SpacetimeDB server did not start on {server}; see {data / 'server.log'}")
     if not http_ok(f"{server}/v1/database/{DB}", timeout=3):
         if not MODULE.is_file():
-            raise SystemExit(f"missing {MODULE}: rebuild with `spacetime build --module-path spacetime`")
+            raise SystemExit(f"missing {MODULE}: rebuild with `spacetime build --module-path cloud/spacetime`")
         subprocess.run([cli, "publish", DB, "--js-path", str(MODULE), "--server", server, "--anonymous",
                         "--yes"], check=True)
     return server, proc

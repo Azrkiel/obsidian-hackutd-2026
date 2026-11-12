@@ -145,7 +145,7 @@ unchanged.
 - Done: in game, every error gets a cue and a working retry, and the driver ends up back where they
   pressed Retry.
 
-### F. Phone offer (`coach/inputs.py`, `phone/stealth-racing/`)
+### F. Phone offer (`coach/inputs.py`, `devices/phone/stealth-racing/`)
 
 - **Receiver → phone:**
   - `ofr,<offer id>,<corner label>,<ms left>`, signed, sent ~4×/s while the offer is open (UDP can

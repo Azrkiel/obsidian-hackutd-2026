@@ -19,7 +19,7 @@ that into a virtual Xbox 360 controller, which Assetto Corsa reads like any game
   HC-SR04 (gas)             HC-SR04 (brake)      distance to the underside of each pedal
       +------------+--------------+
                    |
-        Arduino UNO R4 WiFi  (hardware/pedals/pedals.ino)
+        Arduino UNO R4 WiFi  (devices/hardware/pedals/pedals.ino)
                    |  USB serial, 115200 baud, lines "gas,brake" (each 0..1000)
                    v
         Game PC: the coach with --inputs   (PitPal.bat does this)
@@ -80,7 +80,7 @@ number there too. Avoid D0 and D1. If the pedals ever work backwards, check this
 with about 0.3 cm resolution, so a pedal has roughly 15 to 20 distinct positions: a hardware limit. Keep the target flat and solid, and recalibrate
 after a bump (`#define MEASURE 1`, read the distances, set `REST` and `PRESS`, then `MEASURE 0`).
 
-## 6. Firmware summary (`hardware/pedals/pedals.ino`)
+## 6. Firmware summary (`devices/hardware/pedals/pedals.ino`)
 
 | Setting | Value |
 | --- | --- |
@@ -110,7 +110,7 @@ Sensors ping one after the other, never together, to avoid crosstalk. A reading 
 ignored. The receivers find the Arduino by USB vendor ID `0x2341` or a port description containing "arduino", "ch340" or "usb serial" (on some PCs COM3 and
 COM5 are Bluetooth, not the Arduino). If `MEASURE` was left at 1 the receiver sees no pedals.
 
-**Run only one receiver at a time.** The coach (`PitPal.bat`) already reads the pedals. `bridge/bridge.py` is a standalone receiver: two receivers fight over
+**Run only one receiver at a time.** The coach (`PitPal.bat`) already reads the pedals. `devices/bridge/bridge.py` is a standalone receiver: two receivers fight over
 UDP 5005, the COM port and the virtual pad, and the game sees two controllers. In Assetto Corsa bind throttle to the right trigger, brake to the left
 trigger and steering to the left stick.
 

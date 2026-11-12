@@ -131,3 +131,24 @@ async def test_live_event_shape_and_ws(corner, ref, tmp_path):
     finally:
         await app.stop()
         await client.close()
+
+
+async def test_cross_origin_and_rebinding_requests_are_refused(corner, ref, tmp_path):
+    """A web page you visit must not be able to drive or read the local dashboard."""
+    app, client = await make(corner, ref, tmp_path)
+    try:
+        assert (await client.get("/state")).status == 200                            # same origin / no Origin: fine
+        same = f"http://{client.host}:{client.port}"
+        assert (await client.get("/state", headers={"Origin": same})).status == 200
+        evil = await client.get("/state", headers={"Origin": "https://evil.example"})
+        assert evil.status == 403
+        r = await client.post("/settings", json={}, headers={"Origin": "https://evil.example"})
+        assert r.status == 403
+        with __import__("pytest").raises(Exception):                                   # a cross-site WebSocket is refused
+            await client.ws_connect("/ws", headers={"Origin": "https://evil.example"})
+        rebound = await client.get("/state", headers={"Host": "evil.example"})         # DNS rebinding
+        assert rebound.status == 403
+        ok = await client.get("/", headers={"Host": f"localhost:{client.port}"})
+        assert ok.status == 200 and ok.headers["X-Content-Type-Options"] == "nosniff"
+    finally:
+        await client.close()

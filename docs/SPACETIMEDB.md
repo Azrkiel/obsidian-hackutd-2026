@@ -1,8 +1,8 @@
 # Shared history with SpacetimeDB
 
-> Two history systems exist in this repo. This one (per-PC enrollment, module in `spacetime-cloud/`,
+> Two history systems exist in this repo. This one (per-PC enrollment, module in `cloud/spacetime-cloud/`,
 > pages at `/cloud-history-view`, viewer `python -m coach.cloud_viewer`) is separate from the
-> `--history` race history in [HISTORY.md](HISTORY.md) (module in `spacetime/`).
+> `--history` race history in [HISTORY.md](HISTORY.md) (module in `cloud/spacetime/`).
 
 Use this runbook to store racing history in **your SpacetimeDB Maincloud account** and read it
 from another PC. The Python coach, game connection and Rev overlay stay on the Windows game PC.
@@ -75,7 +75,7 @@ spacetime --version
 Build and test the module, then complete the browser login:
 
 ```powershell
-cd spacetime-cloud
+cd cloud/spacetime-cloud
 npm ci
 npm test
 npm run typecheck
@@ -324,7 +324,7 @@ If environment overrides are set, clear them from that launching shell too. Pend
 available for a later recovery. This does not stop the Brev rental or delete cloud records.
 
 Before updating the module, export a backup and record the current source commit. Run `npm ci`,
-`npm test` and `npm run typecheck` under `spacetime-cloud/`, then republish using the same name and owner
+`npm test` and `npm run typecheck` under `cloud/spacetime-cloud/`, then republish using the same name and owner
 login. Prefer additive migrations. If a migration is rejected, stop and plan it; do not solve it by
 adding a data-deletion flag. Roll back the local app with cloud disabled when necessary; a code
 rollback alone does not undo a schema migration.
@@ -346,7 +346,7 @@ must be completed using your account; local module tests do not create a deploym
 
 ```powershell
 uv run --system-certs --extra cloud pytest -q
-cd spacetime-cloud
+cd cloud/spacetime-cloud
 npm ci
 npm test
 npm run typecheck

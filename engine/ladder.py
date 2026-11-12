@@ -99,13 +99,21 @@ async def decide(packet: dict, providers: list, *, on_reasoning: Callable[[str],
     start = loop.time()
     rungs: list[dict] = []
 
+    exhausted = False   # set when a call was cut off by the TOTAL deadline (timers can fire a tick early, so never trust remaining() alone)
+
     def remaining() -> float:
         return total_s - (loop.time() - start)
 
+    def out_of_time() -> bool:
+        return exhausted or remaining() <= 0
+
     async def run(prov: Any, mode: str, limit: float, repair=None):
         """One model call. Returns (call, reasoning, latency_ms, error_kind|None)."""
+        nonlocal exhausted
         t0 = loop.time()
-        timeout = min(limit, remaining())
+        left = remaining()
+        timeout = min(limit, left)
+        by_total = left <= limit
         kw: dict[str, Any] = dict(on_reasoning=on_reasoning, repair=repair)
         if transport:
             kw["transport"] = transport
@@ -115,6 +123,8 @@ async def decide(packet: dict, providers: list, *, on_reasoning: Callable[[str],
             res = await asyncio.wait_for(prov.call(packet, mode, **kw), timeout)
             return res.call, res.reasoning, (loop.time() - t0) * 1000, None
         except asyncio.TimeoutError:
+            if by_total:
+                exhausted = True
             return None, "", (loop.time() - t0) * 1000, "timeout"
         except ProviderError as e:
             return None, "", (loop.time() - t0) * 1000, e.kind
@@ -131,7 +141,7 @@ async def decide(packet: dict, providers: list, *, on_reasoning: Callable[[str],
         return d, rungs
 
     for prov in providers:
-        if remaining() <= 0:
+        if out_of_time():
             return rules("total deadline exhausted")
         if not getattr(prov, "available", True):
             rung(prov, "think", "skipped", reason="not configured")
@@ -149,7 +159,7 @@ async def decide(packet: dict, providers: list, *, on_reasoning: Callable[[str],
                 breaker.success(prov.name)
                 return _to_decision(call, packet, "think", prov, ms, reasoning), rungs
             # --- repair (fast) ---
-            if remaining() <= 0:
+            if out_of_time():
                 breaker.failure(prov.name)
                 return rules("total deadline exhausted")
             call2, _, ms2, err2 = await run(prov, "fast", fast_s,
@@ -167,7 +177,7 @@ async def decide(packet: dict, providers: list, *, on_reasoning: Callable[[str],
             breaker.failure(prov.name)
             continue
         rung(prov, "think", "error", ms, err)
-        if err in FAST_KINDS and remaining() > 0:
+        if err in FAST_KINDS and not out_of_time():
             call2, _, ms2, err2 = await run(prov, "fast", fast_s)
             if err2 is None:
                 ok2, why2 = _check(call2, packet, agent)
@@ -175,7 +185,7 @@ async def decide(packet: dict, providers: list, *, on_reasoning: Callable[[str],
                 if ok2:
                     breaker.success(prov.name)
                     return _to_decision(call2, packet, "fast", prov, ms2, ""), rungs
-                if remaining() <= 0:
+                if out_of_time():
                     breaker.failure(prov.name)
                     return rules("total deadline exhausted")
                 # one repair on fast

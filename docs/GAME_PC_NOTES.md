@@ -17,7 +17,7 @@ the coach, the input receiver (phone + Arduino pedals), the CSP reset app and Re
 ## Ports
 | Port | Who | What |
 |---|---|---|
-| UDP 5005 | phone -> `coach --inputs` (or `bridge/bridge.py`) | `v1,seq,steer,throttle,brake` (steer -1..1, others 0..1); `evt,id,command,phase` buttons (coach only) |
+| UDP 5005 | phone -> `coach --inputs` (or `devices/bridge/bridge.py`) | `v1,seq,steer,throttle,brake` (steer -1..1, others 0..1); `evt,id,command,phase` buttons (coach only) |
 | UDP 127.0.0.1:9101 | coach -> CSP app | `SAVE` -> `SAVED x y z kmh`; `RESET <id>` -> `ACK <id>` / `ERR <reason>` |
 | TCP 8020 | coach | dashboard `http://127.0.0.1:8020` (`/`, `/state`, `/ws`) |
 | TCP 8000 | Brev tunnel | Nemotron (vLLM, OpenAI-compatible) at `http://localhost:8000/v1`, model name `nemotron` |
@@ -56,10 +56,10 @@ the coach, the input receiver (phone + Arduino pedals), the CSP reset app and Re
    ```
    Open `http://127.0.0.1:8020` (second screen). It should say "Nemotron · ready".
    No game: `--telemetry sim --reset sim`. Reset fallbacks: `--reset manual` or `--reset hotkey`.
-4. **Inputs**: with `--inputs` the coach is the receiver; do not also start `bridge/bridge.py`
+4. **Inputs**: with `--inputs` the coach is the receiver; do not also start `devices/bridge/bridge.py`
    (two receivers fight over UDP 5005 and create two virtual pads). When the Arduino drops, the phone's
    on-screen pedals take over; a run with a dropout is marked invalid and not coached.
-   `bridge/bridge.py` remains as a standalone receiver without the coach.
+   `devices/bridge/bridge.py` remains as a standalone receiver without the coach.
 5. **Brev lifecycle** (WSL):
    - Create from the repo root (starts a paid rental; preview first with `--dry-run`):
      `brev create nomadsim-h100 --provider lambda --gpu-name H100 --min-vram 80 --min-disk 200 --startup-script @scripts/brev_vllm_startup.sh`
