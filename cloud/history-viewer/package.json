@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "qrcode": "^1.5.4",
-    "spacetimedb": "2.14.1"
+    "spacetimedb": "2.15.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.65.0",
