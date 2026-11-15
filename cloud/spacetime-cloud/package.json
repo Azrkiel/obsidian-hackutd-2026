@@ -8,6 +8,6 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": { "spacetimedb": "2.14.1" },
+  "dependencies": { "spacetimedb": "2.15.0" },
   "devDependencies": { "typescript": "^5.9.3", "vitest": "^3.2.4" }
 }
